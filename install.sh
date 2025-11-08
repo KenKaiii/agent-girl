@@ -612,28 +612,29 @@ configure_api_keys() {
   # Check for existing real keys (not placeholders)
   local existing_anthropic=""
   local existing_zai=""
+  local existing_moonshot=""
 
   if [[ -f "$INSTALL_DIR/.env" ]]; then
     # Extract existing keys if they're not placeholders
     existing_anthropic=$(grep "^ANTHROPIC_API_KEY=" "$INSTALL_DIR/.env" 2>/dev/null | grep -v "sk-ant-your-key-here" | cut -d'=' -f2- || echo "")
     existing_zai=$(grep "^ZAI_API_KEY=" "$INSTALL_DIR/.env" 2>/dev/null | grep -v "your-zai-key-here" | cut -d'=' -f2- || echo "")
+    existing_moonshot=$(grep "^MOONSHOT_API_KEY=" "$INSTALL_DIR/.env" 2>/dev/null | grep -v "your-moonshot-key-here" | cut -d'=' -f2- || echo "")
 
-    # If both keys are configured, skip
-    if [[ -n "$existing_anthropic" && -n "$existing_zai" ]]; then
-      log_success "Both API keys already configured"
+    # If all keys are configured, skip
+    if [[ -n "$existing_anthropic" && -n "$existing_zai" && -n "$existing_moonshot" ]]; then
+      log_success "All API keys already configured"
       return
     fi
 
-    # If only one is configured, inform user
-    if [[ -n "$existing_anthropic" && -z "$existing_zai" ]]; then
-      log_info "Anthropic API already configured"
-      echo -e "  ${GREEN}✓${NC} Available: Claude Sonnet 4.5"
-      echo -e "  ${YELLOW}✗${NC} Unavailable: GLM 4.6 (needs Z.AI API key)"
-      echo ""
-    elif [[ -z "$existing_anthropic" && -n "$existing_zai" ]]; then
-      log_info "Z.AI API already configured"
-      echo -e "  ${GREEN}✓${NC} Available: GLM 4.6"
-      echo -e "  ${YELLOW}✗${NC} Unavailable: Claude Sonnet 4.5 (needs Anthropic API key)"
+    # If any keys are configured, inform user
+    if [[ -n "$existing_anthropic" || -n "$existing_zai" || -n "$existing_moonshot" ]]; then
+      log_info "Some API keys already configured"
+      [[ -n "$existing_anthropic" ]] && echo -e "  ${GREEN}✓${NC} Available: Claude models"
+      [[ -n "$existing_zai" ]] && echo -e "  ${GREEN}✓${NC} Available: GLM models"
+      [[ -n "$existing_moonshot" ]] && echo -e "  ${GREEN}✓${NC} Available: Kimi models"
+      [[ -z "$existing_anthropic" ]] && echo -e "  ${YELLOW}✗${NC} Unavailable: Claude models (needs Anthropic API key)"
+      [[ -z "$existing_zai" ]] && echo -e "  ${YELLOW}✗${NC} Unavailable: GLM models (needs Z.AI API key)"
+      [[ -z "$existing_moonshot" ]] && echo -e "  ${YELLOW}✗${NC} Unavailable: Kimi models (needs Moonshot API key)"
       echo ""
     fi
   fi
@@ -641,25 +642,42 @@ configure_api_keys() {
   # Use existing keys as defaults
   local ANTHROPIC_KEY="$existing_anthropic"
   local ZAI_KEY="$existing_zai"
+  local MOONSHOT_KEY="$existing_moonshot"
 
-  # If one key exists, offer to add the missing one
-  if [[ -n "$existing_anthropic" && -z "$existing_zai" ]]; then
-    read -p "Add Z.AI API key for full model access? [y/N]: " add_zai < /dev/tty
-    if [[ "$add_zai" =~ ^[Yy]$ ]]; then
-      echo ""
-      echo -e "${BLUE}📝 Z.AI API Setup${NC}"
-      echo -e "Get your API key from: ${BLUE}https://z.ai${NC}"
-      echo ""
-      read -p "Enter your Z.AI API key: " ZAI_KEY < /dev/tty
+  # If some keys exist, offer to add missing ones
+  if [[ -n "$existing_anthropic" || -n "$existing_zai" || -n "$existing_moonshot" ]]; then
+    # Offer to add missing keys
+    if [[ -z "$existing_anthropic" ]]; then
+      read -p "Add Anthropic API key for Claude models? [y/N]: " add_anthropic < /dev/tty
+      if [[ "$add_anthropic" =~ ^[Yy]$ ]]; then
+        echo ""
+        echo -e "${BLUE}📝 Anthropic API Setup${NC}"
+        echo -e "Get your API key from: ${BLUE}https://console.anthropic.com/${NC}"
+        echo ""
+        read -p "Enter your Anthropic API key: " ANTHROPIC_KEY < /dev/tty
+      fi
     fi
-  elif [[ -z "$existing_anthropic" && -n "$existing_zai" ]]; then
-    read -p "Add Anthropic API key for full model access? [y/N]: " add_anthropic < /dev/tty
-    if [[ "$add_anthropic" =~ ^[Yy]$ ]]; then
-      echo ""
-      echo -e "${BLUE}📝 Anthropic API Setup${NC}"
-      echo -e "Get your API key from: ${BLUE}https://console.anthropic.com/${NC}"
-      echo ""
-      read -p "Enter your Anthropic API key: " ANTHROPIC_KEY < /dev/tty
+
+    if [[ -z "$existing_zai" ]]; then
+      read -p "Add Z.AI API key for GLM models? [y/N]: " add_zai < /dev/tty
+      if [[ "$add_zai" =~ ^[Yy]$ ]]; then
+        echo ""
+        echo -e "${BLUE}📝 Z.AI API Setup${NC}"
+        echo -e "Get your API key from: ${BLUE}https://z.ai${NC}"
+        echo ""
+        read -p "Enter your Z.AI API key: " ZAI_KEY < /dev/tty
+      fi
+    fi
+
+    if [[ -z "$existing_moonshot" ]]; then
+      read -p "Add Moonshot API key for Kimi models? [y/N]: " add_moonshot < /dev/tty
+      if [[ "$add_moonshot" =~ ^[Yy]$ ]]; then
+        echo ""
+        echo -e "${BLUE}📝 Moonshot AI API Setup${NC}"
+        echo -e "Get your API key from: ${BLUE}https://platform.moonshot.ai/${NC}"
+        echo ""
+        read -p "Enter your Moonshot API key: " MOONSHOT_KEY < /dev/tty
+      fi
     fi
   else
     # No existing keys, show full menu
@@ -667,12 +685,13 @@ configure_api_keys() {
     echo ""
     echo -e "  ${YELLOW}1)${NC} Anthropic API only (Claude models)"
     echo -e "  ${YELLOW}2)${NC} Z.AI API only (GLM models)"
-    echo -e "  ${YELLOW}3)${NC} Both APIs (full model access)"
-    echo -e "  ${YELLOW}4)${NC} Skip (configure later)"
+    echo -e "  ${YELLOW}3)${NC} Moonshot AI only (Kimi models)"
+    echo -e "  ${YELLOW}4)${NC} All APIs (full model access)"
+    echo -e "  ${YELLOW}5)${NC} Skip (configure later)"
     echo ""
 
     local api_choice
-    read -p "Enter choice [1-4]: " api_choice < /dev/tty
+    read -p "Enter choice [1-5]: " api_choice < /dev/tty
 
     case $api_choice in
       1)
@@ -691,6 +710,13 @@ configure_api_keys() {
         ;;
       3)
         echo ""
+        echo -e "${BLUE}📝 Moonshot AI API Setup${NC}"
+        echo -e "Get your API key from: ${BLUE}https://platform.moonshot.ai/${NC}"
+        echo ""
+        read -p "Enter your Moonshot API key: " MOONSHOT_KEY < /dev/tty
+        ;;
+      4)
+        echo ""
         echo -e "${BLUE}📝 Anthropic API Setup${NC}"
         echo -e "Get your API key from: ${BLUE}https://console.anthropic.com/${NC}"
         echo ""
@@ -700,8 +726,13 @@ configure_api_keys() {
         echo -e "Get your API key from: ${BLUE}https://z.ai${NC}"
         echo ""
         read -p "Enter your Z.AI API key: " ZAI_KEY < /dev/tty
+        echo ""
+        echo -e "${BLUE}📝 Moonshot AI API Setup${NC}"
+        echo -e "Get your API key from: ${BLUE}https://platform.moonshot.ai/${NC}"
+        echo ""
+        read -p "Enter your Moonshot API key: " MOONSHOT_KEY < /dev/tty
         ;;
-      4)
+      5)
         echo ""
         log_warning "Skipping API configuration"
         echo "You'll need to edit ${YELLOW}$INSTALL_DIR/.env${NC} before running Agent Girl"
@@ -718,6 +749,7 @@ configure_api_keys() {
   # Set defaults if not provided (preserve existing keys if set)
   [[ -z "$ANTHROPIC_KEY" ]] && ANTHROPIC_KEY="sk-ant-your-key-here"
   [[ -z "$ZAI_KEY" ]] && ZAI_KEY="your-zai-key-here"
+  [[ -z "$MOONSHOT_KEY" ]] && MOONSHOT_KEY="your-moonshot-key-here"
 
   # Create .env file
   cat > "$INSTALL_DIR/.env" << EOF
@@ -733,6 +765,13 @@ ANTHROPIC_API_KEY=$ANTHROPIC_KEY
 # Get your API key from: https://z.ai
 # The server automatically configures the endpoint when you select a GLM model
 ZAI_API_KEY=$ZAI_KEY
+
+# =============================================================================
+# Moonshot AI Configuration (Kimi K2 Models)
+# =============================================================================
+# Get your API key from: https://platform.moonshot.ai/
+# The server automatically configures the endpoint when you select a Kimi model
+MOONSHOT_API_KEY=$MOONSHOT_KEY
 EOF
 
   echo ""
