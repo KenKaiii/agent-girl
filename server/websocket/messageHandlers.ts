@@ -846,13 +846,22 @@ Run bash commands with the understanding that this is your current working direc
                 // Send context usage to client if available
                 if (resultMessage.modelUsage) {
                   // Get usage for the current model (not first alphabetically!)
-                  const usage = resultMessage.modelUsage[apiModelId] as {
+                  // For Moonshot: Falls back to first entry if exact model not found (Moonshot returns wrong model ID)
+                  // Note: Moonshot API currently returns inputTokens: 0 for all requests (API limitation)
+                  let usage = resultMessage.modelUsage[apiModelId] as {
                     inputTokens: number;
                     outputTokens: number;
                     contextWindow: number;
                     cacheReadInputTokens?: number;
                     cacheCreationInputTokens?: number;
                   };
+
+                  // Fallback: If model ID doesn't match, use first available model usage
+                  if (!usage && Object.keys(resultMessage.modelUsage).length > 0) {
+                    const firstModelId = Object.keys(resultMessage.modelUsage)[0];
+                    usage = resultMessage.modelUsage[firstModelId] as typeof usage;
+                  }
+
                   if (usage) {
                     // inputTokens already includes the full context size
                     // cacheReadInputTokens and cacheCreationInputTokens are subsets for billing breakdown
