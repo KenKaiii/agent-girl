@@ -1279,6 +1279,7 @@ export function ChatContainer() {
               mode={currentSessionId ? currentSessionMode : undefined}
               availableCommands={availableCommands}
               contextUsage={currentSessionId ? contextUsage.get(currentSessionId) : undefined}
+              selectedModel={selectedModel}
             />
           </>
         )}

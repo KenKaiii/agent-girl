@@ -235,7 +235,7 @@ async function handleChatMessage(
   const { apiModelId, provider } = modelConfig;
 
   // Configure provider (sets ANTHROPIC_BASE_URL and ANTHROPIC_API_KEY env vars)
-  const providerType = provider as 'anthropic' | 'z-ai';
+  const providerType = provider as 'anthropic' | 'z-ai' | 'moonshot';
 
   // Validate API key before proceeding (OAuth takes precedence over API key)
   try {
