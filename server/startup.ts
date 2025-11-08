@@ -131,6 +131,7 @@ export async function initializeStartup(): Promise<StartupConfig> {
 
   debugLog(`  - ANTHROPIC_API_KEY set: ${!!process.env.ANTHROPIC_API_KEY}`);
   debugLog(`  - ZAI_API_KEY set: ${!!process.env.ZAI_API_KEY}`);
+  debugLog(`  - MOONSHOT_API_KEY set: ${!!process.env.MOONSHOT_API_KEY}`);
 
   return {
     isStandalone: IS_STANDALONE,

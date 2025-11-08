@@ -386,9 +386,9 @@ Run bash commands with the understanding that this is your current working direc
       },
     };
 
-    // Enable extended thinking only for Anthropic models
+    // Enable extended thinking for Anthropic and Moonshot models
     // Z.AI's Anthropic-compatible API doesn't support maxThinkingTokens parameter
-    if (providerType === 'anthropic') {
+    if (providerType === 'anthropic' || providerType === 'moonshot') {
       queryOptions.maxThinkingTokens = 10000;
       console.log('🧠 Extended thinking enabled with maxThinkingTokens:', queryOptions.maxThinkingTokens);
     } else {

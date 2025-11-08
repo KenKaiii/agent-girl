@@ -66,7 +66,7 @@ export async function getProviders(): Promise<Record<ProviderType, ProviderConfi
       oauthTokens: null, // Z.AI doesn't support OAuth
     },
     'moonshot': {
-      baseUrl: 'https://api.moonshot.ai/anthropic',
+      baseUrl: 'https://api.moonshot.ai/anthropic/',
       apiKey: cachedMoonshotKey || '',
       name: 'Moonshot AI',
       oauthTokens: null, // Moonshot doesn't support OAuth
