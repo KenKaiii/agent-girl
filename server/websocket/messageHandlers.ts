@@ -10,7 +10,7 @@ import { sessionDb } from "../database";
 import { getSystemPrompt, injectWorkingDirIntoAgents } from "../systemPrompt";
 import { AVAILABLE_MODELS } from "../../client/config/models";
 import { configureProvider } from "../providers";
-import { getMcpServers, getAllowedMcpTools } from "../mcpServers";
+import { getMcpServers } from "../mcpServers";
 import { AGENT_REGISTRY } from "../agents";
 import { validateDirectory } from "../directoryUtils";
 import { saveImageToSessionPictures, saveFileToSessionFiles } from "../imageUtils";
@@ -252,7 +252,6 @@ async function handleChatMessage(
 
   // Get MCP servers for this provider (model-specific filtering for GLM)
   const mcpServers = getMcpServers(providerType, apiModelId);
-  const allowedMcpTools = getAllowedMcpTools(providerType, apiModelId);
 
   // Minimal request logging - one line summary
   // Note: At this point we haven't checked history yet, so we use isNewStream for subprocess status
@@ -398,10 +397,11 @@ Run bash commands with the understanding that this is your current working direc
     // SDK automatically uses its bundled CLI at @anthropic-ai/claude-agent-sdk/cli.js
     // No need to specify pathToClaudeCodeExecutable - the SDK handles this internally
 
-    // Add MCP servers and allowed tools if provider has them
+    // Add MCP servers if provider has them
+    // No need to set allowedTools - bypassPermissions gives access to all tools
+    // MCP tools will be available through mcpServers, built-in tools through bypassPermissions
     if (Object.keys(mcpServers).length > 0) {
       queryOptions.mcpServers = mcpServers;
-      queryOptions.allowedTools = allowedMcpTools;
     }
 
     // Add PreToolUse hook to intercept background Bash commands and long-running commands
