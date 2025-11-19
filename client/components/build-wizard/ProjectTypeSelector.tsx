@@ -19,7 +19,7 @@
  */
 
 import React, { useState } from 'react';
-import { Rocket, Chrome, Layout, Package, HelpCircle, Bot, Puzzle, MessageSquare, Monitor, Zap, Smartphone } from 'lucide-react';
+import { Rocket, Chrome, Layout, Package, HelpCircle, Bot, Puzzle, MessageSquare, Monitor, Zap, Smartphone, ShoppingBag, Blocks, Code2, Figma, Terminal, Palette, BookOpen, Database } from 'lucide-react';
 import { PROJECT_TEMPLATES, type ProjectTemplate } from './buildConfig';
 
 interface ProjectTypeSelectorProps {
@@ -80,6 +80,14 @@ const TEMPLATE_ICONS: Record<string, React.ReactNode> = {
   'tauri-desktop': <Monitor style={{ width: '24px', height: '24px' }} />,
   'backend-api': <Zap style={{ width: '24px', height: '24px' }} />,
   'expo-mobile': <Smartphone style={{ width: '24px', height: '24px' }} />,
+  'shopify-app': <ShoppingBag style={{ width: '24px', height: '24px' }} />,
+  'wordpress-plugin': <Blocks style={{ width: '24px', height: '24px' }} />,
+  'vscode-extension': <Code2 style={{ width: '24px', height: '24px' }} />,
+  'figma-plugin': <Figma style={{ width: '24px', height: '24px' }} />,
+  'raycast-extension': <Terminal style={{ width: '24px', height: '24px' }} />,
+  'adobe-uxp-plugin': <Palette style={{ width: '24px', height: '24px' }} />,
+  'obsidian-plugin': <BookOpen style={{ width: '24px', height: '24px' }} />,
+  'notion-integration': <Database style={{ width: '24px', height: '24px' }} />,
 };
 
 export function ProjectTypeSelector({ onSelect }: ProjectTypeSelectorProps) {

@@ -1333,7 +1333,7 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
     description: 'Slack Bolt app with slash commands and workflows',
     tooltip: 'Build Slack bots with slash commands, shortcuts, modals, and event handlers. Perfect for: team automation, workflows, custom integrations, notifications, productivity tools, ChatOps, scheduled tasks. Examples: Polly, Donut, Standuply use Slack Bolt. Works with Slack\'s latest Block Kit UI.',
     icon: null, // Will be set in component
-    gradient: 'linear-gradient(90deg, #E01E5A 0%, #ECB22E 25%, #ffffff 50%, #36C5F0 75%, #2EB67D 100%)',
+    gradient: 'linear-gradient(90deg, #611F69 0%, #ECB22E 25%, #ffffff 50%, #ECB22E 75%, #611F69 100%)',
     command: 'git clone https://github.com/slack-samples/bolt-ts-starter-template',
     commandFlags: {},
     features: [
@@ -3033,6 +3033,2347 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
         tooltip: 'Store API keys, backend URLs, secrets safely. Never commit secrets to Git. Uses .env with .env.example.',
         recommended: true,
         hidden: true, // Auto-included
+      },
+    ],
+  },
+  {
+    id: 'shopify-app',
+    name: 'Shopify App',
+    description: 'Build apps for Shopify merchants with React Router',
+    tooltip: 'Create apps that extend Shopify stores with custom features. Perfect for inventory management, marketing automation, upsells, analytics, or any merchant tool. Shopify has 4M+ stores and merchants actively pay $5-300/mo for good apps. Built-in billing API makes monetization easy. Examples: Oberlo, Loox, Smile.io made millions.',
+    icon: null,
+    gradient: 'linear-gradient(90deg, #95BF47 0%, #7AB55C 25%, #ffffff 50%, #7AB55C 75%, #95BF47 100%)',
+    command: 'npm init @shopify/app@latest',
+    features: [
+      {
+        id: 'framework',
+        name: 'Framework',
+        description: 'React Router (recommended) or Remix',
+        tooltip: 'Shopify officially recommends React Router for new apps. Remix is being phased out but still supported for existing apps. React Router offers better performance and simpler migration path.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'appFramework',
+            label: 'App Framework',
+            type: 'select',
+            tooltip: 'Choose React Router (recommended by Shopify) or Remix (legacy)',
+            options: [
+              {
+                value: 'react-router',
+                label: 'React Router',
+                tooltip: 'Official recommendation. Better performance, modern approach. Use --template=https://github.com/Shopify/shopify-app-template-react-router',
+                recommended: true
+              },
+              {
+                value: 'remix',
+                label: 'Remix (Legacy)',
+                tooltip: 'Older template, still works. Only use if migrating an existing Remix app. Being phased out.'
+              },
+            ],
+            defaultValue: 'react-router',
+          },
+        ],
+      },
+      {
+        id: 'app-bridge',
+        name: 'Shopify App Bridge',
+        description: 'Embedded app integration',
+        tooltip: 'App Bridge connects your app to Shopify admin seamlessly. Required for embedded apps (runs inside Shopify admin). Handles navigation, modals, toasts, and deep linking. Always recommended.',
+        recommended: true,
+        hidden: true, // Always included
+      },
+      {
+        id: 'authentication',
+        name: 'Authentication & Billing',
+        description: 'OAuth and subscription billing',
+        tooltip: 'OAuth lets merchants install your app securely. Billing API handles subscriptions and one-time charges. Essential for production apps.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'includeBilling',
+            label: 'Billing API Setup',
+            type: 'toggle',
+            tooltip: 'Set up Shopify billing for recurring charges or one-time payments. Required to charge merchants for your app.',
+            defaultValue: true,
+          },
+          {
+            id: 'billingModel',
+            label: 'Billing Model',
+            type: 'select',
+            tooltip: 'How you\'ll charge merchants for your app',
+            options: [
+              {
+                value: 'recurring',
+                label: 'Recurring Subscription',
+                tooltip: 'Monthly/annual subscriptions. Best for: SaaS apps, ongoing features. Most common model ($5-300/mo).',
+                recommended: true
+              },
+              {
+                value: 'one-time',
+                label: 'One-time Charge',
+                tooltip: 'Single payment per merchant. Best for: Setup fees, one-off features, simple tools.'
+              },
+              {
+                value: 'usage',
+                label: 'Usage-based',
+                tooltip: 'Charge based on usage (API calls, orders processed, etc.). Best for: High-volume features, variable costs.'
+              },
+            ],
+            defaultValue: 'recurring',
+          },
+        ],
+        autoBundles: ['env-config'],
+      },
+      {
+        id: 'ui-library',
+        name: 'Polaris UI',
+        description: 'Shopify\'s admin design system',
+        tooltip: 'Polaris is Shopify\'s official UI library. Gives your app a native Shopify admin look. Includes buttons, forms, cards, navigation. Always recommended for embedded apps. November 2025: Now uses Polaris Web Components for auto-theming.',
+        recommended: true,
+        hidden: true, // Always included with template
+      },
+      {
+        id: 'admin-api',
+        name: 'Admin API Access',
+        description: 'GraphQL API for store data',
+        tooltip: 'Access store data: products, orders, customers, inventory. Use GraphQL Admin API (REST removed in React Router template). Essential for any app that reads/modifies store data.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'apiScopes',
+            label: 'API Scopes',
+            type: 'select',
+            tooltip: 'What data your app can access. Choose based on your app\'s needs.',
+            options: [
+              {
+                value: 'read-write-products',
+                label: 'Products (Read/Write)',
+                tooltip: 'Access product catalog. Best for: Inventory apps, product management, import/export tools.',
+                recommended: true
+              },
+              {
+                value: 'read-write-orders',
+                label: 'Orders (Read/Write)',
+                tooltip: 'Access order data. Best for: Fulfillment, shipping, order management, analytics.'
+              },
+              {
+                value: 'read-write-customers',
+                label: 'Customers (Read/Write)',
+                tooltip: 'Access customer data. Best for: Marketing, loyalty programs, customer management.'
+              },
+              {
+                value: 'comprehensive',
+                label: 'Comprehensive Access',
+                tooltip: 'Multiple scopes for full-featured apps. Request only what you need for app review approval.'
+              },
+            ],
+            defaultValue: 'read-write-products',
+          },
+        ],
+      },
+      {
+        id: 'webhooks',
+        name: 'Webhooks',
+        description: 'Real-time event notifications',
+        tooltip: 'Get notified when events happen in stores (new order, product update, etc.). Essential for keeping your app data in sync. Examples: send email when order placed, update inventory on fulfillment.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'webhookTopics',
+            label: 'Webhook Topics',
+            type: 'select',
+            tooltip: 'Which store events to listen for',
+            options: [
+              {
+                value: 'orders',
+                label: 'Orders (create, update, paid)',
+                tooltip: 'Track order lifecycle. Best for: Order management, fulfillment, analytics.',
+                recommended: true
+              },
+              {
+                value: 'products',
+                label: 'Products (create, update, delete)',
+                tooltip: 'Track product changes. Best for: Inventory sync, product management.'
+              },
+              {
+                value: 'shop',
+                label: 'Shop (update, uninstall)',
+                tooltip: 'Track shop changes and app uninstalls. Essential for cleanup and GDPR compliance.'
+              },
+              {
+                value: 'comprehensive',
+                label: 'Multiple Topics',
+                tooltip: 'Listen to multiple event types for full-featured apps.'
+              },
+            ],
+            defaultValue: 'orders',
+          },
+        ],
+      },
+      {
+        id: 'app-extensions',
+        name: 'App Extensions',
+        description: 'Extend Shopify UI surfaces',
+        tooltip: 'Add UI to checkout, product pages, admin. Examples: custom checkout fields, product recommendations, admin widgets. Powerful way to integrate deeply with Shopify.',
+        configOptions: [
+          {
+            id: 'extensionTypes',
+            label: 'Extension Types',
+            type: 'select',
+            tooltip: 'Where in Shopify your app adds UI',
+            options: [
+              {
+                value: 'none',
+                label: 'No Extensions',
+                tooltip: 'Just embedded admin app. Best for: Admin-only tools, simple apps.',
+                recommended: true
+              },
+              {
+                value: 'checkout',
+                label: 'Checkout UI Extensions',
+                tooltip: 'Add fields/features to checkout. Best for: Upsells, custom fields, delivery options. Shopify Plus required.'
+              },
+              {
+                value: 'product-page',
+                label: 'Theme App Extensions',
+                tooltip: 'Add widgets to storefront. Best for: Reviews, wishlists, size guides. Works with any theme.'
+              },
+              {
+                value: 'admin',
+                label: 'Admin UI Extensions',
+                tooltip: 'Add sections to admin pages. Best for: Quick actions, widgets on product/order pages.'
+              },
+            ],
+            defaultValue: 'none',
+          },
+        ],
+      },
+      {
+        id: 'database',
+        name: 'Database',
+        description: 'Store app data persistently',
+        tooltip: 'Store merchant settings, sync data, cache information. Separate from Shopify\'s data. Essential for any app that needs to remember data.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'dbType',
+            label: 'Database',
+            type: 'select',
+            tooltip: 'Where to store your app\'s data',
+            options: [
+              {
+                value: 'postgresql',
+                label: 'PostgreSQL (Recommended)',
+                tooltip: 'Production-ready SQL database. Free hosting: Railway, Supabase, Neon. Best for scalable apps.',
+                recommended: true
+              },
+              {
+                value: 'mongodb',
+                label: 'MongoDB',
+                tooltip: 'NoSQL database. Best for: Flexible schemas, document storage. Free tier: MongoDB Atlas.'
+              },
+              {
+                value: 'sqlite',
+                label: 'SQLite (Dev Only)',
+                tooltip: 'File-based database. Best for: Development, testing. Not recommended for production.'
+              },
+            ],
+            defaultValue: 'postgresql',
+          },
+          {
+            id: 'orm',
+            label: 'ORM',
+            type: 'select',
+            tooltip: 'Tool for working with database in TypeScript',
+            options: [
+              {
+                value: 'prisma',
+                label: 'Prisma',
+                tooltip: 'Type-safe ORM with great DX. Excellent docs, migration tools. Industry standard.',
+                recommended: true
+              },
+              {
+                value: 'drizzle',
+                label: 'Drizzle',
+                tooltip: 'Lightweight, TypeScript-first ORM. Faster than Prisma, more manual.'
+              },
+            ],
+            defaultValue: 'prisma',
+          },
+        ],
+        autoBundles: ['env-config'],
+      },
+      {
+        id: 'testing',
+        name: 'Testing',
+        description: 'Test your Shopify app',
+        tooltip: 'Test API calls, webhooks, UI. Essential for production apps to avoid breaking merchant stores.',
+        configOptions: [
+          {
+            id: 'testFramework',
+            label: 'Test Framework',
+            type: 'select',
+            tooltip: 'Testing tools for your app',
+            options: [
+              {
+                value: 'vitest',
+                label: 'Vitest',
+                tooltip: 'Fast modern test runner. Best for: React Router apps, unit tests.',
+                recommended: true
+              },
+              {
+                value: 'jest',
+                label: 'Jest',
+                tooltip: 'Popular test framework. Good for: Remix apps, existing Jest experience.'
+              },
+              {
+                value: 'none',
+                label: 'No Testing',
+                tooltip: 'Skip testing setup. Not recommended for production apps.'
+              },
+            ],
+            defaultValue: 'vitest',
+          },
+        ],
+      },
+      {
+        id: 'deployment',
+        name: 'Deployment',
+        description: 'Host your Shopify app',
+        tooltip: 'Deploy your app for merchants to install. Shopify apps need HTTPS and OAuth callback URLs.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'deployTarget',
+            label: 'Hosting Platform',
+            type: 'select',
+            tooltip: 'Where to host your Shopify app',
+            options: [
+              {
+                value: 'shopify-spin',
+                label: 'Shopify Spin (Free)',
+                tooltip: 'Free hosting for development/testing. Best for: Learning, demos. Not for production.',
+                recommended: true
+              },
+              {
+                value: 'railway',
+                label: 'Railway',
+                tooltip: 'Easy deployment with databases. $5/mo. Best for: Production apps, quick setup.'
+              },
+              {
+                value: 'fly',
+                label: 'Fly.io',
+                tooltip: 'Global edge deployment. Free tier available. Best for: Performance, worldwide merchants.'
+              },
+              {
+                value: 'vercel',
+                label: 'Vercel',
+                tooltip: 'Easy deployment for React apps. Need separate database. Best for: Serverless apps.'
+              },
+            ],
+            defaultValue: 'shopify-spin',
+          },
+        ],
+      },
+      {
+        id: 'gdpr-compliance',
+        name: 'GDPR & Data Compliance',
+        description: 'Mandatory webhook handlers',
+        tooltip: 'Shopify requires apps to handle GDPR webhooks: customer data request, data deletion, shop deletion. Mandatory for app store approval.',
+        recommended: true,
+        hidden: true, // Always included
+      },
+      {
+        id: 'code-quality',
+        name: 'Code Quality',
+        description: 'ESLint, Prettier, TypeScript',
+        tooltip: 'Ensure code quality. Template includes TypeScript and ESLint configs.',
+        recommended: true,
+        hidden: true,
+      },
+      {
+        id: 'env-config',
+        name: 'Environment Variables',
+        description: 'Manage API keys and secrets',
+        tooltip: 'Store Shopify API keys, database URLs, secrets safely. Never commit to Git.',
+        recommended: true,
+        hidden: true,
+      },
+    ],
+  },
+  {
+    id: 'wordpress-plugin',
+    name: 'WordPress Plugin',
+    description: 'Modern WordPress plugin with React admin panel',
+    tooltip: 'Create WordPress plugins with modern tooling. 40% of all websites run WordPress (810M+ sites). Sell plugins as freemium with premium licenses at $50-300/year. Examples: WPForms ($20M+/year), Advanced Custom Fields, Yoast SEO. Perfect for SEO tools, form builders, security, backups, or any WordPress enhancement.',
+    icon: null,
+    gradient: 'linear-gradient(90deg, #21759B 0%, #3C9CD7 25%, #ffffff 50%, #3C9CD7 75%, #21759B 100%)',
+    command: 'wp scaffold plugin',
+    features: [
+      {
+        id: 'php-architecture',
+        name: 'PHP Architecture',
+        description: 'Object-oriented PHP structure',
+        tooltip: 'Modern OOP approach with namespaces, autoloading, and dependency injection. Better than procedural PHP for maintainable plugins.',
+        recommended: true,
+        hidden: true, // Always included
+      },
+      {
+        id: 'admin-panel',
+        name: 'Admin Panel',
+        description: 'React-based settings interface',
+        tooltip: 'Build admin UI with React instead of PHP templates. Use @wordpress/components for native WordPress look. Modern, interactive, easier to maintain.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'uiFramework',
+            label: 'Admin UI Framework',
+            type: 'select',
+            tooltip: 'How to build your admin interface',
+            options: [
+              {
+                value: 'wordpress-components',
+                label: '@wordpress/components',
+                tooltip: 'Official WordPress React components. Native admin look, accessible. Best for most plugins.',
+                recommended: true
+              },
+              {
+                value: 'custom-react',
+                label: 'Custom React UI',
+                tooltip: 'Build your own UI with React. Best for: Unique designs, custom branding.'
+              },
+              {
+                value: 'php-templates',
+                label: 'PHP Templates (Classic)',
+                tooltip: 'Traditional WordPress approach. Best for: Simple plugins, no build step needed.'
+              },
+            ],
+            defaultValue: 'wordpress-components',
+          },
+        ],
+      },
+      {
+        id: 'build-system',
+        name: 'Build System',
+        description: 'Compile and bundle assets',
+        tooltip: '@wordpress/scripts provides webpack setup for React, TypeScript, SCSS. Auto-handles dependencies, asset generation, hot reload.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'buildTool',
+            label: 'Build Tool',
+            type: 'select',
+            tooltip: 'How to compile TypeScript/React code',
+            options: [
+              {
+                value: 'wp-scripts',
+                label: '@wordpress/scripts',
+                tooltip: 'Official WordPress build tool. Webpack-based, zero config. Best for standard plugins.',
+                recommended: true
+              },
+              {
+                value: 'vite',
+                label: 'Vite',
+                tooltip: 'Faster builds, modern tooling. Best for: Large plugins, custom setup, better DX.'
+              },
+            ],
+            defaultValue: 'wp-scripts',
+          },
+          {
+            id: 'includeTypeScript',
+            label: 'TypeScript',
+            type: 'toggle',
+            tooltip: 'Add TypeScript for both React and type checking. Recommended for modern development.',
+            defaultValue: true,
+          },
+        ],
+      },
+      {
+        id: 'gutenberg-blocks',
+        name: 'Gutenberg Blocks',
+        description: 'Custom WordPress blocks',
+        tooltip: 'Add custom blocks to WordPress block editor (Gutenberg). Great for adding features to posts/pages. Examples: pricing tables, testimonials, custom forms.',
+        configOptions: [
+          {
+            id: 'includeBlocks',
+            label: 'Include Custom Blocks',
+            type: 'toggle',
+            tooltip: 'Scaffold example Gutenberg block. Use @wordpress/blocks API and React.',
+            defaultValue: false,
+          },
+          {
+            id: 'blockType',
+            label: 'Block Template',
+            type: 'select',
+            tooltip: 'Type of block to scaffold',
+            options: [
+              {
+                value: 'static',
+                label: 'Static Block',
+                tooltip: 'Simple content block. Best for: Text, images, static content.',
+                recommended: true
+              },
+              {
+                value: 'dynamic',
+                label: 'Dynamic Block',
+                tooltip: 'PHP-rendered block. Best for: Database queries, dynamic content, posts lists.'
+              },
+              {
+                value: 'interactive',
+                label: 'Interactive Block',
+                tooltip: 'Block with frontend JS. Best for: Forms, calculators, interactive widgets.'
+              },
+            ],
+            defaultValue: 'static',
+          },
+        ],
+      },
+      {
+        id: 'rest-api',
+        name: 'REST API Endpoints',
+        description: 'Custom API routes',
+        tooltip: 'Add custom REST API endpoints for your plugin. Communicate between React admin and PHP backend, or expose data to external apps.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'includeRestApi',
+            label: 'Custom API Routes',
+            type: 'toggle',
+            tooltip: 'Add REST API endpoints with proper authentication and validation.',
+            defaultValue: true,
+          },
+        ],
+      },
+      {
+        id: 'database',
+        name: 'Custom Database Tables',
+        description: 'Plugin-specific data storage',
+        tooltip: 'Create custom database tables for your plugin data. Better than storing everything in wp_options for large datasets.',
+        configOptions: [
+          {
+            id: 'includeCustomTables',
+            label: 'Custom Tables',
+            type: 'toggle',
+            tooltip: 'Generate migration system for custom database tables with $wpdb wrapper.',
+            defaultValue: false,
+          },
+        ],
+      },
+      {
+        id: 'cpt-taxonomies',
+        name: 'Custom Post Types & Taxonomies',
+        description: 'Register custom content types',
+        tooltip: 'Add custom post types (like "Products", "Portfolio") and taxonomies (like categories). Great for plugins that manage custom content.',
+        configOptions: [
+          {
+            id: 'includeCpt',
+            label: 'Custom Post Types',
+            type: 'toggle',
+            tooltip: 'Add example custom post type registration with admin UI.',
+            defaultValue: false,
+          },
+        ],
+      },
+      {
+        id: 'licensing',
+        name: 'License Key System',
+        description: 'Sell premium versions',
+        tooltip: 'Add license key validation for premium features. Essential for selling premium plugins. Works with EDD, WooCommerce, or custom API.',
+        configOptions: [
+          {
+            id: 'licenseSystem',
+            label: 'License Provider',
+            type: 'select',
+            tooltip: 'How to validate license keys',
+            options: [
+              {
+                value: 'none',
+                label: 'No Licensing',
+                tooltip: 'Free plugin only. Best for: Building audience, freemium later.',
+                recommended: true
+              },
+              {
+                value: 'edd',
+                label: 'Easy Digital Downloads',
+                tooltip: 'Popular WordPress license system. Best for: Selling via your site, proven solution.'
+              },
+              {
+                value: 'freemius',
+                label: 'Freemius',
+                tooltip: 'Complete monetization platform. Handles licensing, updates, analytics. Best for: Quick launch, less work.'
+              },
+              {
+                value: 'custom',
+                label: 'Custom License API',
+                tooltip: 'Build your own license validation. Best for: Full control, custom business logic.'
+              },
+            ],
+            defaultValue: 'none',
+          },
+        ],
+      },
+      {
+        id: 'auto-updates',
+        name: 'Auto-Update System',
+        description: 'Plugin update mechanism',
+        tooltip: 'Enable automatic updates for premium plugins (not hosted on WordPress.org). Users get updates via WordPress admin.',
+        configOptions: [
+          {
+            id: 'updateMechanism',
+            label: 'Update System',
+            type: 'select',
+            tooltip: 'How plugin updates are delivered',
+            options: [
+              {
+                value: 'wp-org',
+                label: 'WordPress.org (Free)',
+                tooltip: 'Host on WP.org plugin directory. Free, automatic. Best for: Free plugins only.',
+                recommended: true
+              },
+              {
+                value: 'custom-api',
+                label: 'Custom Update API',
+                tooltip: 'Self-hosted updates. Best for: Premium plugins, full control. Requires license check.'
+              },
+            ],
+            defaultValue: 'wp-org',
+          },
+        ],
+      },
+      {
+        id: 'i18n',
+        name: 'Internationalization',
+        description: 'Multi-language support',
+        tooltip: 'Make plugin translatable. WordPress has global audience. Proper i18n increases market reach.',
+        recommended: true,
+        hidden: true, // Always included
+      },
+      {
+        id: 'testing',
+        name: 'Testing',
+        description: 'Test plugin functionality',
+        tooltip: 'Test PHP and JavaScript code. Essential to avoid breaking WordPress sites.',
+        configOptions: [
+          {
+            id: 'testFramework',
+            label: 'Test Framework',
+            type: 'select',
+            tooltip: 'Testing tools for your plugin',
+            options: [
+              {
+                value: 'phpunit',
+                label: 'PHPUnit + Jest',
+                tooltip: 'PHP unit tests + JS tests. Best for: Complete coverage, standard approach.',
+                recommended: true
+              },
+              {
+                value: 'phpunit-only',
+                label: 'PHPUnit Only',
+                tooltip: 'PHP tests only. Best for: Minimal JS, backend-focused plugins.'
+              },
+              {
+                value: 'none',
+                label: 'No Testing',
+                tooltip: 'Skip testing setup. Not recommended for production plugins.'
+              },
+            ],
+            defaultValue: 'phpunit',
+          },
+        ],
+      },
+      {
+        id: 'deployment',
+        name: 'Deployment',
+        description: 'Publish to WordPress.org or sell direct',
+        tooltip: 'Deploy to WordPress.org for free distribution or sell via your site. WordPress.org has 60K+ plugins.',
+        configOptions: [
+          {
+            id: 'deployTarget',
+            label: 'Distribution',
+            type: 'select',
+            tooltip: 'How users will get your plugin',
+            options: [
+              {
+                value: 'wp-org',
+                label: 'WordPress.org',
+                tooltip: 'Free plugin directory. Best for: Building audience, freemium model, credibility.',
+                recommended: true
+              },
+              {
+                value: 'premium',
+                label: 'Premium (Direct Sales)',
+                tooltip: 'Sell on your site. Best for: Premium-only plugins, higher margins. Use with licensing.'
+              },
+            ],
+            defaultValue: 'wp-org',
+          },
+        ],
+      },
+      {
+        id: 'code-quality',
+        name: 'Code Quality',
+        description: 'PHP CodeSniffer, ESLint, Prettier',
+        tooltip: 'Follow WordPress coding standards. Required for WordPress.org approval.',
+        recommended: true,
+        hidden: true,
+      },
+      {
+        id: 'env-config',
+        name: 'Environment Configuration',
+        description: 'Manage API keys and secrets',
+        tooltip: 'Store license API keys, third-party credentials safely.',
+        recommended: true,
+        hidden: true,
+      },
+    ],
+  },
+  {
+    id: 'vscode-extension',
+    name: 'VS Code Extension',
+    description: 'Visual Studio Code extension with TypeScript',
+    tooltip: 'Build extensions for VS Code, used by 20M+ developers. Monetize via marketplace, Gumroad, or license keys. Developers pay $10-100 for productivity tools. Examples: GitHub Copilot ($10/mo), Prettier, ESLint. Perfect for code snippets, linters, formatters, AI features, or any developer tool.',
+    icon: null,
+    gradient: 'linear-gradient(90deg, #007ACC 0%, #52B0E8 25%, #ffffff 50%, #52B0E8 75%, #007ACC 100%)',
+    command: 'npx --package yo --package generator-code -- yo code',
+    features: [
+      {
+        id: 'extension-type',
+        name: 'Extension Type',
+        description: 'What your extension provides',
+        tooltip: 'VS Code supports different extension types. Choose based on your use case.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'extensionType',
+            label: 'Extension Type',
+            type: 'select',
+            tooltip: 'Type of VS Code extension to create',
+            options: [
+              {
+                value: 'command',
+                label: 'Command Extension',
+                tooltip: 'Add commands to command palette. Best for: Actions, tools, utilities. Most common type.',
+                recommended: true
+              },
+              {
+                value: 'language',
+                label: 'Language Support',
+                tooltip: 'Add language features (syntax, intellisense, formatting). Best for: New language support.'
+              },
+              {
+                value: 'theme',
+                label: 'Color Theme',
+                tooltip: 'Custom VS Code theme. Best for: Visual customization, selling themes.'
+              },
+              {
+                value: 'webview',
+                label: 'Webview UI',
+                tooltip: 'Custom panels with HTML/React. Best for: Complex UIs, dashboards, visualizations.'
+              },
+            ],
+            defaultValue: 'command',
+          },
+        ],
+      },
+      {
+        id: 'language-features',
+        name: 'Language Features',
+        description: 'IntelliSense, diagnostics, formatting',
+        tooltip: 'Add code completion, error checking, formatting for languages. Uses Language Server Protocol (LSP). Advanced feature for language extensions.',
+        configOptions: [
+          {
+            id: 'includeLsp',
+            label: 'Language Server (LSP)',
+            type: 'toggle',
+            tooltip: 'Add Language Server Protocol for rich language features. Complex but powerful.',
+            defaultValue: false,
+          },
+        ],
+      },
+      {
+        id: 'webview-ui',
+        name: 'Webview Panels',
+        description: 'Custom UI with HTML/CSS/JS',
+        tooltip: 'Create custom panels inside VS Code. Use React, Vue, or vanilla JS. Great for dashboards, forms, visualizations. Note: Webview UI Toolkit deprecated Jan 2025.',
+        configOptions: [
+          {
+            id: 'webviewFramework',
+            label: 'Webview Framework',
+            type: 'select',
+            tooltip: 'UI framework for webview panels',
+            options: [
+              {
+                value: 'none',
+                label: 'No Webview',
+                tooltip: 'Command-only extension. Best for: Simple tools, no custom UI needed.',
+                recommended: true
+              },
+              {
+                value: 'vanilla',
+                label: 'Vanilla JS/HTML',
+                tooltip: 'Plain HTML/CSS/JS. Best for: Simple UIs, lightweight, no build complexity.'
+              },
+              {
+                value: 'react',
+                label: 'React',
+                tooltip: 'React for webviews. Best for: Complex UIs, reusable components. Requires webpack setup.'
+              },
+            ],
+            defaultValue: 'none',
+          },
+        ],
+      },
+      {
+        id: 'commands',
+        name: 'Command Palette',
+        description: 'Register VS Code commands',
+        tooltip: 'Add commands users trigger via Cmd+Shift+P. Essential for command extensions. Include keybindings for power users.',
+        recommended: true,
+        hidden: true, // Always included for command type
+      },
+      {
+        id: 'configuration',
+        name: 'Settings & Configuration',
+        description: 'User preferences for your extension',
+        tooltip: 'Add settings to VS Code settings UI. Let users customize your extension behavior.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'includeSettings',
+            label: 'Extension Settings',
+            type: 'toggle',
+            tooltip: 'Add configurable settings accessible via VS Code settings UI.',
+            defaultValue: true,
+          },
+        ],
+      },
+      {
+        id: 'file-system',
+        name: 'File System Access',
+        description: 'Read/write workspace files',
+        tooltip: 'Access workspace files, watch for changes, modify code. Essential for code generators, formatters, linters.',
+        configOptions: [
+          {
+            id: 'includeFileWatchers',
+            label: 'File Watchers',
+            type: 'toggle',
+            tooltip: 'React to file changes in workspace. Best for: Linters, auto-formatters, sync tools.',
+            defaultValue: false,
+          },
+        ],
+      },
+      {
+        id: 'git-integration',
+        name: 'Git Integration',
+        description: 'Work with Git repositories',
+        tooltip: 'Access Git data, modify commits, show diff views. Great for Git tools and workflow extensions.',
+        configOptions: [
+          {
+            id: 'includeGit',
+            label: 'Git API Access',
+            type: 'toggle',
+            tooltip: 'Use VS Code Git API to read repo status, branches, commits.',
+            defaultValue: false,
+          },
+        ],
+      },
+      {
+        id: 'external-apis',
+        name: 'External API Integration',
+        description: 'Connect to third-party services',
+        tooltip: 'Call external APIs (AI services, databases, web services). Common for AI coding assistants, data fetchers.',
+        configOptions: [
+          {
+            id: 'includeHttpClient',
+            label: 'HTTP Client',
+            type: 'toggle',
+            tooltip: 'Add axios/fetch setup for API calls. Include rate limiting and error handling.',
+            defaultValue: false,
+          },
+        ],
+      },
+      {
+        id: 'licensing',
+        name: 'Monetization',
+        description: 'License keys for premium features',
+        tooltip: 'Add license validation for paid extensions. Sell via Gumroad, marketplace, or custom platform.',
+        configOptions: [
+          {
+            id: 'licenseModel',
+            label: 'License Model',
+            type: 'select',
+            tooltip: 'How to monetize your extension',
+            options: [
+              {
+                value: 'free',
+                label: 'Free Extension',
+                tooltip: 'No licensing, fully free. Best for: Open source, building audience.',
+                recommended: true
+              },
+              {
+                value: 'freemium',
+                label: 'Freemium',
+                tooltip: 'Free + premium features. Best for: Trial, conversion funnel. Validate with license keys.'
+              },
+              {
+                value: 'paid',
+                label: 'Paid Only',
+                tooltip: 'Requires license key. Best for: Specialized tools, enterprise features.'
+              },
+            ],
+            defaultValue: 'free',
+          },
+        ],
+      },
+      {
+        id: 'testing',
+        name: 'Testing',
+        description: 'Extension testing with vscode-test',
+        tooltip: 'Test extension in real VS Code instance. Essential for quality extensions.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'includeTests',
+            label: 'Include Tests',
+            type: 'toggle',
+            tooltip: 'Set up vscode-test for integration testing. Includes example tests.',
+            defaultValue: true,
+          },
+        ],
+      },
+      {
+        id: 'deployment',
+        name: 'Publishing',
+        description: 'Publish to VS Code Marketplace',
+        tooltip: 'Publish extension to marketplace (60K+ extensions). Free to publish, optional paid listings.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'deployTarget',
+            label: 'Distribution',
+            type: 'select',
+            tooltip: 'How users will install your extension',
+            options: [
+              {
+                value: 'marketplace',
+                label: 'VS Code Marketplace',
+                tooltip: 'Official marketplace. Best for: Maximum reach, credibility, free distribution.',
+                recommended: true
+              },
+              {
+                value: 'private',
+                label: 'Private Distribution',
+                tooltip: 'VSIX file distribution. Best for: Enterprise, internal tools, pre-release.'
+              },
+            ],
+            defaultValue: 'marketplace',
+          },
+        ],
+      },
+      {
+        id: 'code-quality',
+        name: 'Code Quality',
+        description: 'ESLint, Prettier, TypeScript',
+        tooltip: 'TypeScript strongly recommended for VS Code extensions. Catch errors before runtime.',
+        recommended: true,
+        hidden: true,
+      },
+      {
+        id: 'env-config',
+        name: 'Environment Configuration',
+        description: 'Manage API keys and secrets',
+        tooltip: 'Store API keys for external services. Use VS Code secrets API for secure storage.',
+        recommended: true,
+        hidden: true,
+      },
+    ],
+  },
+  {
+    id: 'figma-plugin',
+    name: 'Figma Plugin',
+    description: 'Figma plugin with TypeScript and React',
+    tooltip: 'Build plugins for Figma, used by 4M+ designers. Sell on FigPlug, Gumroad, or subscription services. Designers pay for time-savers. Examples: Iconify, Unsplash, AI tools. Perfect for icon libraries, asset management, AI generation, export tools, or design automation.',
+    icon: null,
+    gradient: 'linear-gradient(90deg, #F24E1E 0%, #FF7262 25%, #ffffff 50%, #FF7262 75%, #F24E1E 100%)',
+    command: 'npx create-figma-plugin',
+    features: [
+      {
+        id: 'plugin-type',
+        name: 'Plugin Type',
+        description: 'UI plugin or widget',
+        tooltip: 'UI Plugin = runs in panel with custom UI. Widget = interactive elements on canvas (like sticky notes). Most plugins are UI type.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'pluginType',
+            label: 'Plugin Type',
+            type: 'select',
+            tooltip: 'What type of Figma plugin to create',
+            options: [
+              {
+                value: 'ui',
+                label: 'UI Plugin',
+                tooltip: 'Plugin with custom UI panel. Best for: Tools, generators, exporters. Most common type.',
+                recommended: true
+              },
+              {
+                value: 'widget',
+                label: 'FigJam Widget',
+                tooltip: 'Interactive canvas element. Best for: Collaboration tools, sticky notes, voting. FigJam only.'
+              },
+              {
+                value: 'both',
+                label: 'Plugin + Widget',
+                tooltip: 'Combine plugin and widget. Best for: Full-featured tools with canvas integration.'
+              },
+            ],
+            defaultValue: 'ui',
+          },
+        ],
+      },
+      {
+        id: 'ui-framework',
+        name: 'UI Framework',
+        description: 'Build plugin interface',
+        tooltip: 'Choose how to build your plugin UI. React recommended for complex interfaces.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'uiFramework',
+            label: 'UI Framework',
+            type: 'select',
+            tooltip: 'Framework for building plugin UI',
+            options: [
+              {
+                value: 'react',
+                label: 'React + TypeScript',
+                tooltip: 'React for UI. Best for: Complex interfaces, reusable components. create-figma-plugin handles setup.',
+                recommended: true
+              },
+              {
+                value: 'vanilla',
+                label: 'Vanilla HTML/CSS',
+                tooltip: 'Plain HTML/CSS/JS. Best for: Simple UIs, lightweight plugins, less build complexity.'
+              },
+              {
+                value: 'preact',
+                label: 'Preact',
+                tooltip: 'Lightweight React alternative. Best for: Smaller bundle size, React-like DX.'
+              },
+            ],
+            defaultValue: 'react',
+          },
+        ],
+      },
+      {
+        id: 'plugin-capabilities',
+        name: 'Plugin Capabilities',
+        description: 'What your plugin can do',
+        tooltip: 'Figma plugins can read/modify designs, access files, work with components. Choose based on your plugin\'s purpose.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'capabilities',
+            label: 'Plugin Capabilities',
+            type: 'select',
+            tooltip: 'What your plugin will do in Figma',
+            options: [
+              {
+                value: 'read-write',
+                label: 'Read & Modify Designs',
+                tooltip: 'Access and change layers, styles, components. Best for: Generators, converters, automation tools.',
+                recommended: true
+              },
+              {
+                value: 'read-only',
+                label: 'Read Only',
+                tooltip: 'Read design data without modification. Best for: Exporters, analyzers, documentation tools.'
+              },
+              {
+                value: 'ui-only',
+                label: 'UI Only (No File Access)',
+                tooltip: 'Custom UI without design file access. Best for: External tools, dashboards, integrations.'
+              },
+            ],
+            defaultValue: 'read-write',
+          },
+        ],
+      },
+      {
+        id: 'network-access',
+        name: 'Network & External APIs',
+        description: 'Call external services',
+        tooltip: 'Connect to AI APIs, asset libraries, databases. Requires network permission in manifest. Common for AI plugins, icon libraries.',
+        configOptions: [
+          {
+            id: 'includeNetworkAccess',
+            label: 'Network Access',
+            type: 'toggle',
+            tooltip: 'Enable external API calls (OpenAI, image CDNs, etc.). Adds network permission to manifest.',
+            defaultValue: false,
+          },
+          {
+            id: 'apiIntegration',
+            label: 'API Type',
+            type: 'select',
+            tooltip: 'What external services to integrate',
+            options: [
+              {
+                value: 'none',
+                label: 'No External APIs',
+                tooltip: 'Local-only plugin. Best for: No external dependencies.',
+                recommended: true
+              },
+              {
+                value: 'ai',
+                label: 'AI Services (OpenAI, etc)',
+                tooltip: 'AI image generation, text processing. Best for: AI design tools, automation.'
+              },
+              {
+                value: 'assets',
+                label: 'Asset APIs (Icons, Images)',
+                tooltip: 'Fetch assets from CDNs or APIs. Best for: Icon libraries, image search, stock photos.'
+              },
+              {
+                value: 'custom',
+                label: 'Custom Backend',
+                tooltip: 'Your own API for data sync, licensing. Best for: Premium features, user accounts.'
+              },
+            ],
+            defaultValue: 'none',
+          },
+        ],
+      },
+      {
+        id: 'data-storage',
+        name: 'Data Storage',
+        description: 'Save plugin data',
+        tooltip: 'Store user preferences, cache data. Use clientStorage API (local) or external database for sync across devices.',
+        configOptions: [
+          {
+            id: 'storageType',
+            label: 'Storage Type',
+            type: 'select',
+            tooltip: 'Where to store plugin data',
+            options: [
+              {
+                value: 'client-storage',
+                label: 'Client Storage (Local)',
+                tooltip: 'Store data locally in Figma. Best for: User preferences, cached data. Free, built-in.',
+                recommended: true
+              },
+              {
+                value: 'cloud-sync',
+                label: 'Cloud Sync',
+                tooltip: 'Sync data across devices. Best for: User accounts, premium features. Requires backend.'
+              },
+            ],
+            defaultValue: 'client-storage',
+          },
+        ],
+      },
+      {
+        id: 'monetization',
+        name: 'Monetization',
+        description: 'Sell your plugin',
+        tooltip: 'Sell plugins via FigPlug (marketplace), Gumroad (one-time), or subscription service. Add license validation.',
+        configOptions: [
+          {
+            id: 'monetizationModel',
+            label: 'Business Model',
+            type: 'select',
+            tooltip: 'How to monetize your plugin',
+            options: [
+              {
+                value: 'free',
+                label: 'Free Plugin',
+                tooltip: 'Completely free. Best for: Building audience, portfolio, open source.',
+                recommended: true
+              },
+              {
+                value: 'figplug',
+                label: 'FigPlug Marketplace',
+                tooltip: 'Sell on FigPlug. Best for: Discovery, marketplace credibility. They handle payments.'
+              },
+              {
+                value: 'gumroad',
+                label: 'Gumroad (One-time)',
+                tooltip: 'Sell via Gumroad. Best for: One-time purchases, simple licensing. Use license keys.'
+              },
+              {
+                value: 'subscription',
+                label: 'Subscription Service',
+                tooltip: 'Monthly/annual subscriptions. Best for: SaaS plugins with ongoing value, cloud features.'
+              },
+            ],
+            defaultValue: 'free',
+          },
+        ],
+      },
+      {
+        id: 'testing',
+        name: 'Testing',
+        description: 'Test plugin functionality',
+        tooltip: 'Test plugin logic, UI, and Figma API interactions. Important for stable releases.',
+        configOptions: [
+          {
+            id: 'includeTests',
+            label: 'Include Tests',
+            type: 'toggle',
+            tooltip: 'Set up Vitest for unit tests. create-figma-plugin has built-in test support.',
+            defaultValue: false,
+          },
+        ],
+      },
+      {
+        id: 'deployment',
+        name: 'Publishing',
+        description: 'Publish to Figma Community',
+        tooltip: 'Publish to Figma Community (free) or sell on FigPlug/Gumroad. Community has millions of users.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'publishTarget',
+            label: 'Distribution',
+            type: 'select',
+            tooltip: 'Where users will get your plugin',
+            options: [
+              {
+                value: 'figma-community',
+                label: 'Figma Community (Free)',
+                tooltip: 'Free plugin directory. Best for: Maximum reach, credibility, portfolio.',
+                recommended: true
+              },
+              {
+                value: 'private',
+                label: 'Private / Organization',
+                tooltip: 'Private distribution for teams. Best for: Internal tools, enterprise plugins.'
+              },
+            ],
+            defaultValue: 'figma-community',
+          },
+        ],
+      },
+      {
+        id: 'code-quality',
+        name: 'Code Quality',
+        description: 'ESLint, Prettier, TypeScript',
+        tooltip: 'TypeScript required by Figma. create-figma-plugin handles build config.',
+        recommended: true,
+        hidden: true,
+      },
+      {
+        id: 'env-config',
+        name: 'Environment Configuration',
+        description: 'Manage API keys',
+        tooltip: 'Store API keys for external services (AI, assets, licensing).',
+        recommended: true,
+        hidden: true,
+      },
+    ],
+  },
+  {
+    id: 'raycast-extension',
+    name: 'Raycast Extension',
+    description: 'Raycast extension with React and TypeScript',
+    tooltip: 'Build extensions for Raycast, the productivity tool for Mac power users. Growing platform with early mover advantage. Raycast adding paid extensions soon. Tech-savvy users pay premium. Perfect for launchers, quick actions, API integrations, or workflow tools. Examples: GitHub, Jira, Calendar integrations.',
+    icon: null,
+    gradient: 'linear-gradient(90deg, #FF6363 0%, #FF8A8A 25%, #ffffff 50%, #FF8A8A 75%, #FF6363 100%)',
+    command: 'npm create raycast-extension',
+    features: [
+      {
+        id: 'extension-template',
+        name: 'Extension Template',
+        description: 'Starting template type',
+        tooltip: 'Raycast provides templates for different extension types. Choose based on your use case.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'templateType',
+            label: 'Template Type',
+            type: 'select',
+            tooltip: 'Type of Raycast extension to create',
+            options: [
+              {
+                value: 'hello-world',
+                label: 'Hello World (Command)',
+                tooltip: 'Simple command template. Best for: Quick actions, learning, basic commands.',
+                recommended: true
+              },
+              {
+                value: 'list',
+                label: 'List Template',
+                tooltip: 'Display searchable lists. Best for: Browsing items, selections, catalogs.'
+              },
+              {
+                value: 'form',
+                label: 'Form Template',
+                tooltip: 'Input forms with various fields. Best for: Data entry, configurations, settings.'
+              },
+              {
+                value: 'menu-bar',
+                label: 'Menu Bar',
+                tooltip: 'Menu bar extra. Best for: Always-visible info, quick status, notifications.'
+              },
+            ],
+            defaultValue: 'hello-world',
+          },
+        ],
+      },
+      {
+        id: 'ui-components',
+        name: 'UI Components',
+        description: 'Raycast UI elements',
+        tooltip: 'Raycast provides built-in React components (List, Detail, Form, etc). Use these for consistent UX.',
+        recommended: true,
+        hidden: true, // Always included
+      },
+      {
+        id: 'preferences',
+        name: 'User Preferences',
+        description: 'Extension settings',
+        tooltip: 'Let users configure your extension. Add API keys, default values, toggles. Appears in Raycast settings.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'includePreferences',
+            label: 'Extension Preferences',
+            type: 'toggle',
+            tooltip: 'Add configurable settings for your extension.',
+            defaultValue: true,
+          },
+        ],
+      },
+      {
+        id: 'external-apis',
+        name: 'API Integration',
+        description: 'Connect to external services',
+        tooltip: 'Call third-party APIs (GitHub, Jira, Notion, etc). Most Raycast extensions integrate with web services.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'apiType',
+            label: 'API Integration',
+            type: 'select',
+            tooltip: 'What external service to integrate',
+            options: [
+              {
+                value: 'none',
+                label: 'No External API',
+                tooltip: 'Local-only extension. Best for: Utilities, calculations, local file operations.',
+                recommended: true
+              },
+              {
+                value: 'rest',
+                label: 'REST API',
+                tooltip: 'Integrate REST APIs. Best for: Most web services, standard HTTP APIs.'
+              },
+              {
+                value: 'graphql',
+                label: 'GraphQL API',
+                tooltip: 'Integrate GraphQL APIs (GitHub, Shopify, etc). Best for: Complex queries, efficient data fetching.'
+              },
+            ],
+            defaultValue: 'none',
+          },
+          {
+            id: 'includeOAuth',
+            label: 'OAuth Support',
+            type: 'toggle',
+            tooltip: 'Add OAuth authentication for APIs. Raycast has built-in OAuth support (2025 update).',
+            defaultValue: false,
+          },
+        ],
+      },
+      {
+        id: 'storage',
+        name: 'Local Storage',
+        description: 'Cache and persist data',
+        tooltip: 'Store data locally for offline use, caching, faster load times. Use Raycast Storage/Cache APIs.',
+        configOptions: [
+          {
+            id: 'includeStorage',
+            label: 'Local Storage',
+            type: 'toggle',
+            tooltip: 'Use Raycast Storage API to save data locally.',
+            defaultValue: false,
+          },
+        ],
+      },
+      {
+        id: 'background-refresh',
+        name: 'Background Refresh',
+        description: 'Auto-update data',
+        tooltip: 'Refresh data in background for menu bar commands. Great for status monitors, notifications.',
+        configOptions: [
+          {
+            id: 'includeBackground',
+            label: 'Background Updates',
+            type: 'toggle',
+            tooltip: 'Enable background refresh for menu bar commands (interval-based).',
+            defaultValue: false,
+          },
+        ],
+      },
+      {
+        id: 'utilities',
+        name: 'Raycast Utilities',
+        description: 'Helper functions and best practices',
+        tooltip: 'Raycast provides @raycast/utils package with helpers for async, caching, fetching. Recommended for all extensions.',
+        recommended: true,
+        hidden: true, // Always included in 2025 templates
+      },
+      {
+        id: 'monetization',
+        name: 'Monetization (Coming Soon)',
+        description: 'Paid extensions via Raycast Store',
+        tooltip: 'Raycast is adding paid extension support. Early extensions will have advantage. Plan for future monetization.',
+        configOptions: [
+          {
+            id: 'planMonetization',
+            label: 'Plan for Monetization',
+            type: 'toggle',
+            tooltip: 'Structure extension for future paid features (licensing placeholder, premium features gates).',
+            defaultValue: false,
+          },
+        ],
+      },
+      {
+        id: 'testing',
+        name: 'Testing',
+        description: 'Test extension functionality',
+        tooltip: 'Test extension logic, API calls, UI. Raycast extensions are React apps - use standard testing tools.',
+        configOptions: [
+          {
+            id: 'includeTests',
+            label: 'Include Tests',
+            type: 'toggle',
+            tooltip: 'Set up Vitest for unit testing extension logic.',
+            defaultValue: false,
+          },
+        ],
+      },
+      {
+        id: 'deployment',
+        name: 'Publishing',
+        description: 'Publish to Raycast Store',
+        tooltip: 'Publish to Raycast Store (free for now, paid coming). Extensions are reviewed before approval.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'publishTarget',
+            label: 'Distribution',
+            type: 'select',
+            tooltip: 'How users will get your extension',
+            options: [
+              {
+                value: 'raycast-store',
+                label: 'Raycast Store',
+                tooltip: 'Official store. Best for: Maximum reach, credibility. Required for paid extensions.',
+                recommended: true
+              },
+              {
+                value: 'private',
+                label: 'Private / Import',
+                tooltip: 'Manual import via GitHub. Best for: Personal tools, pre-release testing.'
+              },
+            ],
+            defaultValue: 'raycast-store',
+          },
+        ],
+      },
+      {
+        id: 'code-quality',
+        name: 'Code Quality',
+        description: 'ESLint, Prettier, TypeScript',
+        tooltip: 'TypeScript required for Raycast extensions. Template includes ESLint config.',
+        recommended: true,
+        hidden: true,
+      },
+      {
+        id: 'env-config',
+        name: 'Environment Configuration',
+        description: 'Manage API keys',
+        tooltip: 'Store API keys via preferences or environment variables.',
+        recommended: true,
+        hidden: true,
+      },
+    ],
+  },
+  {
+    id: 'adobe-uxp-plugin',
+    name: 'Adobe UXP Plugin',
+    description: 'Photoshop/Premiere Pro plugin with UXP v8.0',
+    tooltip: 'Build plugins for Adobe Creative Cloud apps (Photoshop, Premiere Pro, InDesign). 22M+ Creative Cloud subscribers. Sell on Adobe Marketplace with FastSpring built-in payments. Examples: batch processors ($20-100), AI tools ($30-150), workflow automation ($15-75). Professional creators pay premium for time-savers. Revenue potential: $500-50k/mo.',
+    icon: null,
+    gradient: 'linear-gradient(90deg, #FF0000 0%, #FF3366 25%, #ffffff 50%, #FF3366 75%, #FF0000 100%)',
+    command: 'Use Adobe UXP Developer Tool',
+    features: [
+      {
+        id: 'target-app',
+        name: 'Target Application',
+        description: 'Which Adobe app to extend',
+        tooltip: 'Choose which Creative Cloud application your plugin will extend. Each app has different capabilities and user bases.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'targetApp',
+            label: 'Adobe Application',
+            type: 'select',
+            tooltip: 'Select the primary Adobe app for your plugin',
+            options: [
+              {
+                value: 'photoshop',
+                label: 'Photoshop',
+                tooltip: 'Most popular (15M+ users). Best for: Image editing, batch processing, AI features, automation. UXP v8.0 with full feature set.',
+                recommended: true
+              },
+              {
+                value: 'premiere-pro',
+                label: 'Premiere Pro',
+                tooltip: 'Video editing (4M+ users). Best for: Video processing, effects, automation. UXP in beta, GA soon (2025).'
+              },
+              {
+                value: 'indesign',
+                label: 'InDesign',
+                tooltip: 'Publishing (2M+ users). Best for: Layout automation, document processing, publishing workflows.'
+              },
+              {
+                value: 'illustrator',
+                label: 'Illustrator (Coming)',
+                tooltip: 'Vector graphics. UXP support coming. Use ExtendScript for now.'
+              },
+            ],
+            defaultValue: 'photoshop',
+          },
+        ],
+      },
+      {
+        id: 'ui-framework',
+        name: 'UI Framework',
+        description: 'Spectrum Web Components or React',
+        tooltip: 'Build plugin UI with Spectrum Web Components (Adobe\'s official design system, v0.37.0) or React. SWC recommended by Adobe for 2025.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'uiFramework',
+            label: 'UI Framework',
+            type: 'select',
+            tooltip: 'Choose how to build your plugin interface',
+            options: [
+              {
+                value: 'spectrum-web-components',
+                label: 'Spectrum Web Components',
+                tooltip: 'Adobe official recommendation (2025). 30+ components, native Adobe look, auto-theming. Best for: Professional plugins, native feel.',
+                recommended: true
+              },
+              {
+                value: 'react-swc',
+                label: 'React + Spectrum WC',
+                tooltip: 'React with Spectrum Web Components. Best for: Complex UIs, familiar React patterns. UXP Developer Tool has React template.'
+              },
+              {
+                value: 'vanilla-html',
+                label: 'Vanilla HTML/CSS',
+                tooltip: 'Plain HTML/CSS/JS. Best for: Simple plugins, lightweight, no build complexity.'
+              },
+            ],
+            defaultValue: 'spectrum-web-components',
+          },
+          {
+            id: 'includeTypeScript',
+            label: 'TypeScript',
+            type: 'toggle',
+            tooltip: 'Add TypeScript for type safety and better IDE support. Highly recommended.',
+            defaultValue: true,
+          },
+        ],
+      },
+      {
+        id: 'plugin-capabilities',
+        name: 'Plugin Capabilities',
+        description: 'What your plugin will do',
+        tooltip: 'UXP v8.0 features: Action recording, Selection API, Imaging API, Text APIs, Path manipulation. Choose based on your plugin\'s purpose.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'capabilities',
+            label: 'Primary Capability',
+            type: 'select',
+            tooltip: 'Main functionality of your plugin',
+            options: [
+              {
+                value: 'automation',
+                label: 'Workflow Automation',
+                tooltip: 'Automate repetitive tasks. Use Action Recording API (v8.0). Best for: Batch processing, presets, workflows.',
+                recommended: true
+              },
+              {
+                value: 'image-processing',
+                label: 'Image Processing',
+                tooltip: 'Modify images. Use Imaging API (out of beta v8.0). Best for: Filters, effects, AI image generation.'
+              },
+              {
+                value: 'selection-tools',
+                label: 'Selection Tools',
+                tooltip: 'Advanced selections. Use new Selection class (v8.0). Best for: Masking, cutouts, selection refinement.'
+              },
+              {
+                value: 'text-manipulation',
+                label: 'Text Tools',
+                tooltip: 'Text layer creation/editing. Use enhanced Text APIs (v8.0). Best for: Typography, text effects, templates.'
+              },
+              {
+                value: 'export-import',
+                label: 'Export/Import',
+                tooltip: 'File operations. Best for: Format converters, asset exporters, integrations with external services.'
+              },
+            ],
+            defaultValue: 'automation',
+          },
+        ],
+      },
+      {
+        id: 'external-apis',
+        name: 'External API Integration',
+        description: 'Connect to third-party services',
+        tooltip: 'Call external APIs for AI features, cloud storage, or web services. Popular: OpenAI for AI, AWS S3 for storage, REST APIs for integrations.',
+        configOptions: [
+          {
+            id: 'includeExternalApi',
+            label: 'External API Access',
+            type: 'toggle',
+            tooltip: 'Enable network access for calling external APIs (AI services, cloud storage, etc.).',
+            defaultValue: false,
+          },
+          {
+            id: 'apiType',
+            label: 'API Type',
+            type: 'select',
+            tooltip: 'What type of external service to integrate',
+            options: [
+              {
+                value: 'none',
+                label: 'No External APIs',
+                tooltip: 'Local-only plugin. Best for: On-device processing, privacy-focused tools.',
+                recommended: true
+              },
+              {
+                value: 'ai-services',
+                label: 'AI Services (OpenAI, Stability)',
+                tooltip: 'AI image generation, enhancement. Best for: AI features, content generation, smart automation.'
+              },
+              {
+                value: 'cloud-storage',
+                label: 'Cloud Storage (S3, Dropbox)',
+                tooltip: 'Cloud file operations. Best for: Asset sync, backups, team collaboration.'
+              },
+              {
+                value: 'custom-api',
+                label: 'Custom Backend API',
+                tooltip: 'Your own backend service. Best for: User accounts, licensing, premium features.'
+              },
+            ],
+            defaultValue: 'none',
+          },
+        ],
+      },
+      {
+        id: 'monetization',
+        name: 'Monetization',
+        description: 'Sell on Adobe Marketplace',
+        tooltip: 'Adobe Marketplace uses FastSpring for payments. Choose free, paid, or freemium. Plugins range $10-200. Professional creators pay for quality tools.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'pricingModel',
+            label: 'Pricing Model',
+            type: 'select',
+            tooltip: 'How to monetize your plugin',
+            options: [
+              {
+                value: 'free',
+                label: 'Free',
+                tooltip: 'Fully free plugin. Best for: Building audience, portfolio, open source.',
+                recommended: true
+              },
+              {
+                value: 'paid',
+                label: 'Paid (One-time)',
+                tooltip: 'One-time purchase. Best for: Tools, utilities. Typical range: $10-75.'
+              },
+              {
+                value: 'freemium',
+                label: 'Freemium',
+                tooltip: 'Free + premium features. Best for: Trial, conversion. Popular for AI features or advanced tools.'
+              },
+              {
+                value: 'subscription',
+                label: 'Subscription',
+                tooltip: 'Recurring payments. Best for: Ongoing features, cloud services, regular updates.'
+              },
+            ],
+            defaultValue: 'free',
+          },
+        ],
+      },
+      {
+        id: 'testing',
+        name: 'Testing',
+        description: 'Test plugin functionality',
+        tooltip: 'Test plugins in Adobe apps. UXP Developer Tool provides debugging and hot reload.',
+        configOptions: [
+          {
+            id: 'includeTests',
+            label: 'Include Tests',
+            type: 'toggle',
+            tooltip: 'Set up testing framework for plugin logic.',
+            defaultValue: false,
+          },
+        ],
+      },
+      {
+        id: 'deployment',
+        name: 'Publishing',
+        description: 'Distribute via Adobe Marketplace',
+        tooltip: 'Publish to Adobe Exchange (marketplace) for discovery. Requires review process. EU requires additional contact info (DSA compliance, Feb 2025).',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'publishTarget',
+            label: 'Distribution',
+            type: 'select',
+            tooltip: 'How users will get your plugin',
+            options: [
+              {
+                value: 'adobe-exchange',
+                label: 'Adobe Exchange (Marketplace)',
+                tooltip: 'Official marketplace. Best for: Maximum reach, credibility, built-in payments via FastSpring.',
+                recommended: true
+              },
+              {
+                value: 'private',
+                label: 'Private Distribution',
+                tooltip: 'Manual installation. Best for: Enterprise, internal tools, testing.'
+              },
+            ],
+            defaultValue: 'adobe-exchange',
+          },
+        ],
+      },
+      {
+        id: 'code-quality',
+        name: 'Code Quality',
+        description: 'ESLint, TypeScript, best practices',
+        tooltip: 'Follow Adobe UXP best practices. Use executeAsModal for document modifications.',
+        recommended: true,
+        hidden: true,
+      },
+      {
+        id: 'env-config',
+        name: 'Environment Configuration',
+        description: 'Manage API keys',
+        tooltip: 'Store external API keys, licensing credentials securely.',
+        recommended: true,
+        hidden: true,
+      },
+    ],
+  },
+  {
+    id: 'obsidian-plugin',
+    name: 'Obsidian Plugin',
+    description: 'Obsidian knowledge base plugin with TypeScript',
+    tooltip: 'Build plugins for Obsidian, the fastest-growing PKM tool (1M+ users). Monetize via GitHub Sponsors, Buy Me a Coffee, Ko-fi. Users are passionate and generous with quality plugins ($5-20/mo donations). Average user has 15-20 plugins. Examples: task management, custom views, AI integration, export tools. Revenue potential: $100-5k/mo.',
+    icon: null,
+    gradient: 'linear-gradient(90deg, #7C3AED 0%, #A78BFA 25%, #ffffff 50%, #A78BFA 75%, #7C3AED 100%)',
+    command: 'git clone https://github.com/obsidianmd/obsidian-sample-plugin.git',
+    features: [
+      {
+        id: 'plugin-type',
+        name: 'Plugin Type',
+        description: 'What your plugin provides',
+        tooltip: 'Obsidian plugins can add commands, UI elements, modify editor, process files. Choose based on functionality.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'pluginType',
+            label: 'Primary Functionality',
+            type: 'select',
+            tooltip: 'Main purpose of your plugin',
+            options: [
+              {
+                value: 'commands',
+                label: 'Commands & Actions',
+                tooltip: 'Add commands to command palette. Best for: Quick actions, utilities, automation. Most common type.',
+                recommended: true
+              },
+              {
+                value: 'editor-extension',
+                label: 'Editor Extensions',
+                tooltip: 'Enhance markdown editor. Best for: Custom syntax, live preview features, editor shortcuts.'
+              },
+              {
+                value: 'view',
+                label: 'Custom Views',
+                tooltip: 'Add new pane types (calendar, graph, timeline). Best for: Visualizations, dashboards, alternative views.'
+              },
+              {
+                value: 'file-processing',
+                label: 'File Processing',
+                tooltip: 'Process/transform files. Best for: Import/export, format conversion, batch operations.'
+              },
+            ],
+            defaultValue: 'commands',
+          },
+        ],
+      },
+      {
+        id: 'ui-elements',
+        name: 'UI Components',
+        description: 'Add UI to Obsidian',
+        tooltip: 'Plugins can add ribbons, status bar items, modals, settings tabs. Choose what UI your plugin needs.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'includeRibbon',
+            label: 'Ribbon Icon',
+            type: 'toggle',
+            tooltip: 'Add icon to left sidebar ribbon for quick access.',
+            defaultValue: true,
+          },
+          {
+            id: 'includeStatusBar',
+            label: 'Status Bar Item',
+            type: 'toggle',
+            tooltip: 'Add element to bottom status bar (word count, stats, indicators).',
+            defaultValue: false,
+          },
+          {
+            id: 'includeSettings',
+            label: 'Settings Tab',
+            type: 'toggle',
+            tooltip: 'Add settings page for user configuration. Recommended for most plugins.',
+            defaultValue: true,
+          },
+        ],
+      },
+      {
+        id: 'data-storage',
+        name: 'Data Storage',
+        description: 'Save plugin data',
+        tooltip: 'Store plugin settings, cache, user data. Obsidian provides Component class for resource management and cleanup.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'storageType',
+            label: 'Storage Type',
+            type: 'select',
+            tooltip: 'How to persist plugin data',
+            options: [
+              {
+                value: 'plugin-data',
+                label: 'Plugin Data (JSON)',
+                tooltip: 'Store data in .obsidian/plugins/your-plugin/data.json. Best for: Settings, user preferences, cache.',
+                recommended: true
+              },
+              {
+                value: 'vault-files',
+                label: 'Vault Files',
+                tooltip: 'Store in vault as markdown. Best for: User-visible data, templates, generated content.'
+              },
+              {
+                value: 'external-sync',
+                label: 'External Sync',
+                tooltip: 'Sync to cloud/backend. Best for: Cross-device sync, premium features. Requires external API.'
+              },
+            ],
+            defaultValue: 'plugin-data',
+          },
+        ],
+      },
+      {
+        id: 'editor-features',
+        name: 'Editor Integration',
+        description: 'Extend markdown editor',
+        tooltip: 'Add custom syntax, live preview extensions, editor commands. Use CodeMirror 6 (Obsidian v1.0+).',
+        configOptions: [
+          {
+            id: 'includeEditorExtensions',
+            label: 'Editor Extensions',
+            type: 'toggle',
+            tooltip: 'Add custom editor functionality (syntax highlighting, live preview, decorations).',
+            defaultValue: false,
+          },
+        ],
+      },
+      {
+        id: 'external-integrations',
+        name: 'External Integrations',
+        description: 'Connect to external services',
+        tooltip: 'Integrate with APIs, cloud services, AI. Popular: Notion sync, AI assistants, cloud backup.',
+        configOptions: [
+          {
+            id: 'includeExternalApi',
+            label: 'External API Access',
+            type: 'toggle',
+            tooltip: 'Call external APIs for sync, AI features, integrations.',
+            defaultValue: false,
+          },
+          {
+            id: 'apiType',
+            label: 'Integration Type',
+            type: 'select',
+            tooltip: 'What to integrate with',
+            options: [
+              {
+                value: 'none',
+                label: 'No Integrations',
+                tooltip: 'Local-only plugin. Best for: Privacy, offline use.',
+                recommended: true
+              },
+              {
+                value: 'ai',
+                label: 'AI Services',
+                tooltip: 'OpenAI, Claude, etc. Best for: AI writing, summarization, chat.'
+              },
+              {
+                value: 'sync',
+                label: 'Sync Services',
+                tooltip: 'Notion, Google Drive, Dropbox. Best for: Two-way sync, backup, import/export.'
+              },
+              {
+                value: 'custom',
+                label: 'Custom Backend',
+                tooltip: 'Your own API. Best for: Premium features, user accounts, cloud features.'
+              },
+            ],
+            defaultValue: 'none',
+          },
+        ],
+      },
+      {
+        id: 'monetization',
+        name: 'Monetization',
+        description: 'GitHub Sponsors, donations',
+        tooltip: 'Obsidian community supports developers via donations. Popular: GitHub Sponsors ($5-20/mo), Buy Me a Coffee, Ko-fi. Users appreciate quality plugins and support developers.',
+        configOptions: [
+          {
+            id: 'monetizationStrategy',
+            label: 'Revenue Model',
+            type: 'select',
+            tooltip: 'How to generate revenue',
+            options: [
+              {
+                value: 'donations',
+                label: 'Donations (GitHub Sponsors)',
+                tooltip: 'Recurring donations. Best for: Community-driven, transparent development. Most common for Obsidian plugins.',
+                recommended: true
+              },
+              {
+                value: 'freemium',
+                label: 'Freemium + Premium',
+                tooltip: 'Free plugin + paid premium features. Best for: Advanced features, cloud sync, AI. Requires license system.'
+              },
+              {
+                value: 'free',
+                label: 'Fully Free',
+                tooltip: 'No monetization. Best for: Open source, building audience, portfolio.'
+              },
+            ],
+            defaultValue: 'donations',
+          },
+        ],
+      },
+      {
+        id: 'testing',
+        name: 'Testing',
+        description: 'Test plugin functionality',
+        tooltip: 'Test plugin logic and UI. Use ESLint for code quality (recommended).',
+        configOptions: [
+          {
+            id: 'includeTests',
+            label: 'Include Tests',
+            type: 'toggle',
+            tooltip: 'Set up testing framework for plugin.',
+            defaultValue: false,
+          },
+        ],
+      },
+      {
+        id: 'deployment',
+        name: 'Publishing',
+        description: 'Community plugin submission',
+        tooltip: 'Submit to Obsidian Community Plugins directory for discovery. Free, reviewed by Obsidian team. Users install via Settings > Community plugins.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'publishTarget',
+            label: 'Distribution',
+            type: 'select',
+            tooltip: 'How users will install your plugin',
+            options: [
+              {
+                value: 'community-plugins',
+                label: 'Community Plugins',
+                tooltip: 'Official directory. Best for: Maximum reach, credibility, easy installation for users.',
+                recommended: true
+              },
+              {
+                value: 'manual',
+                label: 'Manual Installation (GitHub)',
+                tooltip: 'Users install manually. Best for: Testing, pre-release, niche plugins.'
+              },
+            ],
+            defaultValue: 'community-plugins',
+          },
+        ],
+      },
+      {
+        id: 'code-quality',
+        name: 'Code Quality',
+        description: 'ESLint, TypeScript',
+        tooltip: 'TypeScript required. Use ESLint for code quality. Component class for resource management.',
+        recommended: true,
+        hidden: true,
+      },
+      {
+        id: 'env-config',
+        name: 'Environment Configuration',
+        description: 'Manage API keys',
+        tooltip: 'Store API keys for external services, license keys for premium features.',
+        recommended: true,
+        hidden: true,
+      },
+    ],
+  },
+  {
+    id: 'notion-integration',
+    name: 'Notion Integration',
+    description: 'Notion API integration with OAuth 2.0',
+    tooltip: 'Build integrations for Notion (30M+ users, huge enterprise adoption). Create SaaS tools, automation, AI features, custom databases. Sell subscriptions $10-99/mo. Popular niches: CRM for Notion, automation, AI assistants, template marketplaces. Latest API: v2025-09-03 ("databases" → "data sources"). Revenue potential: $200-15k/mo.',
+    icon: null,
+    gradient: 'linear-gradient(90deg, #FFFFFF 0%, #E8E8E8 100%)',
+    command: 'npm create next-app@latest',
+    features: [
+      {
+        id: 'integration-type',
+        name: 'Integration Type',
+        description: 'Internal or Public OAuth integration',
+        tooltip: 'Internal = Single workspace, token-based auth. Public = Multi-workspace, OAuth 2.0. Choose based on distribution.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'integrationType',
+            label: 'Integration Type',
+            type: 'select',
+            tooltip: 'Authentication and distribution model',
+            options: [
+              {
+                value: 'public-oauth',
+                label: 'Public Integration (OAuth 2.0)',
+                tooltip: 'Multi-workspace with OAuth. Best for: SaaS products, marketplace apps, public distribution. Required for selling.',
+                recommended: true
+              },
+              {
+                value: 'internal',
+                label: 'Internal Integration',
+                tooltip: 'Single workspace, token-based. Best for: Personal tools, team automation, testing. Simpler auth, no review.'
+              },
+            ],
+            defaultValue: 'public-oauth',
+          },
+        ],
+      },
+      {
+        id: 'framework',
+        name: 'Framework',
+        description: 'Next.js with Notion SDK',
+        tooltip: 'Next.js recommended for full-stack. Use @notionhq/client v5.1.0+ (latest 2025). API routes for OAuth, serverless functions for automation.',
+        recommended: true,
+        hidden: true,
+      },
+      {
+        id: 'notion-features',
+        name: 'Notion Features',
+        description: 'What to build with Notion API',
+        tooltip: 'Notion API v2025-09-03: data sources (formerly databases), pages, blocks, users. Popular: automation, custom views, AI features.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'featureType',
+            label: 'Primary Functionality',
+            type: 'select',
+            tooltip: 'Main feature of your integration',
+            options: [
+              {
+                value: 'automation',
+                label: 'Automation & Sync',
+                tooltip: 'Automate tasks, sync data. Best for: Recurring tasks, data sync, webhooks. Popular: CRM updates, task automation.',
+                recommended: true
+              },
+              {
+                value: 'crm',
+                label: 'CRM System',
+                tooltip: 'Customer relationship management. Best for: Sales pipelines, contact management, deal tracking. Hot niche!'
+              },
+              {
+                value: 'ai-assistant',
+                label: 'AI Assistant',
+                tooltip: 'AI-powered features. Best for: Summarization, writing, chat, content generation. High-value, premium pricing.'
+              },
+              {
+                value: 'custom-views',
+                label: 'Custom Views/Dashboards',
+                tooltip: 'Visualize Notion data differently. Best for: Charts, timelines, calendars, analytics. Alternative to Notion\'s built-in views.'
+              },
+              {
+                value: 'templates',
+                label: 'Template Marketplace',
+                tooltip: 'Sell/share Notion templates. Best for: Pre-built databases, workflows. Can bundle with integration features.'
+              },
+            ],
+            defaultValue: 'automation',
+          },
+        ],
+      },
+      {
+        id: 'oauth-setup',
+        name: 'OAuth 2.0 Configuration',
+        description: 'Public integration authentication',
+        tooltip: 'OAuth 2.0 for public integrations. Users grant access to their workspaces. Token exchange, redirect URIs, scopes. Notion API handles OAuth flow.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'includeOAuth',
+            label: 'Setup OAuth 2.0',
+            type: 'toggle',
+            tooltip: 'Add OAuth flow for public integrations. Required for multi-workspace apps.',
+            defaultValue: true,
+          },
+        ],
+      },
+      {
+        id: 'database-integration',
+        name: 'Data Sources (Databases)',
+        description: 'Work with Notion data sources',
+        tooltip: 'API v2025-09-03 renamed "databases" to "data sources". Query, create, update. Most integrations need this.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'databaseOperations',
+            label: 'Database Operations',
+            type: 'select',
+            tooltip: 'What to do with Notion data sources',
+            options: [
+              {
+                value: 'read-write',
+                label: 'Read & Write',
+                tooltip: 'Full CRUD operations. Best for: CRM, automation, sync. Most common.',
+                recommended: true
+              },
+              {
+                value: 'read-only',
+                label: 'Read Only',
+                tooltip: 'Query data only. Best for: Dashboards, analytics, reporting.'
+              },
+              {
+                value: 'write-only',
+                label: 'Write Only',
+                tooltip: 'Create entries. Best for: Forms, data collection, imports.'
+              },
+            ],
+            defaultValue: 'read-write',
+          },
+        ],
+      },
+      {
+        id: 'external-integrations',
+        name: 'External Integrations',
+        description: 'Connect Notion to other services',
+        tooltip: 'Integrate Notion with Slack, Gmail, Shopify, Stripe, etc. Most valuable integrations connect Notion to other tools.',
+        configOptions: [
+          {
+            id: 'externalApis',
+            label: 'External Services',
+            type: 'select',
+            tooltip: 'What services to connect with Notion',
+            options: [
+              {
+                value: 'none',
+                label: 'Notion Only',
+                tooltip: 'No external integrations. Best for: Notion-only features, templates.',
+                recommended: true
+              },
+              {
+                value: 'productivity',
+                label: 'Productivity (Slack, Gmail)',
+                tooltip: 'Connect to communication tools. Best for: Notifications, task sync, team collaboration.'
+              },
+              {
+                value: 'ecommerce',
+                label: 'E-commerce (Shopify, Stripe)',
+                tooltip: 'Connect to sales tools. Best for: Order tracking, inventory, customer data.'
+              },
+              {
+                value: 'ai',
+                label: 'AI Services (OpenAI, Claude)',
+                tooltip: 'Add AI features. Best for: Content generation, summarization, chat assistants.'
+              },
+              {
+                value: 'custom',
+                label: 'Custom APIs',
+                tooltip: 'Any external APIs. Best for: Specific integrations, niche tools.'
+              },
+            ],
+            defaultValue: 'none',
+          },
+        ],
+      },
+      {
+        id: 'backend-database',
+        name: 'Backend Database',
+        description: 'Store integration data',
+        tooltip: 'Store OAuth tokens, user data, cache. Separate from Notion data. Essential for public integrations.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'dbType',
+            label: 'Database',
+            type: 'select',
+            tooltip: 'Where to store integration data',
+            options: [
+              {
+                value: 'postgresql',
+                label: 'PostgreSQL',
+                tooltip: 'Production-ready. Best for: User accounts, OAuth tokens. Free: Supabase, Vercel Postgres.',
+                recommended: true
+              },
+              {
+                value: 'mongodb',
+                label: 'MongoDB',
+                tooltip: 'NoSQL. Best for: Flexible schemas, document storage. Free: MongoDB Atlas.'
+              },
+              {
+                value: 'vercel-kv',
+                label: 'Vercel KV (Redis)',
+                tooltip: 'Fast key-value store. Best for: Session data, cache, rate limiting.'
+              },
+            ],
+            defaultValue: 'postgresql',
+          },
+        ],
+        autoBundles: ['env-config'],
+      },
+      {
+        id: 'monetization',
+        name: 'Monetization',
+        description: 'SaaS subscription model',
+        tooltip: 'Sell subscriptions ($10-99/mo). Use Stripe for payments. Popular models: freemium, usage-based, tiered pricing.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'pricingModel',
+            label: 'Pricing Model',
+            type: 'select',
+            tooltip: 'How to charge users',
+            options: [
+              {
+                value: 'freemium',
+                label: 'Freemium',
+                tooltip: 'Free tier + paid features. Best for: User acquisition, conversion funnel. Most common SaaS model.',
+                recommended: true
+              },
+              {
+                value: 'subscription',
+                label: 'Paid Subscription',
+                tooltip: 'Paid only ($10-99/mo). Best for: Premium features, no free tier. Higher revenue per user.'
+              },
+              {
+                value: 'usage-based',
+                label: 'Usage-based',
+                tooltip: 'Pay per use (API calls, automations). Best for: Variable usage, enterprise. Examples: $0.10/automation.'
+              },
+              {
+                value: 'free',
+                label: 'Free',
+                tooltip: 'Completely free. Best for: Building audience, open source.'
+              },
+            ],
+            defaultValue: 'freemium',
+          },
+          {
+            id: 'includeStripe',
+            label: 'Stripe Integration',
+            type: 'toggle',
+            tooltip: 'Add Stripe for subscriptions and billing.',
+            defaultValue: true,
+          },
+        ],
+      },
+      {
+        id: 'testing',
+        name: 'Testing',
+        description: 'Test integration functionality',
+        tooltip: 'Test OAuth flow, API calls, webhooks. Essential for reliable integrations.',
+        configOptions: [
+          {
+            id: 'includeTests',
+            label: 'Include Tests',
+            type: 'toggle',
+            tooltip: 'Set up Vitest for testing API routes and integration logic.',
+            defaultValue: false,
+          },
+        ],
+      },
+      {
+        id: 'deployment',
+        name: 'Deployment',
+        description: 'Deploy to production',
+        tooltip: 'Deploy to Vercel, Railway, or Fly.io. Need HTTPS for OAuth redirect URLs.',
+        recommended: true,
+        configOptions: [
+          {
+            id: 'deployTarget',
+            label: 'Hosting Platform',
+            type: 'select',
+            tooltip: 'Where to host your Notion integration',
+            options: [
+              {
+                value: 'vercel',
+                label: 'Vercel',
+                tooltip: 'Easiest for Next.js. Free tier, auto HTTPS. Best for: Quick deployment, serverless.',
+                recommended: true
+              },
+              {
+                value: 'railway',
+                label: 'Railway',
+                tooltip: 'Full-stack hosting with databases. $5/mo. Best for: Persistent servers, background jobs.'
+              },
+              {
+                value: 'fly',
+                label: 'Fly.io',
+                tooltip: 'Global edge deployment. Best for: Performance, worldwide users.'
+              },
+            ],
+            defaultValue: 'vercel',
+          },
+        ],
+      },
+      {
+        id: 'code-quality',
+        name: 'Code Quality',
+        description: 'ESLint, TypeScript, validation',
+        tooltip: 'Use TypeScript, validate input, handle rate limits. API best practices.',
+        recommended: true,
+        hidden: true,
+      },
+      {
+        id: 'env-config',
+        name: 'Environment Variables',
+        description: 'Manage secrets',
+        tooltip: 'Store Notion OAuth secrets, API keys, database URLs securely.',
+        recommended: true,
+        hidden: true,
       },
     ],
   },
