@@ -343,6 +343,7 @@ Run bash commands with the understanding that this is your current working direc
       includePartialMessages: true,
       agents: agentsWithWorkingDir, // Register custom agents with working dir context
       cwd: workingDir, // Set working directory for all tool executions
+      settingSources: ['project'], // Load Skills from .claude/skills/ and agents from .claude/agents/
       // Let SDK manage its own subprocess spawning - don't override executable
       // abortController will be added after stream creation
 
@@ -706,8 +707,14 @@ Run bash commands with the understanding that this is your current working direc
         // If session is in plan mode, immediately switch after spawn
         // (SDK always spawns with bypassPermissions to allow bidirectional mode switching)
         if (session.permission_mode === 'plan') {
-          console.log('🔄 Switching to plan mode');
-          await result.setPermissionMode('plan');
+          try {
+            console.log('🔄 Switching to plan mode');
+            await result.setPermissionMode('plan');
+          } catch (error) {
+            console.error('❌ Failed to set permission mode to plan:', error);
+            // Continue with bypassPermissions as fallback
+            console.warn('⚠️  Continuing with bypassPermissions mode');
+          }
         }
 
         // Note: We don't fetch commands from SDK here because supportedCommands()
@@ -1177,6 +1184,10 @@ Run bash commands with the understanding that this is your current working direc
         _lastError = error;
         console.error(`❌ Query attempt ${attemptNumber}/${MAX_RETRIES} failed:`, error);
 
+        // Clean up failed session stream before retrying
+        sessionStreamManager.cleanupSession(sessionId as string, 'retry_cleanup');
+        activeQueries.delete(sessionId as string);
+
         // Parse error with stderr context for better error messages
         const parsedError = parseApiError(error, stderrOutput);
         console.log('📊 Parsed error:', {
@@ -1223,7 +1234,7 @@ Run bash commands with the understanding that this is your current working direc
           break;
         }
 
-        // Calculate retry delay
+        // Calculate retry delay with exponential backoff
         let delayMs = INITIAL_DELAY_MS * Math.pow(BACKOFF_MULTIPLIER, attemptNumber - 1);
 
         // Respect rate limit retry-after
@@ -1248,6 +1259,8 @@ Run bash commands with the understanding that this is your current working direc
         // Wait before retrying
         console.log(`⏳ Waiting ${delayMs}ms before retry ${attemptNumber + 1}...`);
         await new Promise(resolve => setTimeout(resolve, delayMs));
+
+        // Continue to next iteration of retry loop
       }
     }
 
