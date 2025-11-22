@@ -111,6 +111,225 @@ export async function handleDirectoryRoutes(req: Request, url: URL): Promise<Res
     }
   }
 
+  // POST /api/open-folder - Open any folder in system file explorer
+  if (url.pathname === '/api/open-folder' && req.method === 'POST') {
+    console.log('📂 API: Opening custom folder...');
+
+    try {
+      const body = await req.json() as { path: string };
+      const folderPath = body.path;
+
+      if (!folderPath) {
+        throw new Error('No path provided');
+      }
+
+      console.log('📁 Opening folder:', folderPath);
+
+      // Open the folder in the system file explorer
+      const platform = os.platform();
+
+      if (platform === 'darwin') {
+        // macOS - use 'open' command
+        spawn('open', [folderPath]);
+      } else if (platform === 'win32') {
+        // Windows - use 'explorer' command
+        spawn('explorer', [folderPath]);
+      } else if (platform === 'linux') {
+        // Linux - use 'xdg-open' command
+        spawn('xdg-open', [folderPath]);
+      } else {
+        throw new Error(`Unsupported platform: ${platform}`);
+      }
+
+      return new Response(JSON.stringify({
+        success: true,
+        path: folderPath
+      }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('❌ Failed to open folder:', errorMessage);
+      return new Response(JSON.stringify({
+        success: false,
+        error: errorMessage
+      }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+
+  // POST /api/open-file - Open a file in default application
+  if (url.pathname === '/api/open-file' && req.method === 'POST') {
+    console.log('📄 API: Opening file...');
+
+    try {
+      const body = await req.json() as { path: string };
+      let filePath = body.path;
+
+      if (!filePath) {
+        throw new Error('No path provided');
+      }
+
+      // If it's just a filename (no path separators), search for it in the agent-girl directory
+      if (!filePath.includes('/') && !filePath.includes('\\')) {
+        const baseDir = getDefaultWorkingDirectory();
+        const fs = await import('fs');
+        const path = await import('path');
+
+        // Search recursively in the base directory
+        const findFile = (dir: string, filename: string): string | null => {
+          try {
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            for (const entry of entries) {
+              const fullPath = path.join(dir, entry.name);
+              if (entry.isFile() && entry.name === filename) {
+                return fullPath;
+              }
+              if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
+                const found = findFile(fullPath, filename);
+                if (found) return found;
+              }
+            }
+          } catch {
+            // Ignore permission errors
+          }
+          return null;
+        };
+
+        const foundPath = findFile(baseDir, filePath);
+        if (foundPath) {
+          filePath = foundPath;
+          console.log('📄 Found file at:', filePath);
+        } else {
+          throw new Error(`File not found: ${filePath}`);
+        }
+      }
+
+      console.log('📄 Opening file:', filePath);
+
+      // Open the file in the default application
+      const platform = os.platform();
+
+      if (platform === 'darwin') {
+        // macOS - use 'open' command
+        spawn('open', [filePath]);
+      } else if (platform === 'win32') {
+        // Windows - use 'start' command via cmd
+        spawn('cmd', ['/c', 'start', '', filePath]);
+      } else if (platform === 'linux') {
+        // Linux - use 'xdg-open' command
+        spawn('xdg-open', [filePath]);
+      } else {
+        throw new Error(`Unsupported platform: ${platform}`);
+      }
+
+      return new Response(JSON.stringify({
+        success: true,
+        path: filePath
+      }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('❌ Failed to open file:', errorMessage);
+      return new Response(JSON.stringify({
+        success: false,
+        error: errorMessage
+      }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+
+  // POST /api/open-file-folder - Open the folder containing a file
+  if (url.pathname === '/api/open-file-folder' && req.method === 'POST') {
+    console.log('📂 API: Opening file folder...');
+
+    try {
+      const body = await req.json() as { path: string };
+      let filePath = body.path;
+
+      if (!filePath) {
+        throw new Error('No path provided');
+      }
+
+      const fs = await import('fs');
+      const path = await import('path');
+
+      // If it's just a filename (no path separators), search for it
+      if (!filePath.includes('/') && !filePath.includes('\\')) {
+        const baseDir = getDefaultWorkingDirectory();
+
+        const findFile = (dir: string, filename: string): string | null => {
+          try {
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            for (const entry of entries) {
+              const fullPath = path.join(dir, entry.name);
+              if (entry.isFile() && entry.name === filename) {
+                return fullPath;
+              }
+              if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
+                const found = findFile(fullPath, filename);
+                if (found) return found;
+              }
+            }
+          } catch {
+            // Ignore permission errors
+          }
+          return null;
+        };
+
+        const foundPath = findFile(baseDir, filePath);
+        if (foundPath) {
+          filePath = foundPath;
+        } else {
+          throw new Error(`File not found: ${filePath}`);
+        }
+      }
+
+      // Get the parent directory of the file
+      const folderPath = path.dirname(filePath);
+
+      console.log('📁 Opening folder:', folderPath);
+
+      // Open the folder in the system file explorer
+      const platform = os.platform();
+
+      if (platform === 'darwin') {
+        // macOS - use 'open' command with -R to reveal in Finder
+        spawn('open', ['-R', filePath]);
+      } else if (platform === 'win32') {
+        // Windows - use 'explorer' with /select to highlight the file
+        spawn('explorer', ['/select,', filePath]);
+      } else if (platform === 'linux') {
+        // Linux - use 'xdg-open' on the parent folder
+        spawn('xdg-open', [folderPath]);
+      } else {
+        throw new Error(`Unsupported platform: ${platform}`);
+      }
+
+      return new Response(JSON.stringify({
+        success: true,
+        path: folderPath
+      }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('❌ Failed to open file folder:', errorMessage);
+      return new Response(JSON.stringify({
+        success: false,
+        error: errorMessage
+      }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+
   // Route not handled by this module
   return undefined;
 }

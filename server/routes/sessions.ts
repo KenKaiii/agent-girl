@@ -20,10 +20,14 @@ export async function handleSessionRoutes(
 
   // GET /api/sessions - List all sessions
   if (url.pathname === '/api/sessions' && req.method === 'GET') {
+    // Import any existing folders not in the database
+    const { imported } = sessionDb.importExistingFolders();
+
     const { sessions, recreatedDirectories } = sessionDb.getSessions();
 
     return new Response(JSON.stringify({
       sessions,
+      imported: imported.length > 0 ? imported : undefined,
       warning: recreatedDirectories.length > 0
         ? `Recreated ${recreatedDirectories.length} missing director${recreatedDirectories.length === 1 ? 'y' : 'ies'}`
         : undefined
@@ -170,6 +174,26 @@ export async function handleSessionRoutes(
     const body = await req.json() as { mode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' };
 
     const success = sessionDb.updatePermissionMode(sessionId, body.mode);
+
+    if (success) {
+      const session = sessionDb.getSession(sessionId);
+      return new Response(JSON.stringify({ success: true, session }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } else {
+      return new Response(JSON.stringify({ success: false, error: 'Session not found' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+
+  // PATCH /api/sessions/:id/chat-mode - Update session chat mode (general, coder, etc)
+  if (url.pathname.match(/^\/api\/sessions\/[^/]+\/chat-mode$/) && req.method === 'PATCH') {
+    const sessionId = url.pathname.split('/')[3];
+    const body = await req.json() as { mode: 'general' | 'coder' | 'intense-research' | 'spark' };
+
+    const success = sessionDb.updateSessionMode(sessionId, body.mode);
 
     if (success) {
       const session = sessionDb.getSession(sessionId);

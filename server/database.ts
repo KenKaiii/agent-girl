@@ -437,6 +437,72 @@ class SessionDatabase {
     return { sessions, recreatedDirectories };
   }
 
+  // Import existing folders from the agent-girl directory that aren't in the database
+  importExistingFolders(): { imported: string[]; skipped: string[] } {
+    const baseDir = getDefaultWorkingDirectory();
+    const imported: string[] = [];
+    const skipped: string[] = [];
+
+    // Get all existing working directories from database
+    const existingDirs = new Set(
+      this.db.query<{ working_directory: string }, []>(
+        'SELECT working_directory FROM sessions WHERE working_directory IS NOT NULL'
+      ).all().map(row => row.working_directory)
+    );
+
+    // Scan the base directory for folders
+    if (!fs.existsSync(baseDir)) {
+      console.log('📁 Base directory does not exist:', baseDir);
+      return { imported, skipped };
+    }
+
+    const entries = fs.readdirSync(baseDir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+
+      const folderPath = path.join(baseDir, entry.name);
+
+      // Skip if already in database
+      if (existingDirs.has(folderPath)) {
+        skipped.push(entry.name);
+        continue;
+      }
+
+      // Skip hidden folders and system folders
+      if (entry.name.startsWith('.') || entry.name === 'node_modules') {
+        continue;
+      }
+
+      try {
+        // Get folder modification time for the timestamp
+        const stats = fs.statSync(folderPath);
+        const timestamp = stats.mtime.toISOString();
+
+        // Create a new session for this folder
+        const sessionId = randomUUID();
+        const title = entry.name;
+
+        this.db.run(
+          `INSERT INTO sessions (id, title, created_at, updated_at, working_directory, permission_mode, mode)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [sessionId, title, timestamp, timestamp, folderPath, 'default', 'general']
+        );
+
+        imported.push(entry.name);
+        console.log(`✅ Imported folder: ${entry.name}`);
+      } catch (error) {
+        console.error(`❌ Failed to import folder ${entry.name}:`, error);
+      }
+    }
+
+    if (imported.length > 0) {
+      console.log(`📁 Imported ${imported.length} folders`);
+    }
+
+    return { imported, skipped };
+  }
+
   getSession(sessionId: string): Session | null {
     const session = this.db
       .query<Session, [string]>(
@@ -513,6 +579,25 @@ class SessionDatabase {
       return success;
     } catch (error) {
       console.error('❌ Failed to update permission mode:', error);
+      return false;
+    }
+  }
+
+  updateSessionMode(sessionId: string, mode: 'general' | 'coder' | 'intense-research' | 'spark'): boolean {
+    try {
+      const result = this.db.run(
+        "UPDATE sessions SET mode = ?, updated_at = ? WHERE id = ?",
+        [mode, new Date().toISOString(), sessionId]
+      );
+
+      const success = result.changes > 0;
+      if (!success) {
+        console.warn('⚠️  No session found to update');
+      }
+
+      return success;
+    } catch (error) {
+      console.error('❌ Failed to update session mode:', error);
       return false;
     }
   }

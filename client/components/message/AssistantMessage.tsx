@@ -27,8 +27,116 @@ import { ThinkingBlock } from './ThinkingBlock';
 import { CodeBlockWithCopy } from './CodeBlockWithCopy';
 import { URLBadge } from './URLBadge';
 import { MermaidDiagram } from './MermaidDiagram';
-import { Shield } from 'lucide-react';
+import { Shield, FileText, FolderOpen } from 'lucide-react';
 import { showError } from '../../utils/errorMessages';
+
+// Helper to render text with file path detection
+function TextWithFilePaths({ children }: { children: React.ReactNode }) {
+  if (typeof children !== 'string') {
+    return <>{children}</>;
+  }
+
+  // Helper to convert text with newlines to React nodes
+  const textToNodes = (text: string, keyPrefix: string): React.ReactNode[] => {
+    if (!text.includes('\n')) return [text];
+    return text.split('\n').flatMap((part, i, arr) =>
+      i < arr.length - 1 ? [part, <br key={`${keyPrefix}-br-${i}`} />] : [part]
+    );
+  };
+
+  // Regex to match file paths (Unix absolute, Windows, relative paths, and standalone filenames)
+  // Patterns: /Users/..., C:\..., foo/bar/..., FILENAME.ext
+  const pathRegex = /((?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)[^\s<>"|]*)|(?:[A-Za-z]:\\[^\s<>"|]*)|(?:(?:\.\.?\/)?[\w.-]+\/[\w./@-]+)|(?:[A-Z_][\w_-]*\.(?:md|txt|json|yml|yaml|sh|py|js|ts|jsx|tsx|css|html|xml|toml|ini|cfg|conf|log|env|gitignore|dockerignore)))/g;
+
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = pathRegex.exec(children)) !== null) {
+    // Add text before the match (with newline handling)
+    if (match.index > lastIndex) {
+      const textBefore = children.slice(lastIndex, match.index);
+      parts.push(...textToNodes(textBefore, `pre-${match.index}`));
+    }
+
+    // Add the path with action buttons
+    const filePath = match[1];
+    parts.push(
+      <span key={match.index} className="inline-flex items-center gap-0.5">
+        <span>{filePath}</span>
+        <FilePathActions filePath={filePath} />
+      </span>
+    );
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Add remaining text (with newline handling)
+  if (lastIndex < children.length) {
+    const textAfter = children.slice(lastIndex);
+    parts.push(...textToNodes(textAfter, 'post'));
+  }
+
+  return parts.length > 0 ? <>{parts}</> : <>{children}</>;
+}
+
+// File path action buttons component
+function FilePathActions({ filePath }: { filePath: string }) {
+  const handleOpenFile = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const response = await fetch('/api/open-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: filePath }),
+      });
+      const result = await response.json() as { success: boolean; error?: string };
+      if (!result.success) {
+        showError('OPEN_FOLDER', result.error || 'Failed to open file');
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      showError('OPEN_FOLDER', errorMsg);
+    }
+  };
+
+  const handleOpenFolder = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const response = await fetch('/api/open-file-folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: filePath }),
+      });
+      const result = await response.json() as { success: boolean; error?: string };
+      if (!result.success) {
+        showError('OPEN_FOLDER', result.error || 'Failed to open folder');
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      showError('OPEN_FOLDER', errorMsg);
+    }
+  };
+
+  return (
+    <div className="flex gap-0.5 ml-1 shrink-0">
+      <button
+        onClick={handleOpenFile}
+        className="p-0.5 hover:bg-white/10 rounded transition-colors"
+        title="Open file"
+      >
+        <FileText className="w-3 h-3 text-white/40 hover:text-white/80" />
+      </button>
+      <button
+        onClick={handleOpenFolder}
+        className="p-0.5 hover:bg-white/10 rounded transition-colors"
+        title="Show in folder"
+      >
+        <FolderOpen className="w-3 h-3 text-white/40 hover:text-white/80" />
+      </button>
+    </div>
+  );
+}
 
 interface AssistantMessageProps {
   message: AssistantMessageType;
@@ -383,6 +491,7 @@ function ReadToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
           <span className="flex-1 min-w-0 text-xs truncate text-white/60">
             {input.file_path as string}
           </span>
+          <FilePathActions filePath={input.file_path as string} />
         </div>
         <div className="flex gap-1 items-center whitespace-nowrap">
           <button
@@ -402,7 +511,10 @@ function ReadToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
         <div className="p-4 bg-black/30 text-sm space-y-2">
           <div>
             <span className="text-xs font-semibold text-white/60">File Path:</span>
-            <div className="text-sm mt-1 font-mono">{input.file_path as string}</div>
+            <div className="text-sm mt-1 font-mono flex items-center gap-2">
+              {input.file_path as string}
+              <FilePathActions filePath={input.file_path as string} />
+            </div>
           </div>
           {input.offset && (
             <div>
@@ -1244,6 +1356,7 @@ function EditToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
           <span className="flex-1 min-w-0 text-xs truncate text-white/60">
             {input.file_path as string}
           </span>
+          <FilePathActions filePath={input.file_path as string} />
         </div>
         <div className="flex gap-1 items-center whitespace-nowrap">
           <span className="text-green-500">+ {stats.added}</span>
@@ -1634,18 +1747,65 @@ function TextComponent({ text }: { text: TextBlock }) {
                 return <MermaidDiagram chart={String(children).replace(/\n$/, '')} />;
               }
 
-              return !inline ? (
-                <CodeBlockWithCopy
-                  code={String(children).replace(/\n$/, '')}
-                  language={language}
-                  customStyle={{
-                    margin: '1rem 0',
-                    borderRadius: '0.5rem',
-                    fontSize: '0.875rem',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
-                  }}
-                />
-              ) : (
+              // For code blocks, check if they contain file paths
+              if (!inline) {
+                const codeContent = String(children).replace(/\n$/, '');
+                // Check if this code block contains file paths (tree structure)
+                const hasFilePaths = /(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)[^\s<>"|]*)|(?:[A-Za-z]:\\[^\s<>"|]*)|(?:(?:\.\.?\/)?[\w.-]+\/[\w./-]+)/.test(codeContent);
+
+                // Render with file path detection if paths found and no syntax highlighting needed
+                const isPlainText = !language || language === 'text' || language === 'plaintext' || language === 'txt';
+                if (hasFilePaths && isPlainText) {
+                  // Render as plain text with file path detection
+                  const lines = codeContent.split('\n');
+                  return (
+                    <div className="my-4 p-4 rounded-lg font-mono text-sm whitespace-pre-wrap" style={{
+                      backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                    }}>
+                      {lines.map((line, i) => (
+                        <div key={i} className="leading-relaxed flex flex-wrap items-center">
+                          <TextWithFilePaths>{line}</TextWithFilePaths>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                }
+
+                return (
+                  <CodeBlockWithCopy
+                    code={codeContent}
+                    language={language}
+                    customStyle={{
+                      margin: '1rem 0',
+                      borderRadius: '0.5rem',
+                      fontSize: '0.875rem',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                    }}
+                  />
+                );
+              }
+
+              // Inline code with file path detection
+              const inlineContent = String(children);
+              const isFilePath = /^(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)[^\s<>"|]*)|(?:[A-Za-z]:\\[^\s<>"|]*)$/.test(inlineContent);
+
+              if (isFilePath) {
+                return (
+                  <span className="inline-flex items-center gap-0.5">
+                    <code className="px-1.5 py-0.5 text-sm font-mono rounded-md" style={{
+                      backgroundColor: 'rgba(168, 199, 250, 0.15)',
+                      color: '#DAEEFF',
+                      border: '1px solid rgba(168, 199, 250, 0.2)'
+                    }}>
+                      {children}
+                    </code>
+                    <FilePathActions filePath={inlineContent} />
+                  </span>
+                );
+              }
+
+              return (
                 <code className="px-1.5 py-0.5 text-sm font-mono rounded-md" style={{
                   backgroundColor: 'rgba(168, 199, 250, 0.15)',
                   color: '#DAEEFF',
@@ -1681,12 +1841,20 @@ function TextComponent({ text }: { text: TextBlock }) {
             ol: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
               <ol className="list-decimal pl-6 space-y-3 marker:text-gray-400" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
             ),
-            li: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-              <li className="mb-2 leading-relaxed" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
+            li: ({ children, ...props }: React.HTMLAttributes<HTMLElement>) => (
+              <li className="mb-2 leading-relaxed" style={{ color: 'rgb(var(--text-primary))' }} {...props}>
+                {React.Children.map(children, child =>
+                  typeof child === 'string' ? <TextWithFilePaths>{child}</TextWithFilePaths> : child
+                )}
+              </li>
             ),
-            // Customize paragraph spacing
-            p: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-              <p className="mb-4 leading-relaxed first:mt-0 last:mb-0" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
+            // Customize paragraph spacing with file path detection
+            p: ({ children, ...props }: React.HTMLAttributes<HTMLElement>) => (
+              <p className="mb-4 leading-relaxed first:mt-0 last:mb-0" style={{ color: 'rgb(var(--text-primary))' }} {...props}>
+                {React.Children.map(children, child =>
+                  typeof child === 'string' ? <TextWithFilePaths>{child}</TextWithFilePaths> : child
+                )}
+              </p>
             ),
             // Customize blockquote
             blockquote: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (

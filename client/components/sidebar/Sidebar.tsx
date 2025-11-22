@@ -19,15 +19,34 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Menu, Edit3, Search, Trash2, Edit, FolderOpen } from 'lucide-react';
+import { Menu, Edit3, Search, Trash2, Edit, FolderOpen, Copy } from 'lucide-react';
 import { toast } from '../../utils/toast';
 
 interface Chat {
   id: string;
   title: string;
   timestamp: Date;
+  createdAt?: Date;
   isActive?: boolean;
   isLoading?: boolean;
+  workingDirectory?: string;
+}
+
+// Format relative time for display
+function formatRelativeTime(date: Date): string {
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return 'just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+
+  // Format as date for older
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 interface SidebarProps {
@@ -47,20 +66,18 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
   const [editingTitle, setEditingTitle] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Group chats by date
+  // Group chats by date with precise grouping
   const groupChatsByDate = (chats: Chat[]) => {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
 
-    const groups: { [key: string]: Chat[] } = {
-      Today: [],
-      Yesterday: [],
-      'Previous 7 Days': [],
-      'Previous 30 Days': [],
-      Older: []
-    };
+    // Create ordered groups
+    const orderedGroups: { label: string; chats: Chat[] }[] = [];
+    const groupMap: { [key: string]: Chat[] } = {};
+
+    // Weekday names
+    const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
     chats.forEach(chat => {
       const chatDate = new Date(chat.timestamp);
@@ -69,20 +86,64 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
       const diffTime = today.getTime() - chatDay.getTime();
       const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
+      let groupKey: string;
+
       if (diffDays === 0) {
-        groups.Today.push(chat);
+        groupKey = 'Today';
       } else if (diffDays === 1) {
-        groups.Yesterday.push(chat);
-      } else if (diffDays <= 7) {
-        groups['Previous 7 Days'].push(chat);
-      } else if (diffDays <= 30) {
-        groups['Previous 30 Days'].push(chat);
+        groupKey = 'Yesterday';
+      } else if (diffDays < 7) {
+        // Show weekday name for last 7 days
+        groupKey = weekdays[chatDay.getDay()];
+      } else if (diffDays < 14) {
+        groupKey = 'Last Week';
+      } else if (diffDays < 30) {
+        groupKey = 'This Month';
+      } else if (chatDate.getFullYear() === now.getFullYear()) {
+        // Show month name for this year
+        groupKey = months[chatDate.getMonth()];
       } else {
-        groups.Older.push(chat);
+        // Show month + year for older
+        groupKey = `${months[chatDate.getMonth()]} ${chatDate.getFullYear()}`;
+      }
+
+      if (!groupMap[groupKey]) {
+        groupMap[groupKey] = [];
+      }
+      groupMap[groupKey].push(chat);
+    });
+
+    // Define group order
+    const groupOrder = [
+      'Today', 'Yesterday',
+      ...weekdays, // Sunday through Saturday
+      'Last Week', 'This Month',
+      ...months, // Jan through Dec
+    ];
+
+    // Add groups in order
+    groupOrder.forEach(key => {
+      if (groupMap[key] && groupMap[key].length > 0) {
+        orderedGroups.push({ label: key, chats: groupMap[key] });
+        delete groupMap[key];
       }
     });
 
-    return groups;
+    // Add remaining groups (older with year) sorted by date
+    const remainingKeys = Object.keys(groupMap).sort((a, b) => {
+      // Sort by most recent first
+      const aDate = groupMap[a][0]?.timestamp || new Date(0);
+      const bDate = groupMap[b][0]?.timestamp || new Date(0);
+      return new Date(bDate).getTime() - new Date(aDate).getTime();
+    });
+
+    remainingKeys.forEach(key => {
+      if (groupMap[key].length > 0) {
+        orderedGroups.push({ label: key, chats: groupMap[key] });
+      }
+    });
+
+    return orderedGroups;
   };
 
   const filteredChats = chats.filter(chat =>
@@ -90,6 +151,9 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
   );
 
   const groupedChats = groupChatsByDate(filteredChats);
+
+  // Type for the grouped chats
+  type ChatGroup = { label: string; chats: Chat[] };
 
   // Focus input when editing starts
   useEffect(() => {
@@ -191,6 +255,19 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
           <span>New Chat</span>
         </button>
 
+        {/* New Chat Tab Button - Opens in new browser tab */}
+        <button
+          className="sidebar-new-chat-btn"
+          onClick={() => {
+            // Open a new browser tab with fresh chat (no hash = new chat)
+            window.open(window.location.origin, '_blank');
+          }}
+          style={{ marginTop: '0.5rem' }}
+        >
+          <Edit3 size={20} opacity={0.8} />
+          <span>+ New Chat Tab</span>
+        </button>
+
         {/* Open Chat Folder Button */}
         <button className="sidebar-new-chat-btn" onClick={handleOpenChatFolder} style={{ marginTop: '0.5rem' }}>
           <FolderOpen size={20} opacity={0.8} />
@@ -238,13 +315,13 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
           {/* Chat Groups */}
           {isAllChatsExpanded && (
             <div className="sidebar-chat-groups">
-              {Object.entries(groupedChats).map(([groupName, groupChats]) => {
-                if (groupChats.length === 0) return null;
+              {(groupedChats as ChatGroup[]).map((group) => {
+                if (group.chats.length === 0) return null;
 
                 return (
-                  <div key={groupName} className="sidebar-chat-group">
-                    <div className="sidebar-group-label">{groupName}</div>
-                    {groupChats.map((chat) => (
+                  <div key={group.label} className="sidebar-chat-group">
+                    <div className="sidebar-group-label">{group.label}</div>
+                    {group.chats.map((chat) => (
                       <div key={chat.id} className="sidebar-chat-item-wrapper group" style={{ position: 'relative' }}>
                         {editingId === chat.id ? (
                           <div style={{ padding: '0.5rem' }}>
@@ -283,6 +360,7 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
                             <button
                               className={`sidebar-chat-item ${chat.isActive ? 'sidebar-chat-item-active' : ''}`}
                               onClick={() => onChatSelect?.(chat.id)}
+                              title={chat.workingDirectory || chat.title}
                             >
                               <div className="sidebar-chat-title">
                                 {chat.title}
@@ -323,11 +401,20 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
                                   </span>
                                 )}
                               </div>
+                              <div style={{
+                                fontSize: '0.65rem',
+                                color: 'rgb(var(--text-secondary))',
+                                opacity: 0.7,
+                                marginTop: '2px',
+                              }}>
+                                {formatRelativeTime(new Date(chat.timestamp))}
+                              </div>
                             </button>
                             <div className={`sidebar-chat-menu ${chat.isActive ? '' : 'sidebar-chat-menu-hidden'}`} style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
                               <button
                                 className="sidebar-chat-menu-btn"
                                 aria-label="Rename Chat"
+                                title="Rename"
                                 onClick={(e) => handleRenameClick(chat, e)}
                                 style={{
                                   padding: '0.25rem',
@@ -354,7 +441,93 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
                               </button>
                               <button
                                 className="sidebar-chat-menu-btn"
+                                aria-label="Open Folder"
+                                title="Open folder"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  if (chat.workingDirectory) {
+                                    try {
+                                      const response = await fetch('/api/open-folder', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ path: chat.workingDirectory }),
+                                      });
+                                      const data = await response.json();
+                                      if (data.success) {
+                                        toast.success('Opened folder');
+                                      } else {
+                                        toast.error('Failed to open folder', { description: data.error });
+                                      }
+                                    } catch (error) {
+                                      toast.error('Failed to open folder');
+                                    }
+                                  }
+                                }}
+                                style={{
+                                  padding: '0.25rem',
+                                  background: chat.isActive ? 'rgb(var(--bg-tertiary))' : 'rgb(var(--bg-secondary))',
+                                  border: 'none',
+                                  borderRadius: '0.25rem',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  color: 'rgb(var(--text-secondary))',
+                                  transition: 'all 0.15s',
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                                  e.currentTarget.style.color = 'rgb(var(--text-primary))';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.background = chat.isActive ? 'rgb(var(--bg-tertiary))' : 'rgb(var(--bg-secondary))';
+                                  e.currentTarget.style.color = 'rgb(var(--text-secondary))';
+                                }}
+                              >
+                                <FolderOpen size={14} />
+                              </button>
+                              <button
+                                className="sidebar-chat-menu-btn"
+                                aria-label="Copy Path"
+                                title="Copy path"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  if (chat.workingDirectory) {
+                                    try {
+                                      await navigator.clipboard.writeText(chat.workingDirectory);
+                                      toast.success('Path copied', { description: chat.workingDirectory });
+                                    } catch {
+                                      toast.error('Failed to copy path');
+                                    }
+                                  }
+                                }}
+                                style={{
+                                  padding: '0.25rem',
+                                  background: chat.isActive ? 'rgb(var(--bg-tertiary))' : 'rgb(var(--bg-secondary))',
+                                  border: 'none',
+                                  borderRadius: '0.25rem',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  color: 'rgb(var(--text-secondary))',
+                                  transition: 'all 0.15s',
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                                  e.currentTarget.style.color = 'rgb(var(--text-primary))';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.background = chat.isActive ? 'rgb(var(--bg-tertiary))' : 'rgb(var(--bg-secondary))';
+                                  e.currentTarget.style.color = 'rgb(var(--text-secondary))';
+                                }}
+                              >
+                                <Copy size={14} />
+                              </button>
+                              <button
+                                className="sidebar-chat-menu-btn"
                                 aria-label="Delete Chat"
+                                title="Delete"
                                 onClick={(e) => handleDeleteClick(chat.id, e)}
                                 style={{
                                   padding: '0.25rem',

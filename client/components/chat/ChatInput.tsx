@@ -42,6 +42,7 @@ interface ChatInputProps {
   backgroundProcesses?: BackgroundProcess[];
   onKillProcess?: (bashId: string) => void;
   mode?: 'general' | 'coder' | 'intense-research' | 'spark';
+  onModeChange?: (mode: 'general' | 'coder' | 'intense-research' | 'spark') => void;
   availableCommands?: SlashCommand[];
   contextUsage?: {
     inputTokens: number;
@@ -51,7 +52,7 @@ interface ChatInputProps {
   selectedModel?: string;
 }
 
-export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGenerating, placeholder, isPlanMode, onTogglePlanMode, backgroundProcesses: _backgroundProcesses = [], onKillProcess: _onKillProcess, mode, availableCommands = [], contextUsage, selectedModel }: ChatInputProps) {
+export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGenerating, placeholder, isPlanMode, onTogglePlanMode, backgroundProcesses: _backgroundProcesses = [], onKillProcess: _onKillProcess, mode, onModeChange, availableCommands = [], contextUsage, selectedModel }: ChatInputProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [attachedFiles, setAttachedFiles] = useState<FileAttachment[]>([]);
@@ -334,7 +335,7 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
           </div>
         )}
 
-        <form className="flex gap-1.5 w-full" onSubmit={(e) => { e.preventDefault(); onSubmit(); }}>
+        <form className="flex gap-1.5 w-full relative" onSubmit={(e) => { e.preventDefault(); onSubmit(); }}>
         {/* Main input container with rounded border */}
         <div className={`input-field-wrapper ${isDraggingOver ? 'ring-2 ring-blue-500 ring-opacity-50' : ''}`}>
           {/* File attachments preview */}
@@ -391,9 +392,9 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
           )}
 
           {/* Textarea */}
-          <div className="overflow-hidden relative px-2.5">
+          <div className="relative px-2.5" style={{ overflow: 'visible' }}>
             {/* Mode Indicator */}
-            {mode && <ModeIndicator mode={mode} onWidthChange={setModeIndicatorWidth} />}
+            {mode && <ModeIndicator mode={mode} onWidthChange={setModeIndicatorWidth} onModeChange={onModeChange} />}
 
             {/* Command Pill Overlay */}
             {value.match(/(^|\s)(\/([a-z-]+))(?=\s|$)/m) && (

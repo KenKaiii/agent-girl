@@ -38,6 +38,7 @@ interface NewChatWelcomeProps {
   availableCommands?: SlashCommand[];
   onOpenBuildWizard?: () => void;
   mode?: 'general' | 'coder' | 'intense-research' | 'spark';
+  onModeChange?: (mode: 'general' | 'coder' | 'intense-research' | 'spark') => void;
 }
 
 const CAPABILITIES = [
@@ -48,7 +49,7 @@ const CAPABILITIES = [
   "I can analyze data and files"
 ];
 
-export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, disabled, isGenerating, isPlanMode, onTogglePlanMode, availableCommands = [], onOpenBuildWizard, mode }: NewChatWelcomeProps) {
+export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, disabled, isGenerating, isPlanMode, onTogglePlanMode, availableCommands = [], onOpenBuildWizard, mode, onModeChange }: NewChatWelcomeProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [attachedFiles, setAttachedFiles] = useState<FileAttachment[]>([]);
@@ -63,6 +64,14 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
       setSelectedMode(mode);
     }
   }, [mode]);
+
+  // Handle mode change from indicator
+  const handleModeIndicatorChange = (newMode: 'general' | 'coder' | 'intense-research' | 'spark') => {
+    setSelectedMode(newMode);
+    if (onModeChange) {
+      onModeChange(newMode);
+    }
+  };
   const [modeIndicatorWidth, setModeIndicatorWidth] = useState(80);
 
   // Slash command autocomplete state
@@ -388,7 +397,7 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
             </div>
           )}
 
-          <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="flex gap-1.5 w-full">
+          <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="flex gap-1.5 w-full relative">
             <div className="flex-1 flex flex-col relative w-full rounded-xl border-b-2 border-white/10 transition hover:bg-[#374151]" style={{ backgroundColor: 'rgb(38, 40, 42)' }}>
               {/* File attachments preview */}
               {attachedFiles.length > 0 && (
@@ -444,9 +453,9 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
               )}
 
               {/* Textarea */}
-              <div className="overflow-hidden relative px-2.5">
+              <div className="relative px-2.5" style={{ overflow: 'visible' }}>
                 {/* Mode Indicator */}
-                <ModeIndicator mode={selectedMode} onWidthChange={setModeIndicatorWidth} />
+                <ModeIndicator mode={selectedMode} onWidthChange={setModeIndicatorWidth} onModeChange={handleModeIndicatorChange} />
 
                 {/* Command Pill Overlay */}
                 {inputValue.match(/(^|\s)(\/([a-z-]+))(?=\s|$)/m) && (

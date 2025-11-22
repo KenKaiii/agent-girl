@@ -20,6 +20,8 @@ import { parseApiError, getUserFriendlyMessage } from "../utils/apiErrors";
 import { TimeoutController } from "../utils/timeout";
 import { sessionStreamManager } from "../sessionStreamManager";
 import { expandSlashCommand } from "../slashCommandExpander";
+import { renameSessionFolderFromFirstMessage, updateSessionTitleFromFirstMessage } from "../folderNaming";
+import { getDefaultWorkingDirectory } from "../directoryUtils";
 
 interface ChatWebSocketData {
   type: 'hot-reload' | 'chat';
@@ -102,7 +104,7 @@ async function handleChatMessage(
     return;
   }
 
-  const workingDir = session.working_directory;
+  let workingDir = session.working_directory;
 
   // Process attachments (images and files)
   const imagePaths: string[] = [];
@@ -229,6 +231,41 @@ async function handleChatMessage(
 
   // Check if this is a new session or continuing existing
   const isNewStream = !sessionStreamManager.hasStream(sessionId as string);
+
+  // Rename folder and update title from first message (for new sessions with default names)
+  if (isNewStream && promptText) {
+    const baseDir = getDefaultWorkingDirectory();
+
+    // Try to rename folder based on content
+    const folderRenameResult = await renameSessionFolderFromFirstMessage(
+      sessionId as string,
+      promptText,
+      baseDir
+    );
+
+    if (folderRenameResult.success && folderRenameResult.newFolderName) {
+      console.log(`📁 Folder renamed from first message: ${folderRenameResult.newFolderName}`);
+      // Update workingDir to the new path after rename
+      workingDir = `${baseDir}/${folderRenameResult.newFolderName}`;
+    }
+
+    // Try to update title from first message
+    const titleUpdateResult = await updateSessionTitleFromFirstMessage(
+      sessionId as string,
+      promptText
+    );
+
+    if (titleUpdateResult.success) {
+      console.log(`📝 Title updated from first message: ${titleUpdateResult.newTitle}`);
+
+      // Notify client of title update
+      ws.send(JSON.stringify({
+        type: 'session_title_updated',
+        sessionId: sessionId,
+        newTitle: titleUpdateResult.newTitle,
+      }));
+    }
+  }
 
   // Get model configuration
   const modelConfig = MODEL_MAP[model as string] || MODEL_MAP['sonnet'];
