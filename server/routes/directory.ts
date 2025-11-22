@@ -165,16 +165,18 @@ export async function handleDirectoryRoutes(req: Request, url: URL): Promise<Res
     console.log('📄 API: Opening file...');
 
     try {
-      const body = await req.json() as { path: string };
+      const body = await req.json() as { path: string; workingDirectory?: string };
       let filePath = body.path;
+      const workingDir = body.workingDirectory;
 
       if (!filePath) {
         throw new Error('No path provided');
       }
 
-      // If it's just a filename (no path separators), search for it in the agent-girl directory
+      // If it's just a filename (no path separators), search for it
       if (!filePath.includes('/') && !filePath.includes('\\')) {
-        const baseDir = getDefaultWorkingDirectory();
+        // First try the working directory if provided
+        const baseDir = workingDir || getDefaultWorkingDirectory();
         const fs = await import('fs');
         const path = await import('path');
 
@@ -249,8 +251,9 @@ export async function handleDirectoryRoutes(req: Request, url: URL): Promise<Res
     console.log('📂 API: Opening file folder...');
 
     try {
-      const body = await req.json() as { path: string };
+      const body = await req.json() as { path: string; workingDirectory?: string };
       let filePath = body.path;
+      const workingDir = body.workingDirectory;
 
       if (!filePath) {
         throw new Error('No path provided');
@@ -261,7 +264,7 @@ export async function handleDirectoryRoutes(req: Request, url: URL): Promise<Res
 
       // If it's just a filename (no path separators), search for it
       if (!filePath.includes('/') && !filePath.includes('\\')) {
-        const baseDir = getDefaultWorkingDirectory();
+        const baseDir = workingDir || getDefaultWorkingDirectory();
 
         const findFile = (dir: string, filename: string): string | null => {
           try {

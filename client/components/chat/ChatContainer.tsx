@@ -33,6 +33,7 @@ import { BuildWizard } from '../build-wizard/BuildWizard';
 import { ScrollButton } from './ScrollButton';
 import { CommandQueueDisplay } from '../queue/CommandQueueDisplay';
 import { useWebSocket } from '../../hooks/useWebSocket';
+import { WorkingDirectoryContext } from '../../hooks/useWorkingDirectory';
 import { useSessionAPI, type Session } from '../../hooks/useSessionAPI';
 import { Menu, Edit3, ChevronLeft, ChevronRight, History, ExternalLink } from 'lucide-react';
 import type { Message } from '../message/types';
@@ -43,7 +44,11 @@ import type { SlashCommand } from '../../hooks/useWebSocket';
 
 export function ChatContainer() {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [inputValue, setInputValue] = useState('');
+  const [inputValue, setInputValue] = useState(() => {
+    // Restore draft text from localStorage on mount
+    const saved = localStorage.getItem('agent-girl-draft-text');
+    return saved || '';
+  });
   const [loadingSessions, setLoadingSessions] = useState<Set<string>>(new Set());
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
     // Restore sidebar state from localStorage
@@ -87,6 +92,15 @@ export function ChatContainer() {
   useEffect(() => {
     localStorage.setItem('agent-girl-sidebar-open', String(isSidebarOpen));
   }, [isSidebarOpen]);
+
+  // Persist draft text to localStorage (saves on change, clears on submit)
+  useEffect(() => {
+    if (inputValue) {
+      localStorage.setItem('agent-girl-draft-text', inputValue);
+    } else {
+      localStorage.removeItem('agent-girl-draft-text');
+    }
+  }, [inputValue]);
 
   // Automatically cache messages as they update during streaming
   // IMPORTANT: Only depend on messages, NOT currentSessionId
@@ -1545,12 +1559,14 @@ export function ChatContainer() {
           // Chat Interface
           <>
             {/* Messages */}
-            <MessageList
-              messages={messages}
-              isLoading={isCurrentSessionLoading}
-              liveTokenCount={liveTokenCount}
-              scrollContainerRef={scrollContainerRef}
-            />
+            <WorkingDirectoryContext.Provider value={{ workingDirectory: sessions.find(s => s.id === currentSessionId)?.working_directory || null }}>
+              <MessageList
+                messages={messages}
+                isLoading={isCurrentSessionLoading}
+                liveTokenCount={liveTokenCount}
+                scrollContainerRef={scrollContainerRef}
+              />
+            </WorkingDirectoryContext.Provider>
 
             {/* Command Queue Display */}
             <CommandQueueDisplay

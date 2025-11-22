@@ -173,16 +173,16 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
     const currentChat = chats.find(c => c.id === chatId);
     const newName = editingTitle.trim();
 
-    // Validate folder name: max 15 chars, lowercase + dashes + numbers only
+    // Validate folder name: max 42 chars, lowercase + dashes + numbers only
     if (!newName) {
       setEditingId(null);
       setEditingTitle('');
       return;
     }
 
-    if (newName.length > 15) {
+    if (newName.length > 42) {
       toast.error('Invalid folder name', {
-        description: 'Folder name must be 15 characters or less'
+        description: 'Folder name must be 42 characters or less'
       });
       return;
     }
@@ -329,7 +329,7 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
                               ref={inputRef}
                               type="text"
                               value={editingTitle}
-                              maxLength={15}
+                              maxLength={42}
                               onChange={(e) => {
                                 // Convert to lowercase and filter out invalid chars
                                 const filtered = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '');

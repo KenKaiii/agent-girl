@@ -666,9 +666,9 @@ class SessionDatabase {
 
   renameFolderAndSession(sessionId: string, newFolderName: string): { success: boolean; error?: string; newPath?: string } {
     try {
-      // Validate folder name (max 15 chars, lowercase + dashes only)
-      if (newFolderName.length > 15) {
-        return { success: false, error: 'Folder name must be 15 characters or less' };
+      // Validate folder name (max 42 chars, lowercase + dashes only)
+      if (newFolderName.length > 42) {
+        return { success: false, error: 'Folder name must be 42 characters or less' };
       }
       if (!/^[a-z0-9-]+$/.test(newFolderName)) {
         return { success: false, error: 'Only lowercase letters, numbers, and dashes allowed' };

@@ -27,8 +27,9 @@ import { ThinkingBlock } from './ThinkingBlock';
 import { CodeBlockWithCopy } from './CodeBlockWithCopy';
 import { URLBadge } from './URLBadge';
 import { MermaidDiagram } from './MermaidDiagram';
-import { Shield, FileText, FolderOpen } from 'lucide-react';
+import { Shield, FileText, FolderOpen, Copy } from 'lucide-react';
 import { showError } from '../../utils/errorMessages';
+import { useWorkingDirectory } from '../../hooks/useWorkingDirectory';
 
 // Helper to render text with file path detection
 function TextWithFilePaths({ children }: { children: React.ReactNode }) {
@@ -82,13 +83,15 @@ function TextWithFilePaths({ children }: { children: React.ReactNode }) {
 
 // File path action buttons component
 function FilePathActions({ filePath }: { filePath: string }) {
+  const { workingDirectory } = useWorkingDirectory();
+
   const handleOpenFile = async (e: React.MouseEvent) => {
     e.stopPropagation();
     try {
       const response = await fetch('/api/open-file', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: filePath }),
+        body: JSON.stringify({ path: filePath, workingDirectory }),
       });
       const result = await response.json() as { success: boolean; error?: string };
       if (!result.success) {
@@ -106,12 +109,22 @@ function FilePathActions({ filePath }: { filePath: string }) {
       const response = await fetch('/api/open-file-folder', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: filePath }),
+        body: JSON.stringify({ path: filePath, workingDirectory }),
       });
       const result = await response.json() as { success: boolean; error?: string };
       if (!result.success) {
         showError('OPEN_FOLDER', result.error || 'Failed to open folder');
       }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      showError('OPEN_FOLDER', errorMsg);
+    }
+  };
+
+  const handleCopyPath = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(filePath);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       showError('OPEN_FOLDER', errorMsg);
@@ -130,11 +143,40 @@ function FilePathActions({ filePath }: { filePath: string }) {
       <button
         onClick={handleOpenFolder}
         className="p-0.5 hover:bg-white/10 rounded transition-colors"
-        title="Show in folder"
+        title="Reveal in Finder"
       >
         <FolderOpen className="w-3 h-3 text-white/40 hover:text-white/80" />
       </button>
+      <button
+        onClick={handleCopyPath}
+        className="p-0.5 hover:bg-white/10 rounded transition-colors"
+        title="Copy path"
+      >
+        <Copy className="w-3 h-3 text-white/40 hover:text-white/80" />
+      </button>
     </div>
+  );
+}
+
+// Inline code with hover file actions
+function InlineCodeWithHoverActions({ children, filePath }: { children: React.ReactNode; filePath: string }) {
+  const [isHovered, setIsHovered] = React.useState(false);
+
+  return (
+    <span
+      className="inline-flex items-center gap-0.5 relative group"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      <code className="px-1.5 py-0.5 text-sm font-mono rounded-md cursor-pointer" style={{
+        backgroundColor: 'rgba(168, 199, 250, 0.15)',
+        color: '#DAEEFF',
+        border: '1px solid rgba(168, 199, 250, 0.2)'
+      }}>
+        {children}
+      </code>
+      {isHovered && <FilePathActions filePath={filePath} />}
+    </span>
   );
 }
 
@@ -724,7 +766,7 @@ function TaskToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
           <span className={`text-sm leading-6 ${gradientClass}`}>{agentName}</span>
           <div className="bg-gray-700 shrink-0 min-h-4 w-[1px] h-4" role="separator" aria-orientation="vertical" />
           <span className="flex-1 min-w-0 text-xs truncate text-white/60">
-            {nestedToolsCount && nestedToolsCount > 0 ? `Used ${nestedToolsCount} tool${nestedToolsCount !== 1 ? 's' : ''}` : 'Running...'}
+            {nestedToolsCount !== undefined && nestedToolsCount > 0 ? `Used ${nestedToolsCount} tool${nestedToolsCount !== 1 ? 's' : ''}` : 'Running...'}
           </span>
         </div>
         <div className="flex gap-1 items-center whitespace-nowrap">
@@ -778,7 +820,7 @@ function TaskToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
                   )}
 
                   {/* Nested tools from spawned agent */}
-                  {nestedToolsCount && nestedToolsCount > 0 && (
+                  {nestedToolsCount !== undefined && nestedToolsCount > 0 && (
                     <div>
                       <span className="text-xs font-semibold text-white/60">Tools Used ({nestedToolsCount}):</span>
                       <div className="mt-2 space-y-2">
@@ -1220,19 +1262,31 @@ function ExitPlanModeComponent({ toolUse }: { toolUse: ToolUseBlock }) {
                     return <MermaidDiagram chart={String(children).replace(/\n$/, '')} />;
                   }
 
-                  return !inline ? (
-                    <CodeBlockWithCopy
-                      code={String(children).replace(/\n$/, '')}
-                      language={language}
-                      customStyle={{
-                        borderRadius: '0.5rem',
-                        fontSize: '0.875rem',
-                        border: 'none',
-                        backgroundColor: 'rgba(168, 199, 250, 0.05)',
-                      }}
-                      wrapperClassName="plan-code-border"
-                    />
-                  ) : (
+                  if (!inline) {
+                    return (
+                      <CodeBlockWithCopy
+                        code={String(children).replace(/\n$/, '')}
+                        language={language}
+                        customStyle={{
+                          borderRadius: '0.5rem',
+                          fontSize: '0.875rem',
+                          border: 'none',
+                          backgroundColor: 'rgba(168, 199, 250, 0.05)',
+                        }}
+                        wrapperClassName="plan-code-border"
+                      />
+                    );
+                  }
+
+                  // Inline code with file path detection
+                  const inlineContent = String(children);
+                  const isFilePath = /^(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)[^\s<>"|]*)|(?:[A-Za-z]:\\[^\s<>"|]*)|(?:(?:\.\.?\/)?[\w.-]+\/[\w./@-]+)|(?:[\w_-]+\.(?:md|txt|json|yml|yaml|sh|py|js|ts|jsx|tsx|css|html|xml|toml|ini|cfg|conf|log|env|gitignore|dockerignore|rs|go|java|c|cpp|h|hpp|rb|php|swift|kt|scala|sql|vue|svelte))$/.test(inlineContent);
+
+                  if (isFilePath) {
+                    return <InlineCodeWithHoverActions filePath={inlineContent}>{children}</InlineCodeWithHoverActions>;
+                  }
+
+                  return (
                     <code className="px-1.5 py-0.5 text-sm font-mono rounded-md" style={{
                       backgroundColor: 'rgba(168, 199, 250, 0.15)',
                       color: '#DAEEFF',
@@ -1788,21 +1842,11 @@ function TextComponent({ text }: { text: TextBlock }) {
 
               // Inline code with file path detection
               const inlineContent = String(children);
-              const isFilePath = /^(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)[^\s<>"|]*)|(?:[A-Za-z]:\\[^\s<>"|]*)$/.test(inlineContent);
+              // Match absolute paths, Windows paths, relative paths with slashes, or standalone filenames with common extensions
+              const isFilePath = /^(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)[^\s<>"|]*)|(?:[A-Za-z]:\\[^\s<>"|]*)|(?:(?:\.\.?\/)?[\w.-]+\/[\w./@-]+)|(?:[\w_-]+\.(?:md|txt|json|yml|yaml|sh|py|js|ts|jsx|tsx|css|html|xml|toml|ini|cfg|conf|log|env|gitignore|dockerignore|rs|go|java|c|cpp|h|hpp|rb|php|swift|kt|scala|sql|vue|svelte))$/.test(inlineContent);
 
               if (isFilePath) {
-                return (
-                  <span className="inline-flex items-center gap-0.5">
-                    <code className="px-1.5 py-0.5 text-sm font-mono rounded-md" style={{
-                      backgroundColor: 'rgba(168, 199, 250, 0.15)',
-                      color: '#DAEEFF',
-                      border: '1px solid rgba(168, 199, 250, 0.2)'
-                    }}>
-                      {children}
-                    </code>
-                    <FilePathActions filePath={inlineContent} />
-                  </span>
-                );
+                return <InlineCodeWithHoverActions filePath={inlineContent}>{children}</InlineCodeWithHoverActions>;
               }
 
               return (
