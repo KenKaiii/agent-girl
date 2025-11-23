@@ -2050,8 +2050,9 @@ export function AssistantMessage(props: AssistantMessageContainerProps & Assista
                 // Full view - show all content (filtered by code collapse state and global code visibility)
                 <div className="space-y-4 mt-2">
                   {message.content.map((block, index) => {
-                    // Skip tool_use blocks if code is collapsed locally or hidden globally
-                    if (block.type === 'tool_use' && (isCodeCollapsed || !showCode)) {
+                    // Skip tool_use blocks only if code is collapsed locally (compact view)
+                    // Websearch/thinking should remain visible regardless of code visibility toggle
+                    if (block.type === 'tool_use' && isCodeCollapsed) {
                       return null;
                     }
 
