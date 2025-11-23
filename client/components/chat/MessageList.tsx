@@ -30,10 +30,11 @@ interface MessageListProps {
   liveTokenCount?: number;
   scrollContainerRef?: React.RefObject<HTMLDivElement>;
   displayMode?: 'full' | 'compact';
+  showCode?: boolean;
   onRemoveMessage?: (messageId: string) => void;
 }
 
-export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollContainerRef, displayMode, onRemoveMessage }: MessageListProps) {
+export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollContainerRef, displayMode, showCode = true, onRemoveMessage }: MessageListProps) {
   const parentRef = scrollContainerRef || useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -183,7 +184,7 @@ export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollCon
                     ref={virtualizer.measureElement}
                     data-index={virtualItem.index}
                   >
-                    <MessageRenderer message={message} displayMode={displayMode} onRemoveMessage={onRemoveMessage} />
+                    <MessageRenderer message={message} displayMode={displayMode} showCode={showCode} onRemoveMessage={onRemoveMessage} />
                   </div>
                 );
               })}

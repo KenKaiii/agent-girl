@@ -27,9 +27,10 @@ import { ThinkingBlock } from './ThinkingBlock';
 import { CodeBlockWithCopy } from './CodeBlockWithCopy';
 import { URLBadge } from './URLBadge';
 import { MermaidDiagram } from './MermaidDiagram';
-import { Shield, FileText, FolderOpen, Copy, Trash2 } from 'lucide-react';
+import { Shield, FileText, FolderOpen, Copy, Trash2, Eye, EyeOff, Code2, ChevronUp } from 'lucide-react';
 import { showError } from '../../utils/errorMessages';
 import { useWorkingDirectory } from '../../hooks/useWorkingDirectory';
+import { CodeVisibilityProvider } from '../../context/CodeVisibilityContext';
 
 // Helper to render text with file path detection
 function TextWithFilePaths({ children }: { children: React.ReactNode }) {
@@ -45,9 +46,9 @@ function TextWithFilePaths({ children }: { children: React.ReactNode }) {
     );
   };
 
-  // Regex to match file paths (Unix absolute, Windows, relative paths, and standalone filenames)
-  // Patterns: /Users/..., C:\..., foo/bar/..., FILENAME.ext
-  const pathRegex = /((?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)[^\s<>"|]*)|(?:[A-Za-z]:\\[^\s<>"|]*)|(?:(?:\.\.?\/)?[\w.-]+\/[\w./@-]+)|(?:[\w_-]+\.(?:md|txt|json|yml|yaml|sh|py|js|ts|jsx|tsx|css|html|xml|toml|ini|cfg|conf|log|env|gitignore|dockerignore|rs|go|java|c|cpp|h|hpp|rb|php|swift|kt|scala|sql|vue|svelte)))/g;
+  // Regex to match file paths (Unix absolute, Windows, relative, home dir ~, and standalone filenames with spaces)
+  // Only matches actual files, not just "/" or partial paths
+  const pathRegex = /((?:~\/[\w\s./-]+)|(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[A-Za-z]:\\[\w\\\s.-]+)|(?:\.\.?\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[\w\s_-]+\.(?:md|txt|json|yml|yaml|sh|py|js|ts|jsx|tsx|css|html|xml|toml|ini|cfg|conf|log|env|gitignore|dockerignore|rs|go|java|c|cpp|h|hpp|rb|php|swift|kt|scala|sql|vue|svelte|command)))/g;
 
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
@@ -183,6 +184,7 @@ function InlineCodeWithHoverActions({ children, filePath }: { children: React.Re
 interface AssistantMessageProps {
   message: AssistantMessageType;
   displayMode?: 'full' | 'compact';
+  showCode?: boolean;
 }
 
 function formatTimestamp(timestamp: string): string {
@@ -1281,7 +1283,7 @@ function ExitPlanModeComponent({ toolUse }: { toolUse: ToolUseBlock }) {
 
                   // Inline code with file path detection
                   const inlineContent = String(children);
-                  const isFilePath = /^(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)[^\s<>"|]*)|(?:[A-Za-z]:\\[^\s<>"|]*)|(?:(?:\.\.?\/)?[\w.-]+\/[\w./@-]+)|(?:[\w_-]+\.(?:md|txt|json|yml|yaml|sh|py|js|ts|jsx|tsx|css|html|xml|toml|ini|cfg|conf|log|env|gitignore|dockerignore|rs|go|java|c|cpp|h|hpp|rb|php|swift|kt|scala|sql|vue|svelte))$/.test(inlineContent);
+                  const isFilePath = /^(?:~\/[\w\s./-]+)|(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[A-Za-z]:\\[\w\\\s.-]+)|(?:\.\.?\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[\w\s_-]+\.(?:md|txt|json|yml|yaml|sh|py|js|ts|jsx|tsx|css|html|xml|toml|ini|cfg|conf|log|env|gitignore|dockerignore|rs|go|java|c|cpp|h|hpp|rb|php|swift|kt|scala|sql|vue|svelte|command))$/.test(inlineContent);
 
                   if (isFilePath) {
                     return <InlineCodeWithHoverActions filePath={inlineContent}>{children}</InlineCodeWithHoverActions>;
@@ -1733,7 +1735,7 @@ function LongRunningCommandComponent({ command }: { command: LongRunningCommandB
   );
 }
 
-function TextComponent({ text }: { text: TextBlock }) {
+function TextComponent({ text, showCode = true }: { text: TextBlock; showCode?: boolean }) {
   // Check if this is a context cleared message
   const isContextCleared = text.text.includes('--- Context cleared');
   // Check for both manual and auto-compact messages
@@ -1804,6 +1806,11 @@ function TextComponent({ text }: { text: TextBlock }) {
 
               // For code blocks, check if they contain file paths
               if (!inline) {
+                // Return null if code visibility is disabled globally
+                if (!showCode) {
+                  return null;
+                }
+
                 const codeContent = String(children).replace(/\n$/, '');
                 // Check if this code block contains file paths (tree structure)
                 const hasFilePaths = /(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)[^\s<>"|]*)|(?:[A-Za-z]:\\[^\s<>"|]*)|(?:(?:\.\.?\/)?[\w.-]+\/[\w./-]+)/.test(codeContent);
@@ -1843,8 +1850,8 @@ function TextComponent({ text }: { text: TextBlock }) {
 
               // Inline code with file path detection
               const inlineContent = String(children);
-              // Match absolute paths, Windows paths, relative paths with slashes, or standalone filenames with common extensions
-              const isFilePath = /^(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)[^\s<>"|]*)|(?:[A-Za-z]:\\[^\s<>"|]*)|(?:(?:\.\.?\/)?[\w.-]+\/[\w./@-]+)|(?:[\w_-]+\.(?:md|txt|json|yml|yaml|sh|py|js|ts|jsx|tsx|css|html|xml|toml|ini|cfg|conf|log|env|gitignore|dockerignore|rs|go|java|c|cpp|h|hpp|rb|php|swift|kt|scala|sql|vue|svelte))$/.test(inlineContent);
+              // Only match actual files, not just "/" or partial paths
+              const isFilePath = /^(?:~\/[\w\s./-]+)|(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[A-Za-z]:\\[\w\\\s.-]+)|(?:\.\.?\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[\w\s_-]+\.(?:md|txt|json|yml|yaml|sh|py|js|ts|jsx|tsx|css|html|xml|toml|ini|cfg|conf|log|env|gitignore|dockerignore|rs|go|java|c|cpp|h|hpp|rb|php|swift|kt|scala|sql|vue|svelte|command))$/.test(inlineContent);
 
               if (isFilePath) {
                 return <InlineCodeWithHoverActions filePath={inlineContent}>{children}</InlineCodeWithHoverActions>;
@@ -1938,7 +1945,7 @@ function TextComponent({ text }: { text: TextBlock }) {
             td: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
               <td className="px-4 py-2 border border-gray-600" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
             ),
-          }) , []); // Empty deps - components never change
+          }) , [showCode]); // Update when showCode changes
 
   // Check if this is the compacting loading message
   const isCompactingMessage = text.text === 'Compacting conversation...';
@@ -1971,9 +1978,11 @@ interface AssistantMessageContainerProps {
 }
 
 export function AssistantMessage(props: AssistantMessageContainerProps & AssistantMessageProps) {
-  const { message, onRemove, displayMode = 'full' } = props;
+  const { message, onRemove, displayMode = 'full', showCode = true } = props;
   const [showMetadata, setShowMetadata] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isMessageHidden, setIsMessageHidden] = useState(false);
+  const [isCodeCollapsed, setIsCodeCollapsed] = useState(false);
 
   // Extract text content from message for copying
   const getTextContent = () => {
@@ -1996,60 +2005,75 @@ export function AssistantMessage(props: AssistantMessageContainerProps & Assista
     }
   };
 
+  // Count code blocks to show in toggle
+  const codeBlockCount = useMemo(() => {
+    return message.content.filter(block => block.type === 'tool_use').length;
+  }, [message.content]);
+
   return (
-    <div className="message-container group">
-      <div className="message-assistant-wrapper">
-        <div className="message-assistant-content">
-          {/* Header with avatar and model name */}
-          <div className="message-assistant-header">
-            <img
-              src="/client/agent-boy.svg"
-              className="message-assistant-avatar"
-              alt="Agent Girl"
-            />
-            <div className="message-assistant-name-container">
-              <span className="message-assistant-name">
-                {message.metadata?.model || 'Agent Girl'}
-              </span>
-              <span className="message-assistant-timestamp invisible group-hover:visible">
-                {formatTimestamp(message.timestamp)}
-              </span>
+    <CodeVisibilityProvider showCode={showCode}>
+      <div className="message-container group">
+        <div className="message-assistant-wrapper">
+          <div className="message-assistant-content">
+            {/* Header with avatar and model name */}
+            <div className="message-assistant-header">
+              <img
+                src="/client/agent-boy.svg"
+                className="message-assistant-avatar"
+                alt="Agent Girl"
+              />
+              <div className="message-assistant-name-container">
+                <span className="message-assistant-name">
+                  {message.metadata?.model || 'Agent Girl'}
+                </span>
+                <span className="message-assistant-timestamp invisible group-hover:visible">
+                  {formatTimestamp(message.timestamp)}
+                </span>
+              </div>
+
             </div>
 
-          </div>
-
           {/* Message body */}
-          <div className="message-assistant-body">
-            {displayMode === 'compact' ? (
-              // Compact view - only show text blocks
-              <div className="space-y-4 mt-2">
-                {message.content.map((block, index) => {
-                  if (block.type === 'text') {
-                    return <TextComponent key={index} text={block} />;
-                  }
-                  return null;
-                })}
-              </div>
-            ) : (
-              // Full view - show all content
-              <div className="space-y-4 mt-2">
-                {message.content.map((block, index) => {
-                  if (block.type === 'text') {
-                    return <TextComponent key={index} text={block} />;
-                  } else if (block.type === 'tool_use') {
-                    return <ToolUseComponent key={index} toolUse={block} />;
-                  } else if (block.type === 'thinking') {
-                    return <ThinkingBlock key={index} title="Agent Girl's thoughts..." content={block.thinking} />;
-                  } else if (block.type === 'long_running_command') {
-                    return <LongRunningCommandComponent key={index} command={block} />;
-                  }
-                  return null;
-                })}
-              </div>
-            )}
+          {!isMessageHidden && (
+            <div className="message-assistant-body">
+              {displayMode === 'compact' ? (
+                // Compact view - only show text blocks
+                <div className="space-y-4 mt-2">
+                  {message.content.map((block, index) => {
+                    if (block.type === 'text') {
+                      return <TextComponent key={index} text={block} showCode={showCode} />;
+                    }
+                    return null;
+                  })}
+                </div>
+              ) : (
+                // Full view - show all content (filtered by code collapse state and global code visibility)
+                <div className="space-y-4 mt-2">
+                  {message.content.map((block, index) => {
+                    // Skip tool_use blocks if code is collapsed locally or hidden globally
+                    if (block.type === 'tool_use' && (isCodeCollapsed || !showCode)) {
+                      return null;
+                    }
 
-            {/* Action buttons */}
-            <div className="message-assistant-actions">
+                    if (block.type === 'text') {
+                      return <TextComponent key={index} text={block} showCode={showCode} />;
+                    } else if (block.type === 'tool_use') {
+                      return <ToolUseComponent key={index} toolUse={block} />;
+                    } else if (block.type === 'thinking') {
+                      return <ThinkingBlock key={index} title="Agent Girl's thoughts..." content={block.thinking} />;
+                    } else if (block.type === 'long_running_command') {
+                      return <LongRunningCommandComponent key={index} command={block} />;
+                    }
+                    return null;
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Action buttons - always visible */}
+          <div className="message-assistant-actions">
+            {!isMessageHidden && (
               <button
                 onClick={handleCopy}
                 className="message-action-btn"
@@ -2067,39 +2091,71 @@ export function AssistantMessage(props: AssistantMessageContainerProps & Assista
                   </svg>
                 )}
               </button>
-              {/* Remove button */}
-              <button
-                onClick={() => onRemove?.(message.id)}
-                className="message-action-btn hover:text-red-400"
-                aria-label="Remove message"
-                title="Remove this message"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
+            )}
 
-              {message.metadata && (
-                <button
-                  onClick={() => setShowMetadata(!showMetadata)}
-                  className="message-action-btn"
-                  aria-label="Metadata"
-                  title="Show metadata"
-                >
-                  <span className="text-xs font-mono">{showMetadata ? '[-]' : '[+]'}</span>
-                </button>
+            {/* Hide/Show message toggle - always visible */}
+            <button
+              onClick={() => setIsMessageHidden(!isMessageHidden)}
+              className="message-action-btn"
+              aria-label={isMessageHidden ? "Show message" : "Hide message"}
+              title={isMessageHidden ? "Show this message" : "Hide this message"}
+            >
+              {isMessageHidden ? (
+                <EyeOff className="w-4 h-4" />
+              ) : (
+                <Eye className="w-4 h-4" />
               )}
-            </div>
+            </button>
 
-            {/* Metadata panel */}
-            {message.metadata && showMetadata && (
-              <div className="mt-2 p-2 bg-black/5 border border-white/10 rounded text-xs">
-                <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-gray-400">
-                  {JSON.stringify(message.metadata, null, 2)}
-                </pre>
-              </div>
+            {/* Collapse code blocks toggle - only show if message is visible and has code */}
+            {!isMessageHidden && codeBlockCount > 0 && (
+              <button
+                onClick={() => setIsCodeCollapsed(!isCodeCollapsed)}
+                className="message-action-btn"
+                aria-label={isCodeCollapsed ? "Show code" : "Hide code"}
+                title={isCodeCollapsed ? `Show ${codeBlockCount} code block${codeBlockCount !== 1 ? 's' : ''}` : `Hide ${codeBlockCount} code block${codeBlockCount !== 1 ? 's' : ''}`}
+              >
+                {isCodeCollapsed ? (
+                  <ChevronUp className="w-4 h-4" style={{ transform: 'rotate(180deg)' }} />
+                ) : (
+                  <Code2 className="w-4 h-4" />
+                )}
+              </button>
+            )}
+
+            {/* Remove button */}
+            <button
+              onClick={() => onRemove?.(message.id)}
+              className="message-action-btn hover:text-red-400"
+              aria-label="Remove message"
+              title="Remove this message"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+
+            {!isMessageHidden && message.metadata && (
+              <button
+                onClick={() => setShowMetadata(!showMetadata)}
+                className="message-action-btn"
+                aria-label="Metadata"
+                title="Show metadata"
+              >
+                <span className="text-xs font-mono">{showMetadata ? '[-]' : '[+]'}</span>
+              </button>
             )}
           </div>
+
+          {/* Metadata panel */}
+          {!isMessageHidden && message.metadata && showMetadata && (
+            <div className="mt-2 p-2 bg-black/5 border border-white/10 rounded text-xs">
+              <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-gray-400">
+                {JSON.stringify(message.metadata, null, 2)}
+              </pre>
+            </div>
+          )}
         </div>
       </div>
-    </div>
+      </div>
+    </CodeVisibilityProvider>
   );
 }

@@ -35,7 +35,7 @@ import { CommandQueueDisplay } from '../queue/CommandQueueDisplay';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { WorkingDirectoryContext } from '../../hooks/useWorkingDirectory';
 import { useSessionAPI, type Session } from '../../hooks/useSessionAPI';
-import { Menu, Edit3, ChevronLeft, ChevronRight, History, ExternalLink, ListOrdered, Eye, EyeOff } from 'lucide-react';
+import { Menu, Edit3, ChevronLeft, ChevronRight, History, ExternalLink, ListOrdered, Eye, EyeOff, Code2 } from 'lucide-react';
 import type { Message } from '../message/types';
 import { toast } from '../../utils/toast';
 import { showError } from '../../utils/errorMessages';
@@ -78,6 +78,9 @@ export function ChatContainer() {
 
   // Display mode for compact/full message rendering
   const [displayMode, setDisplayMode] = useState<'full' | 'compact'>('full');
+
+  // Global code visibility toggle
+  const [showCode, setShowCode] = useState(true);
 
   // Live token count during streaming (for loading indicator)
   const [liveTokenCount, setLiveTokenCount] = useState(0);
@@ -1422,6 +1425,30 @@ export function ChatContainer() {
         onChatSelect={handleSessionSelect}
         onChatDelete={handleChatDelete}
         onChatRename={handleChatRename}
+        showCompact={displayMode === 'compact'}
+        onToggleCompact={() => setDisplayMode(displayMode === 'compact' ? 'full' : 'compact')}
+        showCode={showCode}
+        onToggleCode={() => setShowCode(!showCode)}
+        onNewChatTab={() => window.open(window.location.origin, '_blank')}
+        onPreviousChat={() => {
+          if (navigationHistoryRef.current.length > 0) {
+            const previousId = navigationHistoryRef.current.pop();
+            if (previousId) handleSessionSelect(previousId);
+          }
+        }}
+        onNextChat={() => {
+          // Next chat navigation would need to be implemented based on your navigation model
+          // For now, this is a placeholder
+        }}
+        onBackToRecent={() => {
+          if (navigationHistoryRef.current.length > 0) {
+            navigationHistoryRef.current = [];
+            if (sessions.length > 0) handleSessionSelect(sessions[0].id);
+          }
+        }}
+        canPreviousChat={navigationHistoryRef.current.length > 0}
+        canNextChat={false}
+        canBackToRecent={navigationHistoryRef.current.length > 0}
       />
 
       {/* Main Chat Area */}
@@ -1534,23 +1561,43 @@ export function ChatContainer() {
             {/* Right side */}
             <div className="header-right">
               {/* Compact/Full toggle */}
-              <div className="flex items-center gap-3" style={{ pointerEvents: 'auto', cursor: 'default' }}>
+              <button
+                onClick={() => setDisplayMode(displayMode === 'full' ? 'compact' : 'full')}
+                className="flex items-center gap-3 px-3 py-2 hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+                aria-label={displayMode === 'full' ? 'Hide verbose output' : 'Show all output'}
+                title={displayMode === 'full' ? 'Hide verbose output (thinking, WebSearch, tools)' : 'Show all output including thinking and tool use'}
+                style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+              >
                 <span className="text-sm" style={{ color: 'rgb(var(--text-secondary))' }}>
                   {displayMode === 'compact' ? 'compact' : 'full'}
                 </span>
-                <button
-                  onClick={() => setDisplayMode(displayMode === 'full' ? 'compact' : 'full')}
-                  className="p-2 hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
-                  aria-label={displayMode === 'full' ? 'Hide verbose output' : 'Show all output'}
-                  title={displayMode === 'full' ? 'Hide verbose output (thinking, WebSearch, tools)' : 'Show all output including thinking and tool use'}
-                >
-                  {displayMode === 'compact' ? (
-                    <EyeOff className="w-4 h-4" style={{ color: 'rgb(var(--text-secondary))' }} />
-                  ) : (
-                    <Eye className="w-4 h-4" style={{ color: 'rgb(var(--text-secondary))' }} />
-                  )}
-                </button>
-              </div>
+                {displayMode === 'compact' ? (
+                  <EyeOff className="w-4 h-4" style={{ color: 'rgb(var(--text-secondary))' }} />
+                ) : (
+                  <Eye className="w-4 h-4" style={{ color: 'rgb(var(--text-secondary))' }} />
+                )}
+              </button>
+
+              {/* Global code visibility toggle */}
+              <button
+                onClick={() => setShowCode(!showCode)}
+                className="flex items-center gap-3 px-3 py-2 hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+                aria-label={showCode ? 'Hide code blocks' : 'Show code blocks'}
+                title={showCode ? 'Hide all code blocks' : 'Show all code blocks'}
+                style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+              >
+                <span className="text-sm" style={{ color: 'rgb(var(--text-secondary))' }}>
+                  {showCode ? 'code' : 'no code'}
+                </span>
+                {showCode ? (
+                  <Code2 className="w-4 h-4" style={{ color: 'rgb(var(--text-secondary))' }} />
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="w-4 h-4" style={{ color: 'rgb(var(--text-secondary))' }}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m17.25 6.75-10.5 10.5M6.75 6.75l10.5 10.5" />
+                  </svg>
+                )}
+              </button>
+
               {/* Radio Player */}
               <RadioPlayer />
               {/* Working Directory Display */}
@@ -1561,8 +1608,8 @@ export function ChatContainer() {
                   onChangeDirectory={handleChangeDirectory}
                 />
               )}
-              {/* Queue Toggle Button */}
-              <button
+              {/* Queue Toggle Button - Hidden */}
+              {/* <button
                 className="header-btn relative"
                 onClick={() => setIsQueueOpen(!isQueueOpen)}
                 title={isQueueOpen ? 'Close queue' : 'Open queue'}
@@ -1574,7 +1621,7 @@ export function ChatContainer() {
                     {queue.items.length > 9 ? '9+' : queue.items.length}
                   </span>
                 )}
-              </button>
+              </button> */}
               {/* About Button */}
               <AboutButton />
             </div>
@@ -1610,6 +1657,7 @@ export function ChatContainer() {
                 liveTokenCount={liveTokenCount}
                 scrollContainerRef={scrollContainerRef}
                 displayMode={displayMode}
+                showCode={showCode}
                 onRemoveMessage={handleRemoveMessage}
               />
             </WorkingDirectoryContext.Provider>

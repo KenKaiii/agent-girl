@@ -19,7 +19,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Menu, Edit3, Search, Trash2, Edit, FolderOpen, Copy } from 'lucide-react';
+import { Menu, Edit3, Search, Trash2, Edit, FolderOpen, Copy, Code2 } from 'lucide-react';
 import { toast } from '../../utils/toast';
 
 interface Chat {
@@ -57,9 +57,39 @@ interface SidebarProps {
   onChatSelect?: (chatId: string) => void;
   onChatDelete?: (chatId: string) => void;
   onChatRename?: (chatId: string, newTitle: string) => void;
+  showCompact?: boolean;
+  onToggleCompact?: () => void;
+  showCode?: boolean;
+  onToggleCode?: () => void;
+  onNewChatTab?: () => void;
+  onPreviousChat?: () => void;
+  onNextChat?: () => void;
+  onBackToRecent?: () => void;
+  canPreviousChat?: boolean;
+  canNextChat?: boolean;
+  canBackToRecent?: boolean;
 }
 
-export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect, onChatDelete, onChatRename }: SidebarProps) {
+export function Sidebar({
+  isOpen,
+  onToggle,
+  chats = [],
+  onNewChat,
+  onChatSelect,
+  onChatDelete,
+  onChatRename,
+  showCompact = false,
+  onToggleCompact,
+  showCode = true,
+  onToggleCode,
+  onNewChatTab,
+  onPreviousChat,
+  onNextChat,
+  onBackToRecent,
+  canPreviousChat = false,
+  canNextChat = false,
+  canBackToRecent = false,
+}: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [isAllChatsExpanded, setIsAllChatsExpanded] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -240,11 +270,120 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
     <div className={`sidebar ${isOpen ? 'sidebar-open' : 'sidebar-closed'}`}>
       <div className="sidebar-container">
         {/* Header */}
-        <div className="sidebar-header">
+        <div className="sidebar-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem' }}>
           <div className="sidebar-logo">
             <img src="/client/agent-boy.svg" alt="Agent Girl" className="sidebar-logo-icon" />
           </div>
-          <button className="sidebar-toggle-btn" onClick={onToggle} aria-label="Toggle Sidebar">
+
+          {/* Header controls when sidebar is open */}
+          {isOpen && (
+            <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+              {/* Navigation buttons */}
+              <button
+                className="header-btn"
+                aria-label="New Chat"
+                title="New chat"
+                onClick={onNewChat}
+                style={{ padding: '0.5rem', cursor: 'pointer' }}
+              >
+                <Edit3 size={18} opacity={0.8} />
+              </button>
+
+              <button
+                className="header-btn"
+                aria-label="New Chat in New Tab"
+                title="Open new chat in new tab"
+                onClick={onNewChatTab}
+                style={{ padding: '0.5rem', cursor: 'pointer' }}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M15 3h6v6" />
+                  <path d="M10 14 21 3" />
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                </svg>
+              </button>
+
+              {/* Divider */}
+              <div style={{ width: '1px', height: '20px', backgroundColor: 'rgba(255, 255, 255, 0.15)', margin: '0px 4px' }} />
+
+              {/* Chat navigation */}
+              <button
+                className="header-btn"
+                aria-label="Previous Chat"
+                title="Previous chat"
+                onClick={onPreviousChat}
+                disabled={!canPreviousChat}
+                style={{ padding: '0.5rem', cursor: 'pointer', opacity: canPreviousChat ? 1 : 0.3 }}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="m15 18-6-6 6-6" />
+                </svg>
+              </button>
+
+              <button
+                className="header-btn"
+                aria-label="Next Chat"
+                title="Next chat"
+                onClick={onNextChat}
+                style={{ padding: '0.5rem', cursor: 'pointer', opacity: canNextChat ? 1 : 0.3 }}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="m9 18 6-6-6-6" />
+                </svg>
+              </button>
+
+              <button
+                className="header-btn"
+                aria-label="Back to Recent"
+                title="Back to recent chat"
+                onClick={onBackToRecent}
+                disabled={!canBackToRecent}
+                style={{ padding: '0.5rem', cursor: 'pointer', opacity: canBackToRecent ? 1 : 0.3 }}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                  <path d="M3 3v5h5" />
+                  <path d="M12 7v5l4 2" />
+                </svg>
+              </button>
+
+              {/* Divider */}
+              <div style={{ width: '1px', height: '20px', backgroundColor: 'rgba(255, 255, 255, 0.15)', margin: '0px 4px' }} />
+
+              {/* Control buttons */}
+              <button
+                className="header-btn"
+                aria-label={showCompact ? 'Show verbose output' : 'Hide verbose output'}
+                title={showCompact ? 'Show verbose output (thinking, WebSearch, tools)' : 'Hide verbose output (thinking, WebSearch, tools)'}
+                onClick={onToggleCompact}
+                style={{ padding: '0.5rem', cursor: 'pointer', fontSize: '0.75rem' }}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+              </button>
+
+              <button
+                className="header-btn"
+                aria-label={showCode ? 'Hide code blocks' : 'Show code blocks'}
+                title={showCode ? 'Hide all code blocks' : 'Show all code blocks'}
+                onClick={onToggleCode}
+                style={{ padding: '0.5rem', cursor: 'pointer' }}
+              >
+                {showCode ? (
+                  <Code2 size={16} />
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" width="16" height="16">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m17.25 6.75-10.5 10.5M6.75 6.75l10.5 10.5" />
+                  </svg>
+                )}
+              </button>
+            </div>
+          )}
+
+          {/* Toggle button always visible */}
+          <button className="sidebar-toggle-btn" onClick={onToggle} aria-label="Toggle Sidebar" style={{ padding: '0.5rem' }}>
             <Menu size={24} opacity={0.8} className={isOpen ? '' : 'rotate-180'} />
           </button>
         </div>
@@ -458,7 +597,7 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
                                       } else {
                                         toast.error('Failed to open folder', { description: data.error });
                                       }
-                                    } catch (error) {
+                                    } catch {
                                       toast.error('Failed to open folder');
                                     }
                                   }

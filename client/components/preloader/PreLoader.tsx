@@ -25,7 +25,7 @@ interface PreLoaderProps {
   duration?: number; // Duration in milliseconds (default: 2000ms)
 }
 
-export function PreLoader({ onComplete, duration = 2000 }: PreLoaderProps) {
+export function PreLoader({ onComplete, duration = 300 }: PreLoaderProps) {
   const [isFadingOut, setIsFadingOut] = useState(false);
 
   useEffect(() => {
@@ -34,7 +34,7 @@ export function PreLoader({ onComplete, duration = 2000 }: PreLoaderProps) {
       // Give time for fade-out animation before calling onComplete
       setTimeout(() => {
         onComplete?.();
-      }, 500);
+      }, 100);
     }, duration);
 
     return () => clearTimeout(timer);
@@ -59,7 +59,8 @@ export function PreLoader({ onComplete, duration = 2000 }: PreLoaderProps) {
         margin: 0,
         padding: 0,
         opacity: isFadingOut ? 0 : 1,
-        transition: 'opacity 0.5s ease-in-out',
+        transition: 'opacity 0.1s ease-in-out',
+        willChange: 'opacity',
       }}
     >
       <div className="preloader-content" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>

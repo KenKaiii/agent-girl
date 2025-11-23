@@ -23,6 +23,7 @@ import { SyntaxHighlighter, vscDarkPlus } from '../../utils/syntaxHighlighter';
 import { showError } from '../../utils/errorMessages';
 import { FileText, FolderOpen, Copy } from 'lucide-react';
 import { useWorkingDirectory } from '../../hooks/useWorkingDirectory';
+import { useCodeVisibility } from '../../context/CodeVisibilityContext';
 
 // File path action buttons for code blocks
 function CodeBlockFilePathActions({ filePath }: { filePath: string }) {
@@ -103,8 +104,8 @@ function CodeBlockFilePathActions({ filePath }: { filePath: string }) {
 
 // Render code with file path detection for plain text blocks
 function CodeWithFilePaths({ code }: { code: string }) {
-  // Regex to match file paths
-  const pathRegex = /((?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)[^\s<>"|]*)|(?:[A-Za-z]:\\[^\s<>"|]*)|(?:(?:\.\.?\/)?[\w.-]+\/[\w./@-]+)|(?:[\w_-]+\.(?:md|txt|json|yml|yaml|sh|py|js|ts|jsx|tsx|css|html|xml|toml|ini|cfg|conf|log|env|gitignore|dockerignore|rs|go|java|c|cpp|h|hpp|rb|php|swift|kt|scala|sql|vue|svelte)))/g;
+  // Regex to match file paths (Unix absolute, Windows, relative, home dir ~, and standalone filenames)
+  const pathRegex = /((?:~\/[\w\s./-]+)|(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[A-Za-z]:\\[\w\\\s.-]+)|(?:\.\.?\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[\w\s_-]+\.(?:md|txt|json|yml|yaml|sh|py|js|ts|jsx|tsx|css|html|xml|toml|ini|cfg|conf|log|env|gitignore|dockerignore|rs|go|java|c|cpp|h|hpp|rb|php|swift|kt|scala|sql|vue|svelte|command)))/g;
 
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
@@ -144,6 +145,12 @@ interface CodeBlockWithCopyProps {
 }
 
 export function CodeBlockWithCopy({ code, language, customStyle, wrapperClassName }: CodeBlockWithCopyProps) {
+  const { showCode } = useCodeVisibility();
+
+  // If code visibility is disabled globally, don't render the code block
+  if (!showCode) {
+    return null;
+  }
   const [copied, setCopied] = useState(false);
   const [hoveredButton, setHoveredButton] = useState<string | null>(null);
 
