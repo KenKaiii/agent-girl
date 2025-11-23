@@ -27,7 +27,7 @@ import { ThinkingBlock } from './ThinkingBlock';
 import { CodeBlockWithCopy } from './CodeBlockWithCopy';
 import { URLBadge } from './URLBadge';
 import { MermaidDiagram } from './MermaidDiagram';
-import { Shield, FileText, FolderOpen, Copy, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { Shield, FileText, FolderOpen, Copy, Eye, EyeOff, Trash2 } from 'lucide-react';
 import { showError } from '../../utils/errorMessages';
 import { useWorkingDirectory } from '../../hooks/useWorkingDirectory';
 
@@ -2015,6 +2015,26 @@ export function AssistantMessage(props: AssistantMessageContainerProps & Assista
                 {formatTimestamp(message.timestamp)}
               </span>
             </div>
+
+            {/* Compact/Full toggle button - top right */}
+            <button
+              onClick={() => setIsCompact(!isCompact)}
+              className="flex items-center gap-1 px-2 py-1 ml-auto text-xs hover:bg-white/5 rounded transition-colors"
+              aria-label={isCompact ? "Show full" : "Show compact"}
+              title={isCompact ? "Show full output" : "Hide output"}
+            >
+              {isCompact ? (
+                <>
+                  <EyeOff className="w-3.5 h-3.5" />
+                  <span>compact</span>
+                </>
+              ) : (
+                <>
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>full</span>
+                </>
+              )}
+            </button>
           </div>
 
           {/* Message body */}
@@ -2063,20 +2083,6 @@ export function AssistantMessage(props: AssistantMessageContainerProps & Assista
                   </svg>
                 )}
               </button>
-              {/* Compact/Full toggle button */}
-              <button
-                onClick={() => setIsCompact(!isCompact)}
-                className="message-action-btn"
-                aria-label={isCompact ? "Expand" : "Collapse"}
-                title={isCompact ? "Show full output" : "Hide output"}
-              >
-                {isCompact ? (
-                  <ChevronDown className="w-4 h-4" />
-                ) : (
-                  <ChevronUp className="w-4 h-4" />
-                )}
-              </button>
-
               {/* Remove button */}
               <button
                 onClick={() => onRemove?.(message.id)}
