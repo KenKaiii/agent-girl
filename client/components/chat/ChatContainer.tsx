@@ -32,6 +32,7 @@ import { PlanApprovalModal } from '../plan/PlanApprovalModal';
 import { BuildWizard } from '../build-wizard/BuildWizard';
 import { ScrollButton } from './ScrollButton';
 import { CommandQueueDisplay } from '../queue/CommandQueueDisplay';
+import { KeyboardShortcuts } from '../ui/KeyboardShortcuts';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { WorkingDirectoryContext } from '../../hooks/useWorkingDirectory';
 import { useSessionAPI, type Session } from '../../hooks/useSessionAPI';
@@ -145,6 +146,9 @@ export function ChatContainer() {
   const [commandQueue, setCommandQueue] = useState<Array<{ id: string; content: string; status: 'pending' | 'running' | 'completed' }>>(
     []
   );
+
+  // Keyboard shortcuts modal state
+  const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
 
   const sessionAPI = useSessionAPI();
 
@@ -281,6 +285,81 @@ export function ChatContainer() {
 
     initializeApp();
   }, [sessionAPI]);
+
+  // Keyboard shortcuts handler
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Check if Meta (Cmd on Mac) is pressed
+      const isMeta = e.metaKey || e.ctrlKey;
+
+      // ⌘ / - Show keyboard shortcuts
+      if (isMeta && e.key === '/') {
+        e.preventDefault();
+        setShowKeyboardShortcuts(true);
+      }
+
+      // ⌘ K - New chat
+      if (isMeta && e.key === 'k') {
+        e.preventDefault();
+        handleNewChat();
+      }
+
+      // ⌘ T - New chat tab (alias for new chat)
+      if (isMeta && e.key === 't') {
+        e.preventDefault();
+        handleNewChat();
+      }
+
+      // ⌘ ← (Left arrow) - Navigate history (placeholder)
+      if (isMeta && e.key === 'ArrowLeft') {
+        e.preventDefault();
+        // Navigate to previous session if available
+        if (navigationHistory.length > 1) {
+          const prevSessionId = navigationHistory[navigationHistory.length - 2];
+          if (prevSessionId) setCurrentSessionId(prevSessionId);
+        }
+      }
+
+      // ⌘ → (Right arrow) - Navigate forward (placeholder)
+      if (isMeta && e.key === 'ArrowRight') {
+        e.preventDefault();
+        // Navigate to next session - would need additional state tracking
+      }
+
+      // ⌘ H - Go to home (clear current session)
+      if (isMeta && e.key === 'h') {
+        e.preventDefault();
+        setCurrentSessionId(null);
+      }
+
+      // ⌘ E - Toggle code visibility
+      if (isMeta && e.key === 'e') {
+        e.preventDefault();
+        setShowCode(!showCode);
+      }
+
+      // ⌘ Shift M - Toggle compact/full view
+      if (isMeta && e.shiftKey && e.key === 'M') {
+        e.preventDefault();
+        setDisplayMode(displayMode === 'full' ? 'compact' : 'full');
+      }
+
+      // ⌘ O - Open file
+      if (isMeta && e.key === 'o') {
+        e.preventDefault();
+        // This would be handled by a file dialog - placeholder for future
+      }
+
+      // ⌘ Shift O - Open chat folder
+      if (isMeta && e.shiftKey && e.key === 'O') {
+        e.preventDefault();
+        // This would open chat folder - placeholder for future
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showCode, displayMode, navigationHistory]);
 
   const loadSessions = async (): Promise<Session[]> => {
     setIsLoadingSessions(true);
@@ -1714,6 +1793,12 @@ export function ChatContainer() {
 
       {/* Scroll Button - only show when messages exist */}
       {messages.length > 0 && <ScrollButton scrollContainerRef={scrollContainerRef} />}
+
+      {/* Keyboard Shortcuts Modal */}
+      <KeyboardShortcuts
+        isOpen={showKeyboardShortcuts}
+        onClose={() => setShowKeyboardShortcuts(false)}
+      />
     </div>
   );
 }

@@ -21,6 +21,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Menu, Edit3, Search, Trash2, Edit, FolderOpen, Copy, Code2 } from 'lucide-react';
 import { toast } from '../../utils/toast';
+import { DeleteConfirmationModal } from '../ui/DeleteConfirmationModal';
 
 interface Chat {
   id: string;
@@ -94,6 +95,11 @@ export function Sidebar({
   const [isAllChatsExpanded, setIsAllChatsExpanded] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{ isOpen: boolean; chatId: string; chatName: string }>({
+    isOpen: false,
+    chatId: '',
+    chatName: '',
+  });
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Group chats by date with precise grouping
@@ -237,9 +243,23 @@ export function Sidebar({
     setEditingTitle('');
   };
 
-  const handleDeleteClick = (chatId: string, e: React.MouseEvent) => {
+  const handleDeleteClick = (chatId: string, chatName: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    onChatDelete?.(chatId);
+    const chat = chats.find(c => c.id === chatId);
+    setDeleteConfirmation({
+      isOpen: true,
+      chatId,
+      chatName: chat?.title || chatName || 'Untitled Chat',
+    });
+  };
+
+  const handleConfirmDelete = () => {
+    onChatDelete?.(deleteConfirmation.chatId);
+    setDeleteConfirmation({ isOpen: false, chatId: '', chatName: '' });
+  };
+
+  const handleCancelDelete = () => {
+    setDeleteConfirmation({ isOpen: false, chatId: '', chatName: '' });
   };
 
   const handleOpenChatFolder = async () => {
@@ -667,7 +687,7 @@ export function Sidebar({
                                 className="sidebar-chat-menu-btn"
                                 aria-label="Delete Chat"
                                 title="Delete"
-                                onClick={(e) => handleDeleteClick(chat.id, e)}
+                                onClick={(e) => handleDeleteClick(chat.id, chat.title, e)}
                                 style={{
                                   padding: '0.25rem',
                                   background: chat.isActive ? 'rgb(var(--bg-tertiary))' : 'rgb(var(--bg-secondary))',
@@ -703,6 +723,14 @@ export function Sidebar({
           )}
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      <DeleteConfirmationModal
+        isOpen={deleteConfirmation.isOpen}
+        chatName={deleteConfirmation.chatName}
+        onConfirm={handleConfirmDelete}
+        onCancel={handleCancelDelete}
+      />
     </div>
   );
 }
