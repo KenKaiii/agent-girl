@@ -35,7 +35,7 @@ import { CommandQueueDisplay } from '../queue/CommandQueueDisplay';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { WorkingDirectoryContext } from '../../hooks/useWorkingDirectory';
 import { useSessionAPI, type Session } from '../../hooks/useSessionAPI';
-import { Menu, Edit3, ChevronLeft, ChevronRight, History, ExternalLink, ListOrdered } from 'lucide-react';
+import { Menu, Edit3, ChevronLeft, ChevronRight, History, ExternalLink, ListOrdered, Eye, EyeOff } from 'lucide-react';
 import type { Message } from '../message/types';
 import { toast } from '../../utils/toast';
 import { showError } from '../../utils/errorMessages';
@@ -75,6 +75,9 @@ export function ChatContainer() {
 
   // Queue management
   const { isQueueOpen, setIsQueueOpen, queue } = useMessageQueue();
+
+  // Display mode for compact/full message rendering
+  const [displayMode, setDisplayMode] = useState<'full' | 'compact'>('full');
 
   // Live token count during streaming (for loading indicator)
   const [liveTokenCount, setLiveTokenCount] = useState(0);
@@ -1530,6 +1533,24 @@ export function ChatContainer() {
 
             {/* Right side */}
             <div className="header-right">
+              {/* Compact/Full toggle */}
+              <div className="flex items-center gap-3" style={{ pointerEvents: 'auto', cursor: 'default' }}>
+                <span className="text-sm" style={{ color: 'rgb(var(--text-secondary))' }}>
+                  {displayMode === 'compact' ? 'compact' : 'full'}
+                </span>
+                <button
+                  onClick={() => setDisplayMode(displayMode === 'full' ? 'compact' : 'full')}
+                  className="p-2 hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+                  aria-label={displayMode === 'full' ? 'Hide verbose output' : 'Show all output'}
+                  title={displayMode === 'full' ? 'Hide verbose output (thinking, WebSearch, tools)' : 'Show all output including thinking and tool use'}
+                >
+                  {displayMode === 'compact' ? (
+                    <EyeOff className="w-4 h-4" style={{ color: 'rgb(var(--text-secondary))' }} />
+                  ) : (
+                    <Eye className="w-4 h-4" style={{ color: 'rgb(var(--text-secondary))' }} />
+                  )}
+                </button>
+              </div>
               {/* Radio Player */}
               <RadioPlayer />
               {/* Working Directory Display */}
@@ -1588,6 +1609,7 @@ export function ChatContainer() {
                 isLoading={isCurrentSessionLoading}
                 liveTokenCount={liveTokenCount}
                 scrollContainerRef={scrollContainerRef}
+                displayMode={displayMode}
                 onRemoveMessage={handleRemoveMessage}
               />
             </WorkingDirectoryContext.Provider>

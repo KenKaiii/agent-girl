@@ -27,7 +27,7 @@ import { ThinkingBlock } from './ThinkingBlock';
 import { CodeBlockWithCopy } from './CodeBlockWithCopy';
 import { URLBadge } from './URLBadge';
 import { MermaidDiagram } from './MermaidDiagram';
-import { Shield, FileText, FolderOpen, Copy, Eye, EyeOff, Trash2 } from 'lucide-react';
+import { Shield, FileText, FolderOpen, Copy, Trash2 } from 'lucide-react';
 import { showError } from '../../utils/errorMessages';
 import { useWorkingDirectory } from '../../hooks/useWorkingDirectory';
 
@@ -182,6 +182,7 @@ function InlineCodeWithHoverActions({ children, filePath }: { children: React.Re
 
 interface AssistantMessageProps {
   message: AssistantMessageType;
+  displayMode?: 'full' | 'compact';
 }
 
 function formatTimestamp(timestamp: string): string {
@@ -1970,10 +1971,9 @@ interface AssistantMessageContainerProps {
 }
 
 export function AssistantMessage(props: AssistantMessageContainerProps & AssistantMessageProps) {
-  const { message, onRemove } = props;
+  const { message, onRemove, displayMode = 'full' } = props;
   const [showMetadata, setShowMetadata] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [isCompact, setIsCompact] = useState(false);
 
   // Extract text content from message for copying
   const getTextContent = () => {
@@ -2016,35 +2016,19 @@ export function AssistantMessage(props: AssistantMessageContainerProps & Assista
               </span>
             </div>
 
-            {/* Compact/Full toggle button - top right */}
-            <button
-              onClick={() => setIsCompact(!isCompact)}
-              className="flex items-center gap-1 px-2 py-1 ml-auto text-xs hover:bg-white/5 rounded transition-colors"
-              aria-label={isCompact ? "Show full" : "Show compact"}
-              title={isCompact ? "Show full output" : "Hide output"}
-            >
-              {isCompact ? (
-                <>
-                  <EyeOff className="w-3.5 h-3.5" />
-                  <span>compact</span>
-                </>
-              ) : (
-                <>
-                  <Eye className="w-3.5 h-3.5" />
-                  <span>full</span>
-                </>
-              )}
-            </button>
           </div>
 
           {/* Message body */}
           <div className="message-assistant-body">
-            {isCompact ? (
-              // Compact view - just show a summary
-              <div className="text-sm text-gray-400 italic mt-2">
-                {message.content.filter(b => b.type === 'text').length > 0
-                  ? 'Output hidden (click expand to show)'
-                  : 'Agent completed task'}
+            {displayMode === 'compact' ? (
+              // Compact view - only show text blocks
+              <div className="space-y-4 mt-2">
+                {message.content.map((block, index) => {
+                  if (block.type === 'text') {
+                    return <TextComponent key={index} text={block} />;
+                  }
+                  return null;
+                })}
               </div>
             ) : (
               // Full view - show all content
