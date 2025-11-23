@@ -1368,6 +1368,11 @@ export function ChatContainer() {
     }
   };
 
+  // Handle message removal
+  const handleRemoveMessage = (messageId: string) => {
+    setMessages((prev) => prev.filter(msg => msg.id !== messageId));
+  };
+
   // Build wizard handlers
   const handleOpenBuildWizard = () => {
     setIsBuildWizardOpen(true);
@@ -1583,6 +1588,7 @@ export function ChatContainer() {
                 isLoading={isCurrentSessionLoading}
                 liveTokenCount={liveTokenCount}
                 scrollContainerRef={scrollContainerRef}
+                onRemoveMessage={handleRemoveMessage}
               />
             </WorkingDirectoryContext.Provider>
 

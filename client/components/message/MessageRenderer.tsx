@@ -26,9 +26,10 @@ import { AssistantMessage } from './AssistantMessage';
 
 interface MessageRendererProps {
   message: Message;
+  onRemoveMessage?: (messageId: string) => void;
 }
 
-export function MessageRenderer({ message }: MessageRendererProps) {
+export function MessageRenderer({ message, onRemoveMessage }: MessageRendererProps) {
   switch (message.type) {
     case 'user':
       return <UserMessage message={message} />;
@@ -37,7 +38,7 @@ export function MessageRenderer({ message }: MessageRendererProps) {
       return <SystemMessage message={message} />;
 
     case 'assistant':
-      return <AssistantMessage message={message} />;
+      return <AssistantMessage message={message} onRemove={onRemoveMessage} />;
 
     default: {
       const unknownMessage = message as { type: string };

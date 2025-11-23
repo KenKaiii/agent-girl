@@ -27,7 +27,7 @@ import { ThinkingBlock } from './ThinkingBlock';
 import { CodeBlockWithCopy } from './CodeBlockWithCopy';
 import { URLBadge } from './URLBadge';
 import { MermaidDiagram } from './MermaidDiagram';
-import { Shield, FileText, FolderOpen, Copy } from 'lucide-react';
+import { Shield, FileText, FolderOpen, Copy, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
 import { showError } from '../../utils/errorMessages';
 import { useWorkingDirectory } from '../../hooks/useWorkingDirectory';
 
@@ -1964,9 +1964,16 @@ function TextComponent({ text }: { text: TextBlock }) {
   );
 }
 
-export function AssistantMessage({ message }: AssistantMessageProps) {
+interface AssistantMessageContainerProps {
+  message: AssistantMessageType;
+  onRemove?: (messageId: string) => void;
+}
+
+export function AssistantMessage(props: AssistantMessageContainerProps & AssistantMessageProps) {
+  const { message, onRemove } = props;
   const [showMetadata, setShowMetadata] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isCompact, setIsCompact] = useState(false);
 
   // Extract text content from message for copying
   const getTextContent = () => {
@@ -2012,20 +2019,30 @@ export function AssistantMessage({ message }: AssistantMessageProps) {
 
           {/* Message body */}
           <div className="message-assistant-body">
-            <div className="space-y-4 mt-2">
-              {message.content.map((block, index) => {
-                if (block.type === 'text') {
-                  return <TextComponent key={index} text={block} />;
-                } else if (block.type === 'tool_use') {
-                  return <ToolUseComponent key={index} toolUse={block} />;
-                } else if (block.type === 'thinking') {
-                  return <ThinkingBlock key={index} title="Agent Girl's thoughts..." content={block.thinking} />;
-                } else if (block.type === 'long_running_command') {
-                  return <LongRunningCommandComponent key={index} command={block} />;
-                }
-                return null;
-              })}
-            </div>
+            {isCompact ? (
+              // Compact view - just show a summary
+              <div className="text-sm text-gray-400 italic mt-2">
+                {message.content.filter(b => b.type === 'text').length > 0
+                  ? 'Output hidden (click expand to show)'
+                  : 'Agent completed task'}
+              </div>
+            ) : (
+              // Full view - show all content
+              <div className="space-y-4 mt-2">
+                {message.content.map((block, index) => {
+                  if (block.type === 'text') {
+                    return <TextComponent key={index} text={block} />;
+                  } else if (block.type === 'tool_use') {
+                    return <ToolUseComponent key={index} toolUse={block} />;
+                  } else if (block.type === 'thinking') {
+                    return <ThinkingBlock key={index} title="Agent Girl's thoughts..." content={block.thinking} />;
+                  } else if (block.type === 'long_running_command') {
+                    return <LongRunningCommandComponent key={index} command={block} />;
+                  }
+                  return null;
+                })}
+              </div>
+            )}
 
             {/* Action buttons */}
             <div className="message-assistant-actions">
@@ -2046,6 +2063,30 @@ export function AssistantMessage({ message }: AssistantMessageProps) {
                   </svg>
                 )}
               </button>
+              {/* Compact/Full toggle button */}
+              <button
+                onClick={() => setIsCompact(!isCompact)}
+                className="message-action-btn"
+                aria-label={isCompact ? "Expand" : "Collapse"}
+                title={isCompact ? "Show full output" : "Hide output"}
+              >
+                {isCompact ? (
+                  <ChevronDown className="w-4 h-4" />
+                ) : (
+                  <ChevronUp className="w-4 h-4" />
+                )}
+              </button>
+
+              {/* Remove button */}
+              <button
+                onClick={() => onRemove?.(message.id)}
+                className="message-action-btn hover:text-red-400"
+                aria-label="Remove message"
+                title="Remove this message"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+
               {message.metadata && (
                 <button
                   onClick={() => setShowMetadata(!showMetadata)}

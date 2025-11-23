@@ -29,9 +29,10 @@ interface MessageListProps {
   isLoading?: boolean;
   liveTokenCount?: number;
   scrollContainerRef?: React.RefObject<HTMLDivElement>;
+  onRemoveMessage?: (messageId: string) => void;
 }
 
-export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollContainerRef }: MessageListProps) {
+export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollContainerRef, onRemoveMessage }: MessageListProps) {
   const parentRef = scrollContainerRef || useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -181,7 +182,7 @@ export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollCon
                     ref={virtualizer.measureElement}
                     data-index={virtualItem.index}
                   >
-                    <MessageRenderer message={message} />
+                    <MessageRenderer message={message} onRemoveMessage={onRemoveMessage} />
                   </div>
                 );
               })}
