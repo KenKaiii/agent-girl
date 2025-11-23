@@ -19,7 +19,7 @@
  */
 
 import React, { useRef, useState, useEffect } from 'react';
-import { Send, Plus, X, Square, Palette, List } from 'lucide-react';
+import { Send, Plus, X, Square, Palette, List, ListOrdered } from 'lucide-react';
 import type { FileAttachment } from '../message/types';
 import type { BackgroundProcess } from '../process/BackgroundProcessMonitor';
 import { ModeIndicator } from './ModeIndicator';
@@ -28,6 +28,7 @@ import { CommandTextRenderer } from '../message/CommandTextRenderer';
 import { StyleConfigModal } from './StyleConfigModal';
 import { FeaturesModal } from './FeaturesModal';
 import { getModelConfig } from '../../config/models';
+import { useMessageQueue } from '../../hooks/useMessageQueue';
 
 interface ChatInputProps {
   value: string;
@@ -60,6 +61,9 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
   const [modeIndicatorWidth, setModeIndicatorWidth] = useState(80);
   const [isStyleConfigOpen, setIsStyleConfigOpen] = useState(false);
   const [isFeaturesModalOpen, setIsFeaturesModalOpen] = useState(false);
+
+  // Queue management
+  const { queue } = useMessageQueue();
 
   // Slash command autocomplete state
   const [showCommandMenu, setShowCommandMenu] = useState(false);
@@ -474,6 +478,14 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
                   >
                     Plan Mode
                   </button>
+                )}
+
+                {/* Queue Mode Indicator Badge */}
+                {queue.items.length > 0 && (
+                  <div className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-500/20 border border-blue-500/30 text-xs font-medium text-blue-400">
+                    <ListOrdered size={14} />
+                    <span>Queue: {queue.items.length}</span>
+                  </div>
                 )}
 
                 {/* Style Configuration button - only in Coder mode */}

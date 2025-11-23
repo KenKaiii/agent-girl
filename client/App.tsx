@@ -20,6 +20,8 @@
 
 import React, { useEffect, useState } from "react";
 import { ChatContainer } from "./components/chat/ChatContainer";
+import { QueuePanel } from "./components/queue/QueuePanel";
+import { MessageQueueProvider } from "./hooks/useMessageQueue";
 import { PreLoader } from "./components/preloader/PreLoader";
 import { Toaster } from "sonner";
 
@@ -33,20 +35,23 @@ const App: React.FC = () => {
   }, []);
 
   return (
-    <>
-      {showPreLoader && <PreLoader onComplete={() => setShowPreLoader(false)} />}
-      <ChatContainer />
-      <Toaster
-        position="bottom-right"
-        toastOptions={{
-          className: 'sonner-toast',
-          style: {
-            fontSize: '14px',
-            fontFamily: 'var(--font-sans)',
-          },
-        }}
-      />
-    </>
+    <MessageQueueProvider>
+      <>
+        {showPreLoader && <PreLoader onComplete={() => setShowPreLoader(false)} />}
+        <ChatContainer />
+        <QueuePanel />
+        <Toaster
+          position="bottom-right"
+          toastOptions={{
+            className: 'sonner-toast',
+            style: {
+              fontSize: '14px',
+              fontFamily: 'var(--font-sans)',
+            },
+          }}
+        />
+      </>
+    </MessageQueueProvider>
   );
 };
 

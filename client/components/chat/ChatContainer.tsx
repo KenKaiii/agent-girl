@@ -35,12 +35,13 @@ import { CommandQueueDisplay } from '../queue/CommandQueueDisplay';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { WorkingDirectoryContext } from '../../hooks/useWorkingDirectory';
 import { useSessionAPI, type Session } from '../../hooks/useSessionAPI';
-import { Menu, Edit3, ChevronLeft, ChevronRight, History, ExternalLink } from 'lucide-react';
+import { Menu, Edit3, ChevronLeft, ChevronRight, History, ExternalLink, ListOrdered } from 'lucide-react';
 import type { Message } from '../message/types';
 import { toast } from '../../utils/toast';
 import { showError } from '../../utils/errorMessages';
 import type { BackgroundProcess } from '../process/BackgroundProcessMonitor';
 import type { SlashCommand } from '../../hooks/useWebSocket';
+import { useMessageQueue } from '../../hooks/useMessageQueue';
 
 export function ChatContainer() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -71,6 +72,9 @@ export function ChatContainer() {
 
   // Slash commands available for current session
   const [availableCommands, setAvailableCommands] = useState<SlashCommand[]>([]);
+
+  // Queue management
+  const { isQueueOpen, setIsQueueOpen, queue } = useMessageQueue();
 
   // Live token count during streaming (for loading indicator)
   const [liveTokenCount, setLiveTokenCount] = useState(0);
@@ -1531,6 +1535,20 @@ export function ChatContainer() {
                   onChangeDirectory={handleChangeDirectory}
                 />
               )}
+              {/* Queue Toggle Button */}
+              <button
+                className="header-btn relative"
+                onClick={() => setIsQueueOpen(!isQueueOpen)}
+                title={isQueueOpen ? 'Close queue' : 'Open queue'}
+                aria-label="Toggle Queue Panel"
+              >
+                <ListOrdered size={18} />
+                {queue.items.length > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-blue-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                    {queue.items.length > 9 ? '9+' : queue.items.length}
+                  </span>
+                )}
+              </button>
               {/* About Button */}
               <AboutButton />
             </div>
