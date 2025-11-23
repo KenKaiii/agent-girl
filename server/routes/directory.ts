@@ -173,12 +173,18 @@ export async function handleDirectoryRoutes(req: Request, url: URL): Promise<Res
         throw new Error('No path provided');
       }
 
+      const fs = await import('fs');
+      const path = await import('path');
+
+      // Expand home directory if needed
+      if (filePath.startsWith('~/')) {
+        filePath = path.join(os.homedir(), filePath.slice(2));
+      }
+
       // If it's just a filename (no path separators), search for it
       if (!filePath.includes('/') && !filePath.includes('\\')) {
         // First try the working directory if provided
         const baseDir = workingDir || getDefaultWorkingDirectory();
-        const fs = await import('fs');
-        const path = await import('path');
 
         // Search recursively in the base directory
         const findFile = (dir: string, filename: string): string | null => {
@@ -207,6 +213,17 @@ export async function handleDirectoryRoutes(req: Request, url: URL): Promise<Res
         } else {
           throw new Error(`File not found: ${filePath}`);
         }
+      }
+
+      // Validate that the file actually exists before trying to open it
+      if (!fs.existsSync(filePath)) {
+        throw new Error(`File does not exist: ${filePath}`);
+      }
+
+      // Verify it's a file, not a directory
+      const stats = fs.statSync(filePath);
+      if (!stats.isFile()) {
+        throw new Error(`Path is not a file: ${filePath}`);
       }
 
       console.log('📄 Opening file:', filePath);
@@ -262,6 +279,11 @@ export async function handleDirectoryRoutes(req: Request, url: URL): Promise<Res
       const fs = await import('fs');
       const path = await import('path');
 
+      // Expand home directory if needed
+      if (filePath.startsWith('~/')) {
+        filePath = path.join(os.homedir(), filePath.slice(2));
+      }
+
       // If it's just a filename (no path separators), search for it
       if (!filePath.includes('/') && !filePath.includes('\\')) {
         const baseDir = workingDir || getDefaultWorkingDirectory();
@@ -291,6 +313,17 @@ export async function handleDirectoryRoutes(req: Request, url: URL): Promise<Res
         } else {
           throw new Error(`File not found: ${filePath}`);
         }
+      }
+
+      // Validate that the file actually exists before trying to open it
+      if (!fs.existsSync(filePath)) {
+        throw new Error(`File does not exist: ${filePath}`);
+      }
+
+      // Verify it's a file, not a directory
+      const stats = fs.statSync(filePath);
+      if (!stats.isFile()) {
+        throw new Error(`Path is not a file: ${filePath}`);
       }
 
       // Get the parent directory of the file
