@@ -16,3 +16,4 @@ release/
 !OAUTH.md
 !server/commands/**/*.md
 .swarm/
+.claude-flow/metrics/
