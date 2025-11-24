@@ -1,12 +1,15 @@
 /**
  * Directory API Routes
  * Handles directory validation and picker endpoints
+ * Improved with better folder detection and state tracking
  */
 
 import { validateDirectory, getDefaultWorkingDirectory } from "../directoryUtils";
 import { openDirectoryPicker } from "../directoryPicker";
+import { detectFolderState, isFolderModified, isDefaultFolderName, sanitizeFolderName } from "../folderNaming";
 import { spawn } from 'child_process';
 import os from 'os';
+import fs from 'fs';
 
 /**
  * Handle directory-related API routes
@@ -123,6 +126,16 @@ export async function handleDirectoryRoutes(req: Request, url: URL): Promise<Res
         throw new Error('No path provided');
       }
 
+      // Detect folder state with improved validation
+      const folderState = detectFolderState(folderPath);
+      if (!folderState.exists) {
+        throw new Error(`Folder does not exist: ${folderPath}`);
+      }
+
+      if (!folderState.accessible) {
+        throw new Error(`Folder not accessible: ${folderState.error || 'Unknown reason'}`);
+      }
+
       console.log('📁 Opening folder:', folderPath);
 
       // Open the folder in the system file explorer
@@ -143,7 +156,8 @@ export async function handleDirectoryRoutes(req: Request, url: URL): Promise<Res
 
       return new Response(JSON.stringify({
         success: true,
-        path: folderPath
+        path: folderPath,
+        isDefault: folderState.metadata?.isDefault || false
       }), {
         headers: { 'Content-Type': 'application/json' },
       });
@@ -276,7 +290,6 @@ export async function handleDirectoryRoutes(req: Request, url: URL): Promise<Res
         throw new Error('No path provided');
       }
 
-      const fs = await import('fs');
       const path = await import('path');
 
       // Expand home directory if needed
@@ -329,6 +342,12 @@ export async function handleDirectoryRoutes(req: Request, url: URL): Promise<Res
       // Get the parent directory of the file
       const folderPath = path.dirname(filePath);
 
+      // Validate folder exists and is accessible
+      const folderState = detectFolderState(folderPath);
+      if (!folderState.exists || !folderState.accessible) {
+        throw new Error(`Parent folder not accessible: ${folderState.error || 'Unknown reason'}`);
+      }
+
       console.log('📁 Opening folder:', folderPath);
 
       // Open the folder in the system file explorer
@@ -349,7 +368,8 @@ export async function handleDirectoryRoutes(req: Request, url: URL): Promise<Res
 
       return new Response(JSON.stringify({
         success: true,
-        path: folderPath
+        path: folderPath,
+        isDefault: folderState.metadata?.isDefault || false
       }), {
         headers: { 'Content-Type': 'application/json' },
       });
