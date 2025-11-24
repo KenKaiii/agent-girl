@@ -79,21 +79,21 @@ function CodeBlockFilePathActions({ filePath }: { filePath: string }) {
     <div className="flex gap-0.5 ml-1 shrink-0">
       <button
         onClick={handleOpenFile}
-        className="p-0.5 hover:bg-white/10 rounded transition-colors"
+        className="w-5 h-5 flex items-center justify-center p-0 hover:bg-white/10 rounded transition-colors flex-shrink-0"
         title="Open file"
       >
         <FileText className="w-3 h-3 text-white/40 hover:text-white/80" aria-hidden="true" />
       </button>
       <button
         onClick={handleOpenFolder}
-        className="p-0.5 hover:bg-white/10 rounded transition-colors"
+        className="w-5 h-5 flex items-center justify-center p-0 hover:bg-white/10 rounded transition-colors flex-shrink-0"
         title="Reveal in Finder"
       >
         <FolderOpen className="w-3 h-3 text-white/40 hover:text-white/80" aria-hidden="true" />
       </button>
       <button
         onClick={handleCopyPath}
-        className="p-0.5 hover:bg-white/10 rounded transition-colors"
+        className="w-5 h-5 flex items-center justify-center p-0 hover:bg-white/10 rounded transition-colors flex-shrink-0"
         title="Copy path"
       >
         <Copy className="w-3 h-3 text-white/40 hover:text-white/80" aria-hidden="true" />
@@ -120,8 +120,8 @@ function CodeWithFilePaths({ code }: { code: string }) {
     // Add the path with action buttons
     const filePath = match[1];
     parts.push(
-      <span key={match.index} className="inline-flex items-center gap-0.5">
-        <span>{filePath}</span>
+      <span key={match.index} className="inline-flex items-center gap-0.5 flex-wrap-0">
+        <span className="overflow-hidden overflow-ellipsis whitespace-nowrap">{filePath}</span>
         <CodeBlockFilePathActions filePath={filePath} />
       </span>
     );
