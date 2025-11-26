@@ -29,9 +29,12 @@ interface MessageListProps {
   isLoading?: boolean;
   liveTokenCount?: number;
   scrollContainerRef?: React.RefObject<HTMLDivElement>;
+  displayMode?: 'full' | 'compact';
+  showCode?: boolean;
+  onRemoveMessage?: (messageId: string) => void;
 }
 
-export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollContainerRef }: MessageListProps) {
+export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollContainerRef, displayMode, showCode = true, onRemoveMessage }: MessageListProps) {
   const parentRef = scrollContainerRef || useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -42,6 +45,10 @@ export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollCon
   // Smooth token count animation
   const [displayedTokenCount, setDisplayedTokenCount] = useState(0);
   const animationFrameRef = useRef<number | null>(null);
+
+  // Smart scrolling - track if user is at bottom
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const isUserScrollingRef = useRef(false);
 
   // Track elapsed time when loading
   useEffect(() => {
@@ -113,13 +120,30 @@ export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollCon
     overscan: 5, // Render 5 extra items above/below viewport
   });
 
-  // Scroll to bottom when messages change (for new messages)
+  // Smart scroll: detect if user is at bottom
   useEffect(() => {
-    if (parentRef.current) {
-      // Auto-scroll to bottom on new messages
+    const container = parentRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      // Calculate if at bottom (with 100px threshold for slight scrolling)
+      const isNowAtBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+      setIsAtBottom(isNowAtBottom);
+      isUserScrollingRef.current = true;
+    };
+
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Auto-scroll to bottom only if user is at bottom
+  useEffect(() => {
+    if (parentRef.current && isAtBottom) {
+      // Only scroll if user is at bottom
       parentRef.current.scrollTop = parentRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, isAtBottom]);
 
   if (messages.length === 0 && !isLoading) {
     return (
@@ -160,7 +184,7 @@ export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollCon
                     ref={virtualizer.measureElement}
                     data-index={virtualItem.index}
                   >
-                    <MessageRenderer message={message} />
+                    <MessageRenderer message={message} displayMode={displayMode} showCode={showCode} onRemoveMessage={onRemoveMessage} />
                   </div>
                 );
               })}

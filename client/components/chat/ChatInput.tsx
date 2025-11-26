@@ -19,7 +19,7 @@
  */
 
 import React, { useRef, useState, useEffect } from 'react';
-import { Send, Plus, X, Square, Palette, List } from 'lucide-react';
+import { Send, Plus, X, Square, Palette, List, ListOrdered } from 'lucide-react';
 import type { FileAttachment } from '../message/types';
 import type { BackgroundProcess } from '../process/BackgroundProcessMonitor';
 import { ModeIndicator } from './ModeIndicator';
@@ -28,6 +28,7 @@ import { CommandTextRenderer } from '../message/CommandTextRenderer';
 import { StyleConfigModal } from './StyleConfigModal';
 import { FeaturesModal } from './FeaturesModal';
 import { getModelConfig } from '../../config/models';
+import { useMessageQueue } from '../../hooks/useMessageQueue';
 
 interface ChatInputProps {
   value: string;
@@ -42,6 +43,7 @@ interface ChatInputProps {
   backgroundProcesses?: BackgroundProcess[];
   onKillProcess?: (bashId: string) => void;
   mode?: 'general' | 'coder' | 'intense-research' | 'spark';
+  onModeChange?: (mode: 'general' | 'coder' | 'intense-research' | 'spark') => void;
   availableCommands?: SlashCommand[];
   contextUsage?: {
     inputTokens: number;
@@ -51,7 +53,7 @@ interface ChatInputProps {
   selectedModel?: string;
 }
 
-export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGenerating, placeholder, isPlanMode, onTogglePlanMode, backgroundProcesses: _backgroundProcesses = [], onKillProcess: _onKillProcess, mode, availableCommands = [], contextUsage, selectedModel }: ChatInputProps) {
+export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGenerating, placeholder, isPlanMode, onTogglePlanMode, backgroundProcesses: _backgroundProcesses = [], onKillProcess: _onKillProcess, mode, onModeChange, availableCommands = [], contextUsage, selectedModel }: ChatInputProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [attachedFiles, setAttachedFiles] = useState<FileAttachment[]>([]);
@@ -59,6 +61,9 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
   const [modeIndicatorWidth, setModeIndicatorWidth] = useState(80);
   const [isStyleConfigOpen, setIsStyleConfigOpen] = useState(false);
   const [isFeaturesModalOpen, setIsFeaturesModalOpen] = useState(false);
+
+  // Queue management
+  const { queue } = useMessageQueue();
 
   // Slash command autocomplete state
   const [showCommandMenu, setShowCommandMenu] = useState(false);
@@ -334,7 +339,7 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
           </div>
         )}
 
-        <form className="flex gap-1.5 w-full" onSubmit={(e) => { e.preventDefault(); onSubmit(); }}>
+        <form className="flex gap-1.5 w-full relative" onSubmit={(e) => { e.preventDefault(); onSubmit(); }}>
         {/* Main input container with rounded border */}
         <div className={`input-field-wrapper ${isDraggingOver ? 'ring-2 ring-blue-500 ring-opacity-50' : ''}`}>
           {/* File attachments preview */}
@@ -391,9 +396,9 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
           )}
 
           {/* Textarea */}
-          <div className="overflow-hidden relative px-2.5">
+          <div className="relative px-2.5" style={{ overflow: 'visible' }}>
             {/* Mode Indicator */}
-            {mode && <ModeIndicator mode={mode} onWidthChange={setModeIndicatorWidth} />}
+            {mode && <ModeIndicator mode={mode} onWidthChange={setModeIndicatorWidth} onModeChange={onModeChange} />}
 
             {/* Command Pill Overlay */}
             {value.match(/(^|\s)(\/([a-z-]+))(?=\s|$)/m) && (
@@ -473,6 +478,14 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
                   >
                     Plan Mode
                   </button>
+                )}
+
+                {/* Queue Mode Indicator Badge */}
+                {queue.items.length > 0 && (
+                  <div className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-500/20 border border-blue-500/30 text-xs font-medium text-blue-400">
+                    <ListOrdered size={14} />
+                    <span>Queue: {queue.items.length}</span>
+                  </div>
                 )}
 
                 {/* Style Configuration button - only in Coder mode */}

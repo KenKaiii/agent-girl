@@ -68,6 +68,16 @@ export const ErrorMessages = {
     description: 'Could not browse for folders',
     code: 'E008',
   },
+  OPEN_FOLDER: {
+    title: 'Failed to open folder',
+    description: 'Could not open the project folder',
+    code: 'E025',
+  },
+  COPY_PATH: {
+    title: 'Failed to copy path',
+    description: 'Could not copy the path to clipboard',
+    code: 'E026',
+  },
 
   // Permission & Mode
   UPDATE_MODE: {

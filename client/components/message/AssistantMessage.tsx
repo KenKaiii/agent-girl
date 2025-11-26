@@ -27,11 +27,164 @@ import { ThinkingBlock } from './ThinkingBlock';
 import { CodeBlockWithCopy } from './CodeBlockWithCopy';
 import { URLBadge } from './URLBadge';
 import { MermaidDiagram } from './MermaidDiagram';
-import { Shield } from 'lucide-react';
+import { Shield, FileText, FolderOpen, Copy, Trash2, Eye, EyeOff, Code2, ChevronUp } from 'lucide-react';
 import { showError } from '../../utils/errorMessages';
+import { useWorkingDirectory } from '../../hooks/useWorkingDirectory';
+import { CodeVisibilityProvider } from '../../context/CodeVisibilityContext';
+
+// Helper to render text with file path detection
+function TextWithFilePaths({ children }: { children: React.ReactNode }) {
+  if (typeof children !== 'string') {
+    return <>{children}</>;
+  }
+
+  // Helper to convert text with newlines to React nodes
+  const textToNodes = (text: string, keyPrefix: string): React.ReactNode[] => {
+    if (!text.includes('\n')) return [text];
+    return text.split('\n').flatMap((part, i, arr) =>
+      i < arr.length - 1 ? [part, <br key={`${keyPrefix}-br-${i}`} />] : [part]
+    );
+  };
+
+  // Regex to match file paths (Unix absolute, Windows, relative, home dir ~, and standalone filenames with spaces)
+  // Only matches actual files, not just "/" or partial paths
+  const pathRegex = /((?:~\/[\w\s./-]+)|(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[A-Za-z]:\\[\w\\\s.-]+)|(?:\.\.?\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[\w\s_-]+\.(?:md|txt|json|yml|yaml|sh|py|js|ts|jsx|tsx|css|html|xml|toml|ini|cfg|conf|log|env|gitignore|dockerignore|rs|go|java|c|cpp|h|hpp|rb|php|swift|kt|scala|sql|vue|svelte|command)))/g;
+
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = pathRegex.exec(children)) !== null) {
+    // Add text before the match (with newline handling)
+    if (match.index > lastIndex) {
+      const textBefore = children.slice(lastIndex, match.index);
+      parts.push(...textToNodes(textBefore, `pre-${match.index}`));
+    }
+
+    // Add the path with action buttons
+    const filePath = match[1];
+    parts.push(
+      <span key={match.index} className="inline-flex items-center gap-0.5">
+        <span>{filePath}</span>
+        <FilePathActions filePath={filePath} />
+      </span>
+    );
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Add remaining text (with newline handling)
+  if (lastIndex < children.length) {
+    const textAfter = children.slice(lastIndex);
+    parts.push(...textToNodes(textAfter, 'post'));
+  }
+
+  return parts.length > 0 ? <>{parts}</> : <>{children}</>;
+}
+
+// File path action buttons component
+function FilePathActions({ filePath }: { filePath: string }) {
+  const { workingDirectory } = useWorkingDirectory();
+
+  const handleOpenFile = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const response = await fetch('/api/open-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: filePath, workingDirectory }),
+      });
+      const result = await response.json() as { success: boolean; error?: string };
+      if (!result.success) {
+        showError('OPEN_FOLDER', result.error || 'Failed to open file');
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      showError('OPEN_FOLDER', errorMsg);
+    }
+  };
+
+  const handleOpenFolder = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const response = await fetch('/api/open-file-folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: filePath, workingDirectory }),
+      });
+      const result = await response.json() as { success: boolean; error?: string };
+      if (!result.success) {
+        showError('OPEN_FOLDER', result.error || 'Failed to open folder');
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      showError('OPEN_FOLDER', errorMsg);
+    }
+  };
+
+  const handleCopyPath = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(filePath);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      showError('OPEN_FOLDER', errorMsg);
+    }
+  };
+
+  return (
+    <div className="flex gap-0.5 ml-1 shrink-0">
+      <button
+        onClick={handleOpenFile}
+        className="p-0.5 hover:bg-white/10 rounded transition-colors"
+        title="Open file"
+      >
+        <FileText className="w-3 h-3 text-white/40 hover:text-white/80" />
+      </button>
+      <button
+        onClick={handleOpenFolder}
+        className="p-0.5 hover:bg-white/10 rounded transition-colors"
+        title="Reveal in Finder"
+      >
+        <FolderOpen className="w-3 h-3 text-white/40 hover:text-white/80" />
+      </button>
+      <button
+        onClick={handleCopyPath}
+        className="p-0.5 hover:bg-white/10 rounded transition-colors"
+        title="Copy path"
+      >
+        <Copy className="w-3 h-3 text-white/40 hover:text-white/80" />
+      </button>
+    </div>
+  );
+}
+
+// Inline code with hover file actions
+function InlineCodeWithHoverActions({ children, filePath }: { children: React.ReactNode; filePath: string }) {
+  const [isHovered, setIsHovered] = React.useState(false);
+
+  return (
+    <span
+      className="inline-flex items-center gap-0.5 relative group"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      <code className="px-1.5 py-0.5 text-sm font-mono rounded-md cursor-pointer" style={{
+        backgroundColor: 'rgba(168, 199, 250, 0.15)',
+        color: '#DAEEFF',
+        border: '1px solid rgba(168, 199, 250, 0.2)'
+      }}>
+        {children}
+      </code>
+      {isHovered && <FilePathActions filePath={filePath} />}
+    </span>
+  );
+}
 
 interface AssistantMessageProps {
   message: AssistantMessageType;
+  displayMode?: 'full' | 'compact';
+  showCode?: boolean;
 }
 
 function formatTimestamp(timestamp: string): string {
@@ -383,6 +536,7 @@ function ReadToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
           <span className="flex-1 min-w-0 text-xs truncate text-white/60">
             {input.file_path as string}
           </span>
+          <FilePathActions filePath={input.file_path as string} />
         </div>
         <div className="flex gap-1 items-center whitespace-nowrap">
           <button
@@ -402,7 +556,10 @@ function ReadToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
         <div className="p-4 bg-black/30 text-sm space-y-2">
           <div>
             <span className="text-xs font-semibold text-white/60">File Path:</span>
-            <div className="text-sm mt-1 font-mono">{input.file_path as string}</div>
+            <div className="text-sm mt-1 font-mono flex items-center gap-2">
+              {input.file_path as string}
+              <FilePathActions filePath={input.file_path as string} />
+            </div>
           </div>
           {input.offset && (
             <div>
@@ -612,7 +769,7 @@ function TaskToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
           <span className={`text-sm leading-6 ${gradientClass}`}>{agentName}</span>
           <div className="bg-gray-700 shrink-0 min-h-4 w-[1px] h-4" role="separator" aria-orientation="vertical" />
           <span className="flex-1 min-w-0 text-xs truncate text-white/60">
-            {nestedToolsCount && nestedToolsCount > 0 ? `Used ${nestedToolsCount} tool${nestedToolsCount !== 1 ? 's' : ''}` : 'Running...'}
+            {nestedToolsCount !== undefined && nestedToolsCount > 0 ? `Used ${nestedToolsCount} tool${nestedToolsCount !== 1 ? 's' : ''}` : 'Running...'}
           </span>
         </div>
         <div className="flex gap-1 items-center whitespace-nowrap">
@@ -666,7 +823,7 @@ function TaskToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
                   )}
 
                   {/* Nested tools from spawned agent */}
-                  {nestedToolsCount && nestedToolsCount > 0 && (
+                  {nestedToolsCount !== undefined && nestedToolsCount > 0 && (
                     <div>
                       <span className="text-xs font-semibold text-white/60">Tools Used ({nestedToolsCount}):</span>
                       <div className="mt-2 space-y-2">
@@ -1108,19 +1265,31 @@ function ExitPlanModeComponent({ toolUse }: { toolUse: ToolUseBlock }) {
                     return <MermaidDiagram chart={String(children).replace(/\n$/, '')} />;
                   }
 
-                  return !inline ? (
-                    <CodeBlockWithCopy
-                      code={String(children).replace(/\n$/, '')}
-                      language={language}
-                      customStyle={{
-                        borderRadius: '0.5rem',
-                        fontSize: '0.875rem',
-                        border: 'none',
-                        backgroundColor: 'rgba(168, 199, 250, 0.05)',
-                      }}
-                      wrapperClassName="plan-code-border"
-                    />
-                  ) : (
+                  if (!inline) {
+                    return (
+                      <CodeBlockWithCopy
+                        code={String(children).replace(/\n$/, '')}
+                        language={language}
+                        customStyle={{
+                          borderRadius: '0.5rem',
+                          fontSize: '0.875rem',
+                          border: 'none',
+                          backgroundColor: 'rgba(168, 199, 250, 0.05)',
+                        }}
+                        wrapperClassName="plan-code-border"
+                      />
+                    );
+                  }
+
+                  // Inline code with file path detection
+                  const inlineContent = String(children);
+                  const isFilePath = /^(?:~\/[\w\s./-]+)|(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[A-Za-z]:\\[\w\\\s.-]+)|(?:\.\.?\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[\w\s_-]+\.(?:md|txt|json|yml|yaml|sh|py|js|ts|jsx|tsx|css|html|xml|toml|ini|cfg|conf|log|env|gitignore|dockerignore|rs|go|java|c|cpp|h|hpp|rb|php|swift|kt|scala|sql|vue|svelte|command))$/.test(inlineContent);
+
+                  if (isFilePath) {
+                    return <InlineCodeWithHoverActions filePath={inlineContent}>{children}</InlineCodeWithHoverActions>;
+                  }
+
+                  return (
                     <code className="px-1.5 py-0.5 text-sm font-mono rounded-md" style={{
                       backgroundColor: 'rgba(168, 199, 250, 0.15)',
                       color: '#DAEEFF',
@@ -1244,6 +1413,7 @@ function EditToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
           <span className="flex-1 min-w-0 text-xs truncate text-white/60">
             {input.file_path as string}
           </span>
+          <FilePathActions filePath={input.file_path as string} />
         </div>
         <div className="flex gap-1 items-center whitespace-nowrap">
           <span className="text-green-500">+ {stats.added}</span>
@@ -1565,7 +1735,7 @@ function LongRunningCommandComponent({ command }: { command: LongRunningCommandB
   );
 }
 
-function TextComponent({ text }: { text: TextBlock }) {
+function TextComponent({ text, showCode = true }: { text: TextBlock; showCode?: boolean }) {
   // Check if this is a context cleared message
   const isContextCleared = text.text.includes('--- Context cleared');
   // Check for both manual and auto-compact messages
@@ -1634,18 +1804,60 @@ function TextComponent({ text }: { text: TextBlock }) {
                 return <MermaidDiagram chart={String(children).replace(/\n$/, '')} />;
               }
 
-              return !inline ? (
-                <CodeBlockWithCopy
-                  code={String(children).replace(/\n$/, '')}
-                  language={language}
-                  customStyle={{
-                    margin: '1rem 0',
-                    borderRadius: '0.5rem',
-                    fontSize: '0.875rem',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
-                  }}
-                />
-              ) : (
+              // For code blocks, check if they contain file paths
+              if (!inline) {
+                // Return null if code visibility is disabled globally
+                if (!showCode) {
+                  return null;
+                }
+
+                const codeContent = String(children).replace(/\n$/, '');
+                // Check if this code block contains file paths (tree structure)
+                const hasFilePaths = /(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)[^\s<>"|]*)|(?:[A-Za-z]:\\[^\s<>"|]*)|(?:(?:\.\.?\/)?[\w.-]+\/[\w./-]+)/.test(codeContent);
+
+                // Render with file path detection if paths found and no syntax highlighting needed
+                const isPlainText = !language || language === 'text' || language === 'plaintext' || language === 'txt';
+                if (hasFilePaths && isPlainText) {
+                  // Render as plain text with file path detection
+                  const lines = codeContent.split('\n');
+                  return (
+                    <div className="my-4 p-4 rounded-lg font-mono text-sm whitespace-pre-wrap" style={{
+                      backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                    }}>
+                      {lines.map((line, i) => (
+                        <div key={i} className="leading-relaxed flex flex-wrap items-center">
+                          <TextWithFilePaths>{line}</TextWithFilePaths>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                }
+
+                return (
+                  <CodeBlockWithCopy
+                    code={codeContent}
+                    language={language}
+                    customStyle={{
+                      margin: '1rem 0',
+                      borderRadius: '0.5rem',
+                      fontSize: '0.875rem',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                    }}
+                  />
+                );
+              }
+
+              // Inline code with file path detection
+              const inlineContent = String(children);
+              // Only match actual files, not just "/" or partial paths
+              const isFilePath = /^(?:~\/[\w\s./-]+)|(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[A-Za-z]:\\[\w\\\s.-]+)|(?:\.\.?\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[\w\s_-]+\.(?:md|txt|json|yml|yaml|sh|py|js|ts|jsx|tsx|css|html|xml|toml|ini|cfg|conf|log|env|gitignore|dockerignore|rs|go|java|c|cpp|h|hpp|rb|php|swift|kt|scala|sql|vue|svelte|command))$/.test(inlineContent);
+
+              if (isFilePath) {
+                return <InlineCodeWithHoverActions filePath={inlineContent}>{children}</InlineCodeWithHoverActions>;
+              }
+
+              return (
                 <code className="px-1.5 py-0.5 text-sm font-mono rounded-md" style={{
                   backgroundColor: 'rgba(168, 199, 250, 0.15)',
                   color: '#DAEEFF',
@@ -1681,12 +1893,20 @@ function TextComponent({ text }: { text: TextBlock }) {
             ol: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
               <ol className="list-decimal pl-6 space-y-3 marker:text-gray-400" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
             ),
-            li: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-              <li className="mb-2 leading-relaxed" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
+            li: ({ children, ...props }: React.HTMLAttributes<HTMLElement>) => (
+              <li className="mb-2 leading-relaxed" style={{ color: 'rgb(var(--text-primary))' }} {...props}>
+                {React.Children.map(children, child =>
+                  typeof child === 'string' ? <TextWithFilePaths>{child}</TextWithFilePaths> : child
+                )}
+              </li>
             ),
-            // Customize paragraph spacing
-            p: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-              <p className="mb-4 leading-relaxed first:mt-0 last:mb-0" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
+            // Customize paragraph spacing with file path detection
+            p: ({ children, ...props }: React.HTMLAttributes<HTMLElement>) => (
+              <p className="mb-4 leading-relaxed first:mt-0 last:mb-0" style={{ color: 'rgb(var(--text-primary))' }} {...props}>
+                {React.Children.map(children, child =>
+                  typeof child === 'string' ? <TextWithFilePaths>{child}</TextWithFilePaths> : child
+                )}
+              </p>
             ),
             // Customize blockquote
             blockquote: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
@@ -1725,7 +1945,7 @@ function TextComponent({ text }: { text: TextBlock }) {
             td: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
               <td className="px-4 py-2 border border-gray-600" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
             ),
-          }) , []); // Empty deps - components never change
+          }) , [showCode]); // Update when showCode changes
 
   // Check if this is the compacting loading message
   const isCompactingMessage = text.text === 'Compacting conversation...';
@@ -1752,9 +1972,17 @@ function TextComponent({ text }: { text: TextBlock }) {
   );
 }
 
-export function AssistantMessage({ message }: AssistantMessageProps) {
+interface AssistantMessageContainerProps {
+  message: AssistantMessageType;
+  onRemove?: (messageId: string) => void;
+}
+
+export function AssistantMessage(props: AssistantMessageContainerProps & AssistantMessageProps) {
+  const { message, onRemove, displayMode = 'full', showCode = true } = props;
   const [showMetadata, setShowMetadata] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isMessageHidden, setIsMessageHidden] = useState(false);
+  const [isCodeCollapsed, setIsCodeCollapsed] = useState(false);
 
   // Extract text content from message for copying
   const getTextContent = () => {
@@ -1777,46 +2005,76 @@ export function AssistantMessage({ message }: AssistantMessageProps) {
     }
   };
 
+  // Count code blocks to show in toggle
+  const codeBlockCount = useMemo(() => {
+    return message.content.filter(block => block.type === 'tool_use').length;
+  }, [message.content]);
+
   return (
-    <div className="message-container group">
-      <div className="message-assistant-wrapper">
-        <div className="message-assistant-content">
-          {/* Header with avatar and model name */}
-          <div className="message-assistant-header">
-            <img
-              src="/client/agent-boy.svg"
-              className="message-assistant-avatar"
-              alt="Agent Girl"
-            />
-            <div className="message-assistant-name-container">
-              <span className="message-assistant-name">
-                {message.metadata?.model || 'Agent Girl'}
-              </span>
-              <span className="message-assistant-timestamp invisible group-hover:visible">
-                {formatTimestamp(message.timestamp)}
-              </span>
+    <CodeVisibilityProvider showCode={showCode}>
+      <div className="message-container group">
+        <div className="message-assistant-wrapper">
+          <div className="message-assistant-content">
+            {/* Header with avatar and model name */}
+            <div className="message-assistant-header">
+              <img
+                src="/client/agent-boy.svg"
+                className="message-assistant-avatar"
+                alt="Agent Girl"
+              />
+              <div className="message-assistant-name-container">
+                <span className="message-assistant-name">
+                  {message.metadata?.model || 'Agent Girl'}
+                </span>
+                <span className="message-assistant-timestamp invisible group-hover:visible">
+                  {formatTimestamp(message.timestamp)}
+                </span>
+              </div>
+
             </div>
-          </div>
 
           {/* Message body */}
-          <div className="message-assistant-body">
-            <div className="space-y-4 mt-2">
-              {message.content.map((block, index) => {
-                if (block.type === 'text') {
-                  return <TextComponent key={index} text={block} />;
-                } else if (block.type === 'tool_use') {
-                  return <ToolUseComponent key={index} toolUse={block} />;
-                } else if (block.type === 'thinking') {
-                  return <ThinkingBlock key={index} title="Agent Girl's thoughts..." content={block.thinking} />;
-                } else if (block.type === 'long_running_command') {
-                  return <LongRunningCommandComponent key={index} command={block} />;
-                }
-                return null;
-              })}
-            </div>
+          {!isMessageHidden && (
+            <div className="message-assistant-body">
+              {displayMode === 'compact' ? (
+                // Compact view - only show text blocks
+                <div className="space-y-4 mt-2">
+                  {message.content.map((block, index) => {
+                    if (block.type === 'text') {
+                      return <TextComponent key={index} text={block} showCode={showCode} />;
+                    }
+                    return null;
+                  })}
+                </div>
+              ) : (
+                // Full view - show all content (filtered by code collapse state and global code visibility)
+                <div className="space-y-4 mt-2">
+                  {message.content.map((block, index) => {
+                    // Skip tool_use blocks only if code is collapsed locally (compact view)
+                    // Websearch/thinking should remain visible regardless of code visibility toggle
+                    if (block.type === 'tool_use' && isCodeCollapsed) {
+                      return null;
+                    }
 
-            {/* Action buttons */}
-            <div className="message-assistant-actions">
+                    if (block.type === 'text') {
+                      return <TextComponent key={index} text={block} showCode={showCode} />;
+                    } else if (block.type === 'tool_use') {
+                      return <ToolUseComponent key={index} toolUse={block} />;
+                    } else if (block.type === 'thinking') {
+                      return <ThinkingBlock key={index} title="Agent Girl's thoughts..." content={block.thinking} />;
+                    } else if (block.type === 'long_running_command') {
+                      return <LongRunningCommandComponent key={index} command={block} />;
+                    }
+                    return null;
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Action buttons - always visible */}
+          <div className="message-assistant-actions">
+            {!isMessageHidden && (
               <button
                 onClick={handleCopy}
                 className="message-action-btn"
@@ -1834,29 +2092,71 @@ export function AssistantMessage({ message }: AssistantMessageProps) {
                   </svg>
                 )}
               </button>
-              {message.metadata && (
-                <button
-                  onClick={() => setShowMetadata(!showMetadata)}
-                  className="message-action-btn"
-                  aria-label="Metadata"
-                  title="Show metadata"
-                >
-                  <span className="text-xs font-mono">{showMetadata ? '[-]' : '[+]'}</span>
-                </button>
-              )}
-            </div>
+            )}
 
-            {/* Metadata panel */}
-            {message.metadata && showMetadata && (
-              <div className="mt-2 p-2 bg-black/5 border border-white/10 rounded text-xs">
-                <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-gray-400">
-                  {JSON.stringify(message.metadata, null, 2)}
-                </pre>
-              </div>
+            {/* Hide/Show message toggle - always visible */}
+            <button
+              onClick={() => setIsMessageHidden(!isMessageHidden)}
+              className="message-action-btn"
+              aria-label={isMessageHidden ? "Show message" : "Hide message"}
+              title={isMessageHidden ? "Show this message" : "Hide this message"}
+            >
+              {isMessageHidden ? (
+                <EyeOff className="w-4 h-4" />
+              ) : (
+                <Eye className="w-4 h-4" />
+              )}
+            </button>
+
+            {/* Collapse code blocks toggle - only show if message is visible and has code */}
+            {!isMessageHidden && codeBlockCount > 0 && (
+              <button
+                onClick={() => setIsCodeCollapsed(!isCodeCollapsed)}
+                className="message-action-btn"
+                aria-label={isCodeCollapsed ? "Show code" : "Hide code"}
+                title={isCodeCollapsed ? `Show ${codeBlockCount} code block${codeBlockCount !== 1 ? 's' : ''}` : `Hide ${codeBlockCount} code block${codeBlockCount !== 1 ? 's' : ''}`}
+              >
+                {isCodeCollapsed ? (
+                  <ChevronUp className="w-4 h-4" style={{ transform: 'rotate(180deg)' }} />
+                ) : (
+                  <Code2 className="w-4 h-4" />
+                )}
+              </button>
+            )}
+
+            {/* Remove button */}
+            <button
+              onClick={() => onRemove?.(message.id)}
+              className="message-action-btn hover:text-red-400"
+              aria-label="Remove message"
+              title="Remove this message"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+
+            {!isMessageHidden && message.metadata && (
+              <button
+                onClick={() => setShowMetadata(!showMetadata)}
+                className="message-action-btn"
+                aria-label="Metadata"
+                title="Show metadata"
+              >
+                <span className="text-xs font-mono">{showMetadata ? '[-]' : '[+]'}</span>
+              </button>
             )}
           </div>
+
+          {/* Metadata panel */}
+          {!isMessageHidden && message.metadata && showMetadata && (
+            <div className="mt-2 p-2 bg-black/5 border border-white/10 rounded text-xs">
+              <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-gray-400">
+                {JSON.stringify(message.metadata, null, 2)}
+              </pre>
+            </div>
+          )}
         </div>
       </div>
-    </div>
+      </div>
+    </CodeVisibilityProvider>
   );
 }

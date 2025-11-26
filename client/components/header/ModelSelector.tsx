@@ -93,7 +93,7 @@ export function ModelSelector({ selectedModel, onModelChange, disabled = false, 
             boxShadow: '0 4px 6px rgba(0, 0, 0, 0.3)',
           }}
         >
-          <div style={{ padding: '1rem 1.75rem 0.5rem', fontWeight: 600, fontSize: '0.875rem' }}>
+          <div style={{ padding: '1rem 1.75rem 0.5rem', fontWeight: 600, fontSize: '0.875rem', color: 'rgb(255, 255, 255)' }}>
             Model
           </div>
           <div style={{ padding: '0 1rem 1rem', maxHeight: '20rem', overflowY: 'auto' }}>
@@ -130,7 +130,7 @@ export function ModelSelector({ selectedModel, onModelChange, disabled = false, 
                   <div
                     className="font-medium"
                     style={{
-                      color: 'rgb(var(--text-primary))',
+                      color: 'rgb(255, 255, 255)',
                       fontSize: '0.875rem',
                       lineHeight: 1.2,
                     }}
@@ -139,7 +139,7 @@ export function ModelSelector({ selectedModel, onModelChange, disabled = false, 
                   </div>
                   <div
                     style={{
-                      color: 'rgb(var(--text-secondary))',
+                      color: 'rgba(255, 255, 255, 0.7)',
                       fontSize: '0.75rem',
                       lineHeight: 1.3,
                     }}

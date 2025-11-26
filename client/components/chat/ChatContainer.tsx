@@ -31,20 +31,35 @@ import { RadioPlayer } from '../header/RadioPlayer';
 import { PlanApprovalModal } from '../plan/PlanApprovalModal';
 import { BuildWizard } from '../build-wizard/BuildWizard';
 import { ScrollButton } from './ScrollButton';
+import { CommandQueueDisplay } from '../queue/CommandQueueDisplay';
 import { useWebSocket } from '../../hooks/useWebSocket';
+import { WorkingDirectoryContext } from '../../hooks/useWorkingDirectory';
 import { useSessionAPI, type Session } from '../../hooks/useSessionAPI';
-import { Menu, Edit3 } from 'lucide-react';
+import { Menu, Edit3, ChevronLeft, ChevronRight, History, ExternalLink, ListOrdered, Eye, EyeOff, Code2 } from 'lucide-react';
 import type { Message } from '../message/types';
 import { toast } from '../../utils/toast';
 import { showError } from '../../utils/errorMessages';
 import type { BackgroundProcess } from '../process/BackgroundProcessMonitor';
 import type { SlashCommand } from '../../hooks/useWebSocket';
+import { useMessageQueue } from '../../hooks/useMessageQueue';
 
 export function ChatContainer() {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [inputValue, setInputValue] = useState('');
+  const [inputValue, setInputValue] = useState(() => {
+    // Restore draft text from localStorage on mount
+    const saved = localStorage.getItem('agent-girl-draft-text');
+    return saved || '';
+  });
   const [loadingSessions, setLoadingSessions] = useState<Set<string>>(new Set());
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
+    // Restore sidebar state from localStorage
+    const saved = localStorage.getItem('agent-girl-sidebar-open');
+    return saved === 'true';
+  });
+
+  // Navigation history for "back to recent" feature
+  const [navigationHistory, setNavigationHistory] = useState<string[]>([]);
+  const navigationHistoryRef = useRef<string[]>([]);
 
   // Ref for scroll container in MessageList
   const scrollContainerRef = useRef<HTMLDivElement>(null) as React.RefObject<HTMLDivElement>;
@@ -58,6 +73,15 @@ export function ChatContainer() {
   // Slash commands available for current session
   const [availableCommands, setAvailableCommands] = useState<SlashCommand[]>([]);
 
+  // Queue management
+  const { isQueueOpen, setIsQueueOpen, queue } = useMessageQueue();
+
+  // Display mode for compact/full message rendering
+  const [displayMode, setDisplayMode] = useState<'full' | 'compact'>('full');
+
+  // Global code visibility toggle
+  const [showCode, setShowCode] = useState(true);
+
   // Live token count during streaming (for loading indicator)
   const [liveTokenCount, setLiveTokenCount] = useState(0);
 
@@ -70,6 +94,23 @@ export function ChatContainer() {
 
   // Message cache to preserve streaming state across session switches
   const messageCache = useRef<Map<string, Message[]>>(new Map());
+
+  // Initialization guard to prevent re-running init effect after handleNewChat
+  const hasInitialized = useRef(false);
+
+  // Persist sidebar state to localStorage
+  useEffect(() => {
+    localStorage.setItem('agent-girl-sidebar-open', String(isSidebarOpen));
+  }, [isSidebarOpen]);
+
+  // Persist draft text to localStorage (saves on change, clears on submit)
+  useEffect(() => {
+    if (inputValue) {
+      localStorage.setItem('agent-girl-draft-text', inputValue);
+    } else {
+      localStorage.removeItem('agent-girl-draft-text');
+    }
+  }, [inputValue]);
 
   // Automatically cache messages as they update during streaming
   // IMPORTANT: Only depend on messages, NOT currentSessionId
@@ -99,6 +140,11 @@ export function ChatContainer() {
 
   // Build wizard state
   const [isBuildWizardOpen, setIsBuildWizardOpen] = useState(false);
+
+  // Command queue state
+  const [commandQueue, setCommandQueue] = useState<Array<{ id: string; content: string; status: 'pending' | 'running' | 'completed' }>>(
+    []
+  );
 
   const sessionAPI = useSessionAPI();
 
@@ -132,12 +178,111 @@ export function ChatContainer() {
     localStorage.setItem('agent-boy-model', modelId);
   };
 
-  // Load sessions on mount
+  // Load sessions on mount and restore from URL
   useEffect(() => {
-    loadSessions();
-  }, []);
+    // Only initialize once - prevent re-running after handleNewChat
+    if (hasInitialized.current) return;
+    hasInitialized.current = true;
 
-  const loadSessions = async () => {
+    const initializeApp = async () => {
+      setIsLoadingSessions(true);
+      const loadedSessions = await sessionAPI.fetchSessions();
+      setSessions(loadedSessions);
+
+      // Initialize context usage from loaded sessions
+      const newContextUsage = new Map<string, {
+        inputTokens: number;
+        contextWindow: number;
+        contextPercentage: number;
+      }>();
+
+      loadedSessions.forEach(session => {
+        if (session.context_input_tokens && session.context_window && session.context_percentage !== undefined) {
+          newContextUsage.set(session.id, {
+            inputTokens: session.context_input_tokens,
+            contextWindow: session.context_window,
+            contextPercentage: session.context_percentage,
+          });
+        }
+      });
+
+      setContextUsage(newContextUsage);
+      setIsLoadingSessions(false);
+
+      // Restore session from URL hash (#session-id-here or #uuid-here)
+      let hashSessionId = window.location.hash.slice(1); // Remove '#'
+
+      // Support both formats: "session-uuid" and plain "uuid"
+      if (hashSessionId.startsWith('session-')) {
+        hashSessionId = hashSessionId.slice(8); // Remove 'session-' prefix
+      }
+
+      if (hashSessionId) {
+        console.log(`📍 Restoring session from URL: ${hashSessionId}`);
+
+        // Load session details
+        const session = loadedSessions.find(s => s.id === hashSessionId);
+        if (session) {
+          setCurrentSessionId(hashSessionId);
+          setIsPlanMode(session.permission_mode === 'plan');
+          setCurrentSessionMode(session.mode);
+
+          // Load slash commands for this session
+          try {
+            const commandsRes = await fetch(`/api/sessions/${hashSessionId}/commands`);
+            if (commandsRes.ok) {
+              const commandsData = await commandsRes.json();
+              setAvailableCommands(commandsData.commands || []);
+            }
+          } catch (error) {
+            console.error('Failed to load slash commands:', error);
+          }
+
+          // Load messages from database
+          const sessionMessages = await sessionAPI.fetchSessionMessages(hashSessionId);
+
+          // Convert session messages to Message format
+          const convertedMessages = sessionMessages.map(msg => {
+            if (msg.type === 'user') {
+              return {
+                id: msg.id,
+                type: 'user' as const,
+                content: msg.content,
+                timestamp: msg.timestamp,
+              };
+            } else {
+              let content;
+              try {
+                const parsed = JSON.parse(msg.content);
+                if (Array.isArray(parsed)) {
+                  content = parsed;
+                } else {
+                  content = [{ type: 'text' as const, text: msg.content }];
+                }
+              } catch {
+                content = [{ type: 'text' as const, text: msg.content }];
+              }
+
+              return {
+                id: msg.id,
+                type: 'assistant' as const,
+                content,
+                timestamp: msg.timestamp,
+              };
+            }
+          });
+
+          setMessages(convertedMessages);
+          messageCache.current.set(hashSessionId, convertedMessages);
+          console.log(`✅ Restored ${convertedMessages.length} messages from session`);
+        }
+      }
+    };
+
+    initializeApp();
+  }, [sessionAPI]);
+
+  const loadSessions = async (): Promise<Session[]> => {
     setIsLoadingSessions(true);
     const loadedSessions = await sessionAPI.fetchSessions();
     setSessions(loadedSessions);
@@ -161,6 +306,7 @@ export function ChatContainer() {
 
     setContextUsage(newContextUsage);
     setIsLoadingSessions(false);
+    return loadedSessions;
   };
 
   // Handle session switching
@@ -171,7 +317,21 @@ export function ChatContainer() {
       console.log(`[Message Cache] Cached ${messages.length} messages for session ${currentSessionId}`);
     }
 
+    // Track navigation history for "back to recent" feature
+    if (currentSessionId && currentSessionId !== sessionId) {
+      setNavigationHistory(prev => {
+        const newHistory = prev.filter(id => id !== currentSessionId);
+        newHistory.push(currentSessionId);
+        // Keep only last 10 entries
+        if (newHistory.length > 10) newHistory.shift();
+        navigationHistoryRef.current = newHistory;
+        return newHistory;
+      });
+    }
+
     setCurrentSessionId(sessionId);
+    // Update URL to include session ID for persistence on refresh
+    window.location.hash = sessionId;
 
     // Load session details to get permission mode and mode
     const sessions = await sessionAPI.fetchSessions();
@@ -245,12 +405,68 @@ export function ChatContainer() {
 
   // Handle new chat creation
   const handleNewChat = async () => {
-    // Don't create session yet - let handleSubmit create it with the user-selected mode
-    setCurrentSessionId(null);
-    setCurrentSessionMode('general'); // Reset to default for UI
-    setMessages([]);
-    setInputValue('');
+    // Track current session in history before clearing
+    if (currentSessionId) {
+      setNavigationHistory(prev => {
+        const newHistory = prev.filter(id => id !== currentSessionId);
+        newHistory.push(currentSessionId);
+        if (newHistory.length > 10) newHistory.shift();
+        navigationHistoryRef.current = newHistory;
+        return newHistory;
+      });
+    }
+
+    // Use flushSync to ensure state updates happen immediately, preventing UI flicker
+    flushSync(() => {
+      setCurrentSessionId(null);
+      setCurrentSessionMode('general');
+      setMessages([]);
+      setInputValue('');
+      setAvailableCommands([]);
+      setLiveTokenCount(0);
+    });
+    // Clear URL hash to prevent loading old session
+    window.location.hash = '';
     // Session will be created in handleSubmit when user sends first message
+  };
+
+  // Navigate to previous chat in the list
+  const handlePrevChat = () => {
+    if (sessions.length === 0) return;
+    const currentIndex = sessions.findIndex(s => s.id === currentSessionId);
+    if (currentIndex > 0) {
+      handleSessionSelect(sessions[currentIndex - 1].id);
+    } else if (currentIndex === -1 && sessions.length > 0) {
+      // If no current session, go to first
+      handleSessionSelect(sessions[0].id);
+    }
+  };
+
+  // Navigate to next chat in the list
+  const handleNextChat = () => {
+    if (sessions.length === 0) return;
+    const currentIndex = sessions.findIndex(s => s.id === currentSessionId);
+    if (currentIndex >= 0 && currentIndex < sessions.length - 1) {
+      handleSessionSelect(sessions[currentIndex + 1].id);
+    } else if (currentIndex === -1 && sessions.length > 0) {
+      // If no current session, go to first
+      handleSessionSelect(sessions[0].id);
+    }
+  };
+
+  // Navigate back to the most recently viewed chat
+  const handleBackToRecent = () => {
+    const history = navigationHistoryRef.current;
+    if (history.length > 0) {
+      const lastSessionId = history[history.length - 1];
+      // Remove from history
+      setNavigationHistory(prev => {
+        const newHistory = prev.slice(0, -1);
+        navigationHistoryRef.current = newHistory;
+        return newHistory;
+      });
+      handleSessionSelect(lastSessionId);
+    }
   };
 
   // Handle chat deletion
@@ -333,6 +549,37 @@ export function ChatContainer() {
       }
     }
     // If no session exists yet, the mode will be applied when session is created
+  };
+
+  // Handle session mode change (general, coder, intense-research, spark)
+  const handleModeChange = async (newMode: 'general' | 'coder' | 'intense-research' | 'spark') => {
+    // Always update local state immediately
+    setCurrentSessionMode(newMode);
+    console.log('🎭 Mode changed to:', newMode);
+
+    // Also update the session in the sessions list immediately to prevent it from reverting
+    setSessions(prev => prev.map(s =>
+      s.id === currentSessionId ? { ...s, mode: newMode } : s
+    ));
+
+    // If session exists, update it in the database
+    if (currentSessionId) {
+      const result = await sessionAPI.updateSessionMode(currentSessionId, newMode);
+
+      if (result.success) {
+        console.log('✅ Session mode updated in database:', newMode);
+        // If query is active, send WebSocket message to switch mode mid-stream
+        if (isSessionLoading(currentSessionId)) {
+          sendMessage({
+            type: 'set_mode',
+            sessionId: currentSessionId,
+            mode: newMode
+          });
+        }
+      } else {
+        console.error('❌ Failed to update session mode:', result.error);
+      }
+    }
   };
 
   // Handle plan approval
@@ -715,6 +962,21 @@ export function ChatContainer() {
         const planText = 'plan' in message ? message.plan : undefined;
         setPendingPlan(planText || 'No plan provided');
         setIsPlanMode(false); // Auto-deactivate plan mode when ExitPlanMode is triggered
+      } else if (message.type === 'session_title_updated' && 'newTitle' in message) {
+        // Handle session title update from server
+        console.log(`📝 Session title updated to: ${message.newTitle}`);
+        // Reload sessions to reflect the title change in sidebar
+        loadSessions();
+      } else if (message.type === 'mode_changed' && 'mode' in message) {
+        // Handle session mode change confirmation from server
+        const newMode = message.mode as 'general' | 'coder' | 'intense-research' | 'spark';
+        console.log(`✅ Mode changed confirmed: ${newMode}`);
+        // Update local state to match confirmed mode
+        setCurrentSessionMode(newMode);
+        // Update sessions list to reflect the mode change
+        setSessions(prev => prev.map(s =>
+          s.id === currentSessionId ? { ...s, mode: newMode } : s
+        ));
       } else if (message.type === 'permission_mode_changed') {
         // Handle permission mode change confirmation
         const mode = 'mode' in message ? message.mode : undefined;
@@ -1112,6 +1374,11 @@ export function ChatContainer() {
     }
   };
 
+  // Handle message removal
+  const handleRemoveMessage = (messageId: string) => {
+    setMessages((prev) => prev.filter(msg => msg.id !== messageId));
+  };
+
   // Build wizard handlers
   const handleOpenBuildWizard = () => {
     setIsBuildWizardOpen(true);
@@ -1151,16 +1418,41 @@ export function ChatContainer() {
             timestamp: new Date(session.updated_at),
             isActive: session.id === currentSessionId,
             isLoading: loadingSessions.has(session.id),
+            workingDirectory: session.working_directory,
           };
         })}
         onNewChat={handleNewChat}
         onChatSelect={handleSessionSelect}
         onChatDelete={handleChatDelete}
         onChatRename={handleChatRename}
+        showCompact={displayMode === 'compact'}
+        onToggleCompact={() => setDisplayMode(displayMode === 'compact' ? 'full' : 'compact')}
+        showCode={showCode}
+        onToggleCode={() => setShowCode(!showCode)}
+        onNewChatTab={() => window.open(window.location.origin, '_blank')}
+        onPreviousChat={() => {
+          if (navigationHistoryRef.current.length > 0) {
+            const previousId = navigationHistoryRef.current.pop();
+            if (previousId) handleSessionSelect(previousId);
+          }
+        }}
+        onNextChat={() => {
+          // Next chat navigation would need to be implemented based on your navigation model
+          // For now, this is a placeholder
+        }}
+        onBackToRecent={() => {
+          if (navigationHistoryRef.current.length > 0) {
+            navigationHistoryRef.current = [];
+            if (sessions.length > 0) handleSessionSelect(sessions[0].id);
+          }
+        }}
+        canPreviousChat={navigationHistoryRef.current.length > 0}
+        canNextChat={false}
+        canBackToRecent={navigationHistoryRef.current.length > 0}
       />
 
       {/* Main Chat Area */}
-      <div className="flex flex-col flex-1 h-screen" style={{ marginLeft: isSidebarOpen ? '260px' : '0', transition: 'margin-left 0.2s ease-in-out' }}>
+      <div className="flex flex-col flex-1 h-screen" style={{ marginLeft: isSidebarOpen ? '416px' : '0', transition: 'margin-left 0.2s ease-in-out' }}>
         {/* Header - Always visible */}
         <nav className="header">
           <div className="header-content">
@@ -1177,6 +1469,55 @@ export function ChatContainer() {
                     {/* New chat */}
                     <button className="header-btn" aria-label="New Chat" onClick={handleNewChat}>
                       <Edit3 />
+                    </button>
+
+                    {/* New chat in new tab */}
+                    <button
+                      className="header-btn"
+                      aria-label="New Chat in New Tab"
+                      onClick={() => window.open(window.location.origin, '_blank')}
+                      title="Open new chat in new tab"
+                    >
+                      <ExternalLink size={18} />
+                    </button>
+
+                    {/* Separator */}
+                    <div style={{ width: '1px', height: '20px', backgroundColor: 'rgba(255,255,255,0.15)', margin: '0 4px' }} />
+
+                    {/* Previous chat */}
+                    <button
+                      className="header-btn"
+                      aria-label="Previous Chat"
+                      onClick={handlePrevChat}
+                      disabled={sessions.length === 0 || sessions.findIndex(s => s.id === currentSessionId) <= 0}
+                      title="Previous chat"
+                      style={{ opacity: sessions.length === 0 || sessions.findIndex(s => s.id === currentSessionId) <= 0 ? 0.3 : 1 }}
+                    >
+                      <ChevronLeft size={18} />
+                    </button>
+
+                    {/* Next chat */}
+                    <button
+                      className="header-btn"
+                      aria-label="Next Chat"
+                      onClick={handleNextChat}
+                      disabled={sessions.length === 0 || sessions.findIndex(s => s.id === currentSessionId) >= sessions.length - 1}
+                      title="Next chat"
+                      style={{ opacity: sessions.length === 0 || sessions.findIndex(s => s.id === currentSessionId) >= sessions.length - 1 ? 0.3 : 1 }}
+                    >
+                      <ChevronRight size={18} />
+                    </button>
+
+                    {/* Back to recent */}
+                    <button
+                      className="header-btn"
+                      aria-label="Back to Recent"
+                      onClick={handleBackToRecent}
+                      disabled={navigationHistory.length === 0}
+                      title="Back to recent chat"
+                      style={{ opacity: navigationHistory.length === 0 ? 0.3 : 1 }}
+                    >
+                      <History size={18} />
                     </button>
                   </>
                 )}
@@ -1219,6 +1560,44 @@ export function ChatContainer() {
 
             {/* Right side */}
             <div className="header-right">
+              {/* Compact/Full toggle */}
+              <button
+                onClick={() => setDisplayMode(displayMode === 'full' ? 'compact' : 'full')}
+                className="flex items-center gap-3 px-3 py-2 hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+                aria-label={displayMode === 'full' ? 'Hide verbose output' : 'Show all output'}
+                title={displayMode === 'full' ? 'Hide verbose output (thinking, WebSearch, tools)' : 'Show all output including thinking and tool use'}
+                style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+              >
+                <span className="text-sm" style={{ color: 'rgb(var(--text-secondary))' }}>
+                  {displayMode === 'compact' ? 'compact' : 'full'}
+                </span>
+                {displayMode === 'compact' ? (
+                  <EyeOff className="w-4 h-4" style={{ color: 'rgb(var(--text-secondary))' }} />
+                ) : (
+                  <Eye className="w-4 h-4" style={{ color: 'rgb(var(--text-secondary))' }} />
+                )}
+              </button>
+
+              {/* Global code visibility toggle */}
+              <button
+                onClick={() => setShowCode(!showCode)}
+                className="flex items-center gap-3 px-3 py-2 hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+                aria-label={showCode ? 'Hide code blocks' : 'Show code blocks'}
+                title={showCode ? 'Hide all code blocks' : 'Show all code blocks'}
+                style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+              >
+                <span className="text-sm" style={{ color: 'rgb(var(--text-secondary))' }}>
+                  {showCode ? 'code' : 'no code'}
+                </span>
+                {showCode ? (
+                  <Code2 className="w-4 h-4" style={{ color: 'rgb(var(--text-secondary))' }} />
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="w-4 h-4" style={{ color: 'rgb(var(--text-secondary))' }}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m17.25 6.75-10.5 10.5M6.75 6.75l10.5 10.5" />
+                  </svg>
+                )}
+              </button>
+
               {/* Radio Player */}
               <RadioPlayer />
               {/* Working Directory Display */}
@@ -1229,6 +1608,20 @@ export function ChatContainer() {
                   onChangeDirectory={handleChangeDirectory}
                 />
               )}
+              {/* Queue Toggle Button - Hidden */}
+              {/* <button
+                className="header-btn relative"
+                onClick={() => setIsQueueOpen(!isQueueOpen)}
+                title={isQueueOpen ? 'Close queue' : 'Open queue'}
+                aria-label="Toggle Queue Panel"
+              >
+                <ListOrdered size={18} />
+                {queue.items.length > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-blue-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                    {queue.items.length > 9 ? '9+' : queue.items.length}
+                  </span>
+                )}
+              </button> */}
               {/* About Button */}
               <AboutButton />
             </div>
@@ -1251,16 +1644,30 @@ export function ChatContainer() {
             availableCommands={availableCommands}
             onOpenBuildWizard={handleOpenBuildWizard}
             mode={currentSessionMode}
+            onModeChange={handleModeChange}
           />
         ) : (
           // Chat Interface
           <>
             {/* Messages */}
-            <MessageList
-              messages={messages}
-              isLoading={isCurrentSessionLoading}
-              liveTokenCount={liveTokenCount}
-              scrollContainerRef={scrollContainerRef}
+            <WorkingDirectoryContext.Provider value={{ workingDirectory: sessions.find(s => s.id === currentSessionId)?.working_directory || null }}>
+              <MessageList
+                messages={messages}
+                isLoading={isCurrentSessionLoading}
+                liveTokenCount={liveTokenCount}
+                scrollContainerRef={scrollContainerRef}
+                displayMode={displayMode}
+                showCode={showCode}
+                onRemoveMessage={handleRemoveMessage}
+              />
+            </WorkingDirectoryContext.Provider>
+
+            {/* Command Queue Display */}
+            <CommandQueueDisplay
+              queue={commandQueue}
+              onClearQueue={() => {
+                setCommandQueue(prev => prev.filter(cmd => cmd.status !== 'completed'));
+              }}
             />
 
             {/* Input */}
@@ -1276,11 +1683,13 @@ export function ChatContainer() {
               onTogglePlanMode={handleTogglePlanMode}
               backgroundProcesses={backgroundProcesses.get(currentSessionId || '') || []}
               onKillProcess={handleKillProcess}
-              mode={currentSessionId ? currentSessionMode : undefined}
+              mode={currentSessionMode}
+              onModeChange={handleModeChange}
               availableCommands={availableCommands}
               contextUsage={currentSessionId ? contextUsage.get(currentSessionId) : undefined}
               selectedModel={selectedModel}
             />
+
           </>
         )}
       </div>

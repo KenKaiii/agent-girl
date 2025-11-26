@@ -21,6 +21,121 @@
 import React, { useState } from 'react';
 import { SyntaxHighlighter, vscDarkPlus } from '../../utils/syntaxHighlighter';
 import { showError } from '../../utils/errorMessages';
+import { FileText, FolderOpen, Copy } from 'lucide-react';
+import { useWorkingDirectory } from '../../hooks/useWorkingDirectory';
+import { useCodeVisibility } from '../../context/CodeVisibilityContext';
+
+// File path action buttons for code blocks
+function CodeBlockFilePathActions({ filePath }: { filePath: string }) {
+  const { workingDirectory } = useWorkingDirectory();
+
+  const handleOpenFile = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const response = await fetch('/api/open-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: filePath, workingDirectory }),
+      });
+      const result = await response.json() as { success: boolean; error?: string };
+      if (!result.success) {
+        showError('OPEN_FOLDER', result.error || 'Failed to open file');
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      showError('OPEN_FOLDER', errorMsg);
+    }
+  };
+
+  const handleOpenFolder = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const response = await fetch('/api/open-file-folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: filePath, workingDirectory }),
+      });
+      const result = await response.json() as { success: boolean; error?: string };
+      if (!result.success) {
+        showError('OPEN_FOLDER', result.error || 'Failed to open folder');
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      showError('OPEN_FOLDER', errorMsg);
+    }
+  };
+
+  const handleCopyPath = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(filePath);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      showError('COPY_FAILED', errorMsg);
+    }
+  };
+
+  return (
+    <div className="flex gap-0.5 ml-1 shrink-0">
+      <button
+        onClick={handleOpenFile}
+        className="p-0.5 hover:bg-white/10 rounded transition-colors"
+        title="Open file"
+      >
+        <FileText className="w-3 h-3 text-white/40 hover:text-white/80" aria-hidden="true" />
+      </button>
+      <button
+        onClick={handleOpenFolder}
+        className="p-0.5 hover:bg-white/10 rounded transition-colors"
+        title="Reveal in Finder"
+      >
+        <FolderOpen className="w-3 h-3 text-white/40 hover:text-white/80" aria-hidden="true" />
+      </button>
+      <button
+        onClick={handleCopyPath}
+        className="p-0.5 hover:bg-white/10 rounded transition-colors"
+        title="Copy path"
+      >
+        <Copy className="w-3 h-3 text-white/40 hover:text-white/80" aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
+// Render code with file path detection for plain text blocks
+function CodeWithFilePaths({ code }: { code: string }) {
+  // Regex to match file paths (Unix absolute, Windows, relative, home dir ~, and standalone filenames)
+  const pathRegex = /((?:~\/[\w\s./-]+)|(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[A-Za-z]:\\[\w\\\s.-]+)|(?:\.\.?\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[\w\s_-]+\.(?:md|txt|json|yml|yaml|sh|py|js|ts|jsx|tsx|css|html|xml|toml|ini|cfg|conf|log|env|gitignore|dockerignore|rs|go|java|c|cpp|h|hpp|rb|php|swift|kt|scala|sql|vue|svelte|command)))/g;
+
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = pathRegex.exec(code)) !== null) {
+    // Add text before the match
+    if (match.index > lastIndex) {
+      parts.push(code.slice(lastIndex, match.index));
+    }
+
+    // Add the path with action buttons
+    const filePath = match[1];
+    parts.push(
+      <span key={match.index} className="inline-flex items-center gap-0.5">
+        <span>{filePath}</span>
+        <CodeBlockFilePathActions filePath={filePath} />
+      </span>
+    );
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Add remaining text
+  if (lastIndex < code.length) {
+    parts.push(code.slice(lastIndex));
+  }
+
+  return <>{parts.length > 0 ? parts : code}</>;
+}
 
 interface CodeBlockWithCopyProps {
   code: string;
@@ -30,6 +145,12 @@ interface CodeBlockWithCopyProps {
 }
 
 export function CodeBlockWithCopy({ code, language, customStyle, wrapperClassName }: CodeBlockWithCopyProps) {
+  const { showCode } = useCodeVisibility();
+
+  // If code visibility is disabled globally, don't render the code block
+  if (!showCode) {
+    return null;
+  }
   const [copied, setCopied] = useState(false);
   const [hoveredButton, setHoveredButton] = useState<string | null>(null);
 
@@ -90,24 +211,41 @@ export function CodeBlockWithCopy({ code, language, customStyle, wrapperClassNam
       </div>
 
       {/* Code content */}
-      <SyntaxHighlighter
-        style={codeStyle}
-        language={language || 'text'}
-        PreTag="div"
-        customStyle={{
-          ...customStyle,
-          margin: 0,
-          marginTop: 0,
-          paddingTop: '1rem',
-          borderRadius: 0,
-          borderTopLeftRadius: 0,
-          borderTopRightRadius: 0,
-          borderBottomLeftRadius: '0.5rem',
-          borderBottomRightRadius: '0.5rem',
-        }}
-      >
-        {code}
-      </SyntaxHighlighter>
+      {/* Use plain text rendering with file path detection for text/plain blocks */}
+      {(!language || language === 'text' || language === 'plaintext') ? (
+        <div
+          className="p-4 font-mono text-sm whitespace-pre-wrap"
+          style={{
+            ...customStyle,
+            margin: 0,
+            marginTop: 0,
+            paddingTop: '1rem',
+            backgroundColor: '#1e1e1e',
+            color: '#d4d4d4',
+          }}
+        >
+          <CodeWithFilePaths code={code} />
+        </div>
+      ) : (
+        <SyntaxHighlighter
+          style={codeStyle}
+          language={language || 'text'}
+          PreTag="div"
+          customStyle={{
+            ...customStyle,
+            margin: 0,
+            marginTop: 0,
+            paddingTop: '1rem',
+            borderRadius: 0,
+            borderTopLeftRadius: 0,
+            borderTopRightRadius: 0,
+            borderBottomLeftRadius: '0.5rem',
+            borderBottomRightRadius: '0.5rem',
+          }}
+        >
+          {code}
+        </SyntaxHighlighter>
+      )}
     </div>
   );
 }

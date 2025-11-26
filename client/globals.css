@@ -1163,7 +1163,7 @@
 }
 
 .sidebar-open {
-  width: 260px;
+  width: 416px;
 }
 
 .sidebar-closed {
@@ -1177,7 +1177,7 @@
   justify-content: space-between;
   height: 100vh;
   max-height: 100dvh;
-  width: 260px;
+  width: 416px;
   overflow-x: hidden;
 }
 

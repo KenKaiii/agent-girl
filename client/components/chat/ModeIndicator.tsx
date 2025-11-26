@@ -18,12 +18,13 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import React, { useRef, useEffect } from 'react';
-import { MessageCircle, Code, Target, Zap } from 'lucide-react';
+import React, { useRef, useEffect, useState } from 'react';
+import { MessageCircle, Code, Target, Zap, ChevronDown } from 'lucide-react';
 
 interface ModeIndicatorProps {
   mode: 'general' | 'coder' | 'intense-research' | 'spark';
   onWidthChange?: (width: number) => void;
+  onModeChange?: (mode: 'general' | 'coder' | 'intense-research' | 'spark') => void;
 }
 
 const MODE_CONFIGS = {
@@ -53,10 +54,18 @@ const MODE_CONFIGS = {
   },
 };
 
-export function ModeIndicator({ mode, onWidthChange }: ModeIndicatorProps) {
+const MODES_ARRAY: Array<'general' | 'coder' | 'intense-research' | 'spark'> = [
+  'general',
+  'coder',
+  'intense-research',
+  'spark',
+];
+
+export function ModeIndicator({ mode, onWidthChange, onModeChange }: ModeIndicatorProps) {
   const config = MODE_CONFIGS[mode];
   const Icon = config.icon;
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
     if (buttonRef.current && onWidthChange) {
@@ -65,12 +74,20 @@ export function ModeIndicator({ mode, onWidthChange }: ModeIndicatorProps) {
     }
   }, [mode, onWidthChange]);
 
+  const handleModeSelect = (selectedMode: 'general' | 'coder' | 'intense-research' | 'spark') => {
+    setIsOpen(false);
+    if (onModeChange && selectedMode !== mode) {
+      onModeChange(selectedMode);
+    }
+  };
+
   return (
-    <div className="absolute py-2 select-none z-10" style={{ transform: 'translateY(0px)' }}>
-      <div className="flex">
+    <div className="absolute py-2 select-none" style={{ zIndex: 100 }}>
+      <div className="relative">
+        {/* Main Mode Button */}
         <button
           ref={buttonRef}
-          className="flex items-center gap-1.5 px-2.5 py-1 text-sm rounded-lg"
+          className="flex items-center gap-1.5 px-2.5 py-1 text-sm rounded-lg transition-all hover:brightness-110"
           style={{
             backgroundImage: config.gradient,
             backgroundSize: '200% auto',
@@ -80,19 +97,60 @@ export function ModeIndicator({ mode, onWidthChange }: ModeIndicatorProps) {
             animationIterationCount: 'infinite',
             color: config.textColor,
             border: 'none',
-            cursor: 'default',
+            cursor: 'pointer',
           }}
           type="button"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-          }}
+          onClick={() => setIsOpen(!isOpen)}
         >
           <span>
             <Icon className="size-4" strokeWidth={1.5} />
           </span>
           <span className="font-medium">{config.name}</span>
+          <ChevronDown className="size-3.5 ml-0.5" strokeWidth={2} />
         </button>
+
+        {/* Dropdown Menu */}
+        {isOpen && (
+          <div className="absolute bottom-full left-0 mb-1 rounded-lg shadow-2xl" style={{ minWidth: '200px', backdropFilter: 'blur(8px)', zIndex: 9999, backgroundColor: 'rgba(31, 41, 55, 0.95)' }}>
+            {MODES_ARRAY.map((modeOption) => {
+              const modeConfig = MODE_CONFIGS[modeOption];
+              const ModeIcon = modeConfig.icon;
+              const isSelected = modeOption === mode;
+
+              return (
+                <button
+                  key={modeOption}
+                  onClick={() => handleModeSelect(modeOption)}
+                  className="w-full px-4 py-2.5 flex items-center gap-2 text-sm transition-all hover:brightness-110"
+                  style={{
+                    backgroundImage: isSelected ? modeConfig.gradient : 'linear-gradient(90deg, rgba(100, 100, 100, 0.3) 0%, rgba(100, 100, 100, 0.2) 100%)',
+                    backgroundSize: '200% auto',
+                    color: modeConfig.textColor,
+                    border: 'none',
+                    cursor: 'pointer',
+                    borderLeft: isSelected ? '3px solid rgba(255, 255, 255, 0.5)' : 'none',
+                    paddingLeft: isSelected ? 'calc(1rem - 3px)' : '1rem',
+                  }}
+                >
+                  <ModeIcon className="size-4" strokeWidth={1.5} />
+                  <span className="font-medium flex-1 text-left">{modeConfig.name}</span>
+                  {isSelected && (
+                    <span className="text-xs font-bold">✓</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Click outside to close */}
+        {isOpen && (
+          <div
+            className="fixed inset-0"
+            style={{ zIndex: 9998 }}
+            onClick={() => setIsOpen(false)}
+          />
+        )}
       </div>
     </div>
   );
