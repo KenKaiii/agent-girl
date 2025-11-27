@@ -1,6 +1,6 @@
 {
   "name": "agent-chat",
-  "version": "9.0.0",
+  "version": "9.1.0",
   "type": "module",
   "main": "index.js",
   "scripts": {
