@@ -30,7 +30,7 @@ export interface Session {
   message_count: number;
   working_directory: string;
   permission_mode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
-  mode: 'general' | 'coder' | 'intense-research' | 'spark';
+  mode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified';
   context_input_tokens?: number;
   context_window?: number;
   context_percentage?: number;
@@ -117,7 +117,7 @@ export function useSessionAPI() {
   /**
    * Create a new session
    */
-  const createSession = useCallback(async (title?: string, mode?: 'general' | 'coder' | 'intense-research' | 'spark'): Promise<Session | null> => {
+  const createSession = useCallback(async (title?: string, mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified'): Promise<Session | null> => {
     setIsLoading(true);
     setError(null);
 
@@ -305,6 +305,40 @@ export function useSessionAPI() {
     }
   }, []);
 
+  /**
+   * Update session chat mode (general, coder, intense-research, spark, unified)
+   */
+  const updateSessionMode = useCallback(async (
+    sessionId: string,
+    mode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified'
+  ): Promise<{ success: boolean; session?: Session; error?: string }> => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`${API_BASE}/sessions/${sessionId}/chat-mode`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ mode }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json() as { success: boolean; session?: Session; error?: string };
+      return result;
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to update session mode';
+      setError(errorMsg);
+      return { success: false, error: errorMsg };
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
   return {
     isLoading,
     error,
@@ -316,5 +350,6 @@ export function useSessionAPI() {
     updateWorkingDirectory,
     validateDirectory,
     updatePermissionMode,
+    updateSessionMode,
   };
 }
