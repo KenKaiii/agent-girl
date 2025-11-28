@@ -27,18 +27,21 @@ export function PreviewPanel({
   const [currentRoute, setCurrentRoute] = useState('/');
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  // Auto-detect preview URL from common dev servers
+  // Reserved for future auto-detection from workingDirectory
   useEffect(() => {
-    if (!previewUrl && workingDirectory) {
-      // Check for common dev server ports
-      const commonPorts = [3000, 3001, 4000, 5000, 5173, 8080];
-      // Could implement port detection logic here
-    }
+    // Could implement port detection logic here when workingDirectory is available
   }, [previewUrl, workingDirectory]);
 
   const refreshPreview = () => {
-    if (iframeRef.current) {
-      iframeRef.current.src = iframeRef.current.src;
+    if (iframeRef.current && previewUrl) {
+      // Force iframe reload by temporarily clearing src then restoring it
+      const currentSrc = iframeRef.current.src;
+      iframeRef.current.src = 'about:blank';
+      setTimeout(() => {
+        if (iframeRef.current) {
+          iframeRef.current.src = currentSrc;
+        }
+      }, 10);
     }
   };
 

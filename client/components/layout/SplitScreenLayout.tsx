@@ -25,8 +25,8 @@ export function SplitScreenLayout() {
     return saved || null;
   });
 
-  // Working directory from session
-  const [workingDirectory, setWorkingDirectory] = useState<string | null>(null);
+  // Working directory from session (reserved for future use)
+  const [workingDirectory] = useState<string | null>(null);
 
   // Auto-detect preview URL from common dev server ports
   useEffect(() => {
@@ -48,19 +48,28 @@ export function SplitScreenLayout() {
   }, [previewUrl]);
 
   const detectPreviewUrl = async () => {
-    // Try common dev server ports
-    const commonPorts = [3000, 3001, 4000, 5000, 5173, 8080, 8000];
+    // Try common dev server ports (skip 3001 as that's our app)
+    const commonPorts = [3000, 4000, 5000, 5173, 8080, 8000];
 
     for (const port of commonPorts) {
       try {
         const url = `http://localhost:${port}`;
-        const response = await fetch(url, { method: 'HEAD', mode: 'no-cors' });
-        // If we get here, the server is running
+        // Try to fetch - if it works, server is running
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 1000);
+
+        await fetch(url, {
+          method: 'HEAD',
+          signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+        // If we get here without error, the server is running
         setPreviewUrl(url);
         console.log(`✅ Detected dev server at ${url}`);
         return;
-      } catch (error) {
-        // Port not available, try next
+      } catch {
+        // Port not available or request failed, try next
         continue;
       }
     }
