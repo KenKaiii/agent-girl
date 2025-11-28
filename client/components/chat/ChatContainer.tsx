@@ -89,7 +89,7 @@ export function ChatContainer({
   const [availableCommands, setAvailableCommands] = useState<SlashCommand[]>([]);
 
   // Queue management (currently unused - hidden UI)
-  const { } = useMessageQueue();
+  useMessageQueue();
 
   // Display mode for compact/full message rendering
   const [displayMode, setDisplayMode] = useState<'full' | 'compact'>('full');
