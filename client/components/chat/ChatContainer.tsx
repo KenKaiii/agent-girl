@@ -36,7 +36,7 @@ import { KeyboardShortcuts } from '../ui/KeyboardShortcuts';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { WorkingDirectoryContext } from '../../hooks/useWorkingDirectory';
 import { useSessionAPI, type Session } from '../../hooks/useSessionAPI';
-import { Menu, Edit3, ChevronLeft, ChevronRight, History, ExternalLink, ListOrdered, Eye, EyeOff, Code2 } from 'lucide-react';
+import { Menu, Edit3, ChevronLeft, ChevronRight, History, ExternalLink, Eye, EyeOff, Code2, Monitor, MessageSquare } from 'lucide-react';
 import type { Message } from '../message/types';
 import { toast } from '../../utils/toast';
 import { showError } from '../../utils/errorMessages';
@@ -44,7 +44,21 @@ import type { BackgroundProcess } from '../process/BackgroundProcessMonitor';
 import type { SlashCommand } from '../../hooks/useWebSocket';
 import { useMessageQueue } from '../../hooks/useMessageQueue';
 
-export function ChatContainer() {
+interface ChatContainerProps {
+  layoutMode?: 'chat-only' | 'split-screen';
+  onLayoutModeChange?: (mode: 'chat-only' | 'split-screen') => void;
+  previewUrl?: string | null;
+  onSetPreviewUrl?: () => void;
+  onDetectPreviewUrl?: () => void;
+}
+
+export function ChatContainer({
+  layoutMode = 'chat-only',
+  onLayoutModeChange,
+  previewUrl,
+  onSetPreviewUrl,
+  onDetectPreviewUrl
+}: ChatContainerProps = {}) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState(() => {
     // Restore draft text from localStorage on mount
@@ -74,8 +88,8 @@ export function ChatContainer() {
   // Slash commands available for current session
   const [availableCommands, setAvailableCommands] = useState<SlashCommand[]>([]);
 
-  // Queue management
-  const { isQueueOpen, setIsQueueOpen, queue } = useMessageQueue();
+  // Queue management (currently unused - hidden UI)
+  const { } = useMessageQueue();
 
   // Display mode for compact/full message rendering
   const [displayMode, setDisplayMode] = useState<'full' | 'compact'>('full');
@@ -1639,6 +1653,64 @@ export function ChatContainer() {
 
             {/* Right side */}
             <div className="header-right">
+              {/* Layout Mode Toggle */}
+              {onLayoutModeChange && (
+                <>
+                  {/* Preview URL Input - only show in split-screen mode */}
+                  {layoutMode === 'split-screen' && onSetPreviewUrl && (
+                    <button
+                      onClick={onSetPreviewUrl}
+                      className="flex items-center gap-2 px-3 py-2 hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+                      title="Set preview URL"
+                      style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+                    >
+                      <span className="text-xs" style={{ color: 'rgb(var(--text-secondary))' }}>
+                        {previewUrl ? 'Change URL' : 'Set URL'}
+                      </span>
+                    </button>
+                  )}
+
+                  {/* Layout Mode Toggle Buttons */}
+                  <div className="flex items-center gap-1 rounded-lg p-1" style={{ backgroundColor: 'rgba(255, 255, 255, 0.05)' }}>
+                    <button
+                      onClick={() => onLayoutModeChange('chat-only')}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+                        layoutMode === 'chat-only'
+                          ? 'shadow-sm'
+                          : ''
+                      }`}
+                      style={{
+                        backgroundColor: layoutMode === 'chat-only' ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+                        color: 'rgb(var(--text-secondary))'
+                      }}
+                      title="Chat only"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      <span>Chat</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        onLayoutModeChange('split-screen');
+                        if (!previewUrl && onDetectPreviewUrl) onDetectPreviewUrl();
+                      }}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+                        layoutMode === 'split-screen'
+                          ? 'shadow-sm'
+                          : ''
+                      }`}
+                      style={{
+                        backgroundColor: layoutMode === 'split-screen' ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+                        color: 'rgb(var(--text-secondary))'
+                      }}
+                      title="Split screen with preview"
+                    >
+                      <Monitor className="w-3.5 h-3.5" />
+                      <span>Split</span>
+                    </button>
+                  </div>
+                </>
+              )}
+
               {/* Compact/Full toggle */}
               <button
                 onClick={() => setDisplayMode(displayMode === 'full' ? 'compact' : 'full')}
