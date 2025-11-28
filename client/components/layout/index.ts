@@ -1,0 +1,1 @@
+export { SplitScreenLayout } from './SplitScreenLayout';

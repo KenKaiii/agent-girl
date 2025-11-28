@@ -19,7 +19,7 @@
  */
 
 import React, { useEffect, useState } from "react";
-import { ChatContainer } from "./components/chat/ChatContainer";
+import { SplitScreenLayout } from "./components/layout";
 import { QueuePanel } from "./components/queue/QueuePanel";
 import { MessageQueueProvider } from "./hooks/useMessageQueue";
 import { PreLoader } from "./components/preloader/PreLoader";
@@ -38,7 +38,7 @@ const App: React.FC = () => {
     <MessageQueueProvider>
       <>
         {showPreLoader && <PreLoader onComplete={() => setShowPreLoader(false)} />}
-        <ChatContainer />
+        <SplitScreenLayout />
         <QueuePanel />
         <Toaster
           position="bottom-right"
