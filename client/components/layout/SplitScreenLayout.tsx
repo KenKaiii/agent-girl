@@ -8,6 +8,7 @@
 import React, { useState, useEffect } from 'react';
 import { ChatContainer } from '../chat/ChatContainer';
 import { PreviewPanel } from '../preview/PreviewPanel';
+import { toast } from '../../utils/toast';
 
 type LayoutMode = 'chat-only' | 'split-screen';
 
@@ -27,12 +28,33 @@ export function SplitScreenLayout() {
   // Working directory from session (reserved for future use)
   const [workingDirectory] = useState<string | null>(null);
 
-  // Auto-detect preview URL from common dev server ports
+  // Auto-detect preview URL and auto-switch to split-screen when dev server detected
   useEffect(() => {
-    if (!previewUrl && layoutMode === 'split-screen') {
+    const autoDetect = async () => {
+      // Try to detect dev server
+      const detected = await detectPreviewUrl();
+
+      // If dev server detected and we're in chat-only mode, auto-switch to split-screen
+      if (detected && layoutMode === 'chat-only') {
+        console.log('🎨 Web dev server detected - auto-switching to split-screen mode');
+        setLayoutMode('split-screen');
+        toast.success('Preview detected!', {
+          description: `Found dev server at ${previewUrl} - switched to split-screen mode`,
+          duration: 5000,
+        });
+      }
+    };
+
+    // Run detection every 5 seconds when in chat-only mode
+    if (layoutMode === 'chat-only') {
+      const interval = setInterval(autoDetect, 5000);
+      autoDetect(); // Run immediately too
+      return () => clearInterval(interval);
+    } else if (!previewUrl) {
+      // If in split-screen mode but no URL, try to detect once
       detectPreviewUrl();
     }
-  }, [layoutMode]);
+  }, [layoutMode, previewUrl]);
 
   // Persist layout mode
   useEffect(() => {
@@ -46,7 +68,7 @@ export function SplitScreenLayout() {
     }
   }, [previewUrl]);
 
-  const detectPreviewUrl = async () => {
+  const detectPreviewUrl = async (): Promise<boolean> => {
     // Try common dev server ports (skip 3001 as that's our app)
     const commonPorts = [3000, 4000, 5000, 5173, 8080, 8000];
 
@@ -66,7 +88,7 @@ export function SplitScreenLayout() {
         // If we get here without error, the server is running
         setPreviewUrl(url);
         console.log(`✅ Detected dev server at ${url}`);
-        return;
+        return true; // Return true when detected
       } catch {
         // Port not available or request failed, try next
         continue;
@@ -74,6 +96,7 @@ export function SplitScreenLayout() {
     }
 
     console.log('ℹ️ No dev server detected on common ports');
+    return false; // Return false when not detected
   };
 
   const handleManualPreviewUrl = () => {
