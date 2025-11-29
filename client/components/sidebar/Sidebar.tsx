@@ -22,6 +22,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Menu, Edit3, Search, Trash2, Edit, FolderOpen, Copy, Code2, Download, Upload, MessageSquare } from 'lucide-react';
 import { toast } from '../../utils/toast';
 import { DeleteConfirmationModal } from '../ui/DeleteConfirmationModal';
+import { ChatListSkeleton, SearchResultsSkeleton, LoadingSpinner } from '../ui/Skeleton';
 
 // Message search result type
 interface MessageSearchResult {
@@ -65,6 +66,7 @@ interface SidebarProps {
   isOpen: boolean;
   onToggle: () => void;
   chats?: Chat[];
+  isLoadingChats?: boolean;
   onNewChat?: () => void;
   onChatSelect?: (chatId: string) => void;
   onChatDelete?: (chatId: string) => void;
@@ -86,6 +88,7 @@ export function Sidebar({
   isOpen,
   onToggle,
   chats = [],
+  isLoadingChats = false,
   onNewChat,
   onChatSelect,
   onChatDelete,
@@ -557,7 +560,7 @@ export function Sidebar({
         </div>
 
         {/* Message Search Results */}
-        {searchQuery.length >= 2 && messageSearchResults.length > 0 && (
+        {searchQuery.length >= 2 && (isSearching || messageSearchResults.length > 0) && (
           <div style={{
             padding: '0 0.75rem',
             marginBottom: '0.5rem',
@@ -571,7 +574,8 @@ export function Sidebar({
               gap: '0.25rem',
             }}>
               <MessageSquare size={12} />
-              <span>Messages ({messageSearchResults.length})</span>
+              <span>Messages {isSearching ? '' : `(${messageSearchResults.length})`}</span>
+              {isSearching && <LoadingSpinner size={10} />}
             </div>
             <div style={{
               maxHeight: '200px',
@@ -580,7 +584,9 @@ export function Sidebar({
               flexDirection: 'column',
               gap: '0.25rem',
             }}>
-              {messageSearchResults.map((result) => (
+              {isSearching ? (
+                <SearchResultsSkeleton count={3} />
+              ) : messageSearchResults.map((result) => (
                 <button
                   key={result.id}
                   onClick={() => {
@@ -665,7 +671,10 @@ export function Sidebar({
           {/* Chat Groups */}
           {isAllChatsExpanded && (
             <div className="sidebar-chat-groups">
-              {(groupedChats as ChatGroup[]).map((group) => {
+              {/* Show skeleton while loading */}
+              {isLoadingChats ? (
+                <ChatListSkeleton count={5} />
+              ) : (groupedChats as ChatGroup[]).map((group) => {
                 if (group.chats.length === 0) return null;
 
                 return (
