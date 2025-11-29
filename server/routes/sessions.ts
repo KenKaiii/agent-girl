@@ -208,6 +208,130 @@ export async function handleSessionRoutes(
     }
   }
 
+  // GET /api/sessions/:id/export - Export session with all messages
+  if (url.pathname.match(/^\/api\/sessions\/[^/]+\/export$/) && req.method === 'GET') {
+    const sessionId = url.pathname.split('/')[3];
+    const session = sessionDb.getSession(sessionId);
+
+    if (!session) {
+      return new Response(JSON.stringify({ error: 'Session not found' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const messages = sessionDb.getSessionMessages(sessionId);
+
+    const exportData = {
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      session: {
+        title: session.title,
+        mode: session.mode,
+        permissionMode: session.permission_mode,
+        createdAt: session.created_at,
+        messageCount: session.message_count,
+      },
+      messages: messages.map(msg => ({
+        type: msg.type,
+        content: msg.content,
+        timestamp: msg.timestamp,
+      })),
+    };
+
+    const filename = `${session.title.replace(/[^a-zA-Z0-9]/g, '_')}_${new Date().toISOString().split('T')[0]}.json`;
+
+    return new Response(JSON.stringify(exportData, null, 2), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+      },
+    });
+  }
+
+  // POST /api/sessions/import - Import session from JSON
+  if (url.pathname === '/api/sessions/import' && req.method === 'POST') {
+    try {
+      const importData = await req.json() as {
+        version?: string;
+        session: {
+          title: string;
+          mode?: string;
+          permissionMode?: string;
+        };
+        messages: Array<{
+          type: 'user' | 'assistant';
+          content: string;
+          timestamp?: string;
+        }>;
+      };
+
+      // Validate import data
+      if (!importData.session || !importData.messages) {
+        return new Response(JSON.stringify({ error: 'Invalid import format: missing session or messages' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Create new session
+      const session = sessionDb.createSession(
+        `${importData.session.title} (imported)`,
+        undefined,
+        (importData.session.mode as 'general' | 'coder' | 'intense-research') || 'general'
+      );
+
+      // Import messages
+      let importedCount = 0;
+      for (const msg of importData.messages) {
+        if (msg.type === 'user' || msg.type === 'assistant') {
+          sessionDb.addMessage(session.id, msg.type, msg.content);
+          importedCount++;
+        }
+      }
+
+      return new Response(JSON.stringify({
+        success: true,
+        session,
+        importedMessages: importedCount,
+      }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      return new Response(JSON.stringify({
+        error: 'Failed to parse import data',
+        details: error instanceof Error ? error.message : 'Unknown error',
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+
+  // GET /api/sessions/search - Search messages across all sessions
+  if (url.pathname === '/api/sessions/search' && req.method === 'GET') {
+    const query = url.searchParams.get('q') || '';
+    const sessionId = url.searchParams.get('sessionId') || undefined;
+    const limit = parseInt(url.searchParams.get('limit') || '50', 10);
+
+    if (!query.trim()) {
+      return new Response(JSON.stringify({ results: [], query: '' }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const results = sessionDb.searchMessages(query, sessionId, limit);
+
+    return new Response(JSON.stringify({
+      results,
+      query,
+      count: results.length,
+    }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   // Route not handled by this module
   return undefined;
 }

@@ -779,6 +779,73 @@ class SessionDatabase {
     return messages;
   }
 
+  /**
+   * Search messages across all sessions or within a specific session
+   * Returns messages with context preview around the match
+   */
+  searchMessages(query: string, sessionId?: string, limit: number = 50): Array<{
+    id: string;
+    session_id: string;
+    session_title: string;
+    type: string;
+    content: string;
+    timestamp: string;
+    match_preview: string;
+  }> {
+    if (!query || query.trim().length === 0) {
+      return [];
+    }
+
+    const searchTerm = `%${query.toLowerCase()}%`;
+
+    const sql = sessionId
+      ? `SELECT m.id, m.session_id, s.title as session_title, m.type, m.content, m.timestamp
+         FROM messages m
+         JOIN sessions s ON m.session_id = s.id
+         WHERE m.session_id = ? AND LOWER(m.content) LIKE ?
+         ORDER BY m.timestamp DESC
+         LIMIT ?`
+      : `SELECT m.id, m.session_id, s.title as session_title, m.type, m.content, m.timestamp
+         FROM messages m
+         JOIN sessions s ON m.session_id = s.id
+         WHERE LOWER(m.content) LIKE ?
+         ORDER BY m.timestamp DESC
+         LIMIT ?`;
+
+    const params = sessionId
+      ? [sessionId, searchTerm, limit]
+      : [searchTerm, limit];
+
+    const results = this.db.query(sql).all(...params) as Array<{
+      id: string;
+      session_id: string;
+      session_title: string;
+      type: string;
+      content: string;
+      timestamp: string;
+    }>;
+
+    // Generate match preview with context
+    return results.map(row => {
+      const lowerContent = row.content.toLowerCase();
+      const lowerQuery = query.toLowerCase();
+      const matchIndex = lowerContent.indexOf(lowerQuery);
+
+      let match_preview = '';
+      if (matchIndex !== -1) {
+        const start = Math.max(0, matchIndex - 40);
+        const end = Math.min(row.content.length, matchIndex + query.length + 40);
+        match_preview = (start > 0 ? '...' : '') +
+          row.content.slice(start, end) +
+          (end < row.content.length ? '...' : '');
+      } else {
+        match_preview = row.content.slice(0, 80) + (row.content.length > 80 ? '...' : '');
+      }
+
+      return { ...row, match_preview };
+    });
+  }
+
   clearSessionMessages(sessionId: string): boolean {
     try {
       console.log('🧹 Clearing all messages for session:', sessionId.substring(0, 8));

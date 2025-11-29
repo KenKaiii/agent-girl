@@ -18,10 +18,21 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import React, { useState, useRef, useEffect } from 'react';
-import { Menu, Edit3, Search, Trash2, Edit, FolderOpen, Copy, Code2 } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Menu, Edit3, Search, Trash2, Edit, FolderOpen, Copy, Code2, Download, Upload, MessageSquare } from 'lucide-react';
 import { toast } from '../../utils/toast';
 import { DeleteConfirmationModal } from '../ui/DeleteConfirmationModal';
+
+// Message search result type
+interface MessageSearchResult {
+  id: string;
+  session_id: string;
+  session_title: string;
+  type: string;
+  content: string;
+  timestamp: string;
+  match_preview: string;
+}
 
 interface Chat {
   id: string;
@@ -100,7 +111,53 @@ export function Sidebar({
     chatId: '',
     chatName: '',
   });
+  const [messageSearchResults, setMessageSearchResults] = useState<MessageSearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Debounced message search
+  const searchMessages = useCallback(async (query: string) => {
+    if (!query.trim() || query.length < 2) {
+      setMessageSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      const response = await fetch(`/api/sessions/search?q=${encodeURIComponent(query)}&limit=20`);
+      if (response.ok) {
+        const data = await response.json();
+        setMessageSearchResults(data.results || []);
+      }
+    } catch (err) {
+      console.error('Message search failed:', err);
+    } finally {
+      setIsSearching(false);
+    }
+  }, []);
+
+  // Debounce search
+  useEffect(() => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    if (searchQuery.length >= 2) {
+      searchTimeoutRef.current = setTimeout(() => {
+        searchMessages(searchQuery);
+      }, 300);
+    } else {
+      setMessageSearchResults([]);
+    }
+
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [searchQuery, searchMessages]);
 
   // Group chats by date with precise grouping
   const groupChatsByDate = (chats: Chat[]) => {
@@ -433,6 +490,45 @@ export function Sidebar({
           <span>Open Chat Folder</span>
         </button>
 
+        {/* Import Chat Button */}
+        <button
+          className="sidebar-new-chat-btn"
+          onClick={() => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json';
+            input.onchange = async (e) => {
+              const file = (e.target as HTMLInputElement).files?.[0];
+              if (!file) return;
+              try {
+                const text = await file.text();
+                const data = JSON.parse(text);
+                const response = await fetch('/api/sessions/import', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(data),
+                });
+                if (response.ok) {
+                  const result = await response.json();
+                  toast.success('Chat imported', { description: `${result.importedMessages} messages` });
+                  // Refresh the page to show new session
+                  window.location.reload();
+                } else {
+                  const error = await response.json();
+                  toast.error('Import failed', { description: error.error });
+                }
+              } catch (err) {
+                toast.error('Import failed', { description: 'Invalid JSON file' });
+              }
+            };
+            input.click();
+          }}
+          style={{ marginTop: '0.5rem' }}
+        >
+          <Upload size={20} opacity={0.8} />
+          <span>Import Chat</span>
+        </button>
+
         {/* Search */}
         <div className="sidebar-search-container">
           <div className="sidebar-search">
@@ -441,12 +537,107 @@ export function Sidebar({
             </div>
             <input
               className="sidebar-search-input"
-              placeholder="Search"
+              placeholder="Search chats & messages"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
+            {isSearching && (
+              <div style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)' }}>
+                <div style={{
+                  width: '14px',
+                  height: '14px',
+                  border: '2px solid rgba(255,255,255,0.2)',
+                  borderTopColor: 'rgba(255,255,255,0.6)',
+                  borderRadius: '50%',
+                  animation: 'spin 0.8s linear infinite',
+                }} />
+              </div>
+            )}
           </div>
         </div>
+
+        {/* Message Search Results */}
+        {searchQuery.length >= 2 && messageSearchResults.length > 0 && (
+          <div style={{
+            padding: '0 0.75rem',
+            marginBottom: '0.5rem',
+          }}>
+            <div style={{
+              fontSize: '0.7rem',
+              color: 'rgb(var(--text-secondary))',
+              marginBottom: '0.5rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.25rem',
+            }}>
+              <MessageSquare size={12} />
+              <span>Messages ({messageSearchResults.length})</span>
+            </div>
+            <div style={{
+              maxHeight: '200px',
+              overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.25rem',
+            }}>
+              {messageSearchResults.map((result) => (
+                <button
+                  key={result.id}
+                  onClick={() => {
+                    onChatSelect?.(result.session_id);
+                    setSearchQuery('');
+                    setMessageSearchResults([]);
+                  }}
+                  style={{
+                    padding: '0.5rem',
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: '0.375rem',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    color: 'rgb(var(--text-primary))',
+                    transition: 'all 0.15s',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                  }}
+                >
+                  <div style={{
+                    fontSize: '0.7rem',
+                    color: 'rgb(var(--text-secondary))',
+                    marginBottom: '0.25rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.25rem',
+                  }}>
+                    <span style={{
+                      display: 'inline-block',
+                      width: '6px',
+                      height: '6px',
+                      borderRadius: '50%',
+                      backgroundColor: result.type === 'user' ? 'rgb(59, 130, 246)' : 'rgb(16, 185, 129)',
+                    }} />
+                    <span>{result.session_title}</span>
+                  </div>
+                  <div style={{
+                    fontSize: '0.75rem',
+                    lineHeight: '1.4',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    display: '-webkit-box',
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: 'vertical',
+                  }}>
+                    {result.match_preview}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Chat List */}
         <div className="sidebar-chat-list">
@@ -682,6 +873,56 @@ export function Sidebar({
                                 }}
                               >
                                 <Copy size={14} />
+                              </button>
+                              <button
+                                className="sidebar-chat-menu-btn"
+                                aria-label="Export Chat"
+                                title="Export as JSON"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  try {
+                                    const response = await fetch(`/api/sessions/${chat.id}/export`);
+                                    if (response.ok) {
+                                      const data = await response.json();
+                                      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                                      const url = URL.createObjectURL(blob);
+                                      const a = document.createElement('a');
+                                      a.href = url;
+                                      a.download = `${chat.title.replace(/[^a-zA-Z0-9]/g, '_')}_export.json`;
+                                      document.body.appendChild(a);
+                                      a.click();
+                                      document.body.removeChild(a);
+                                      URL.revokeObjectURL(url);
+                                      toast.success('Chat exported', { description: `${data.messages?.length || 0} messages` });
+                                    } else {
+                                      toast.error('Export failed');
+                                    }
+                                  } catch {
+                                    toast.error('Export failed');
+                                  }
+                                }}
+                                style={{
+                                  padding: '0.25rem',
+                                  background: chat.isActive ? 'rgb(var(--bg-tertiary))' : 'rgb(var(--bg-secondary))',
+                                  border: 'none',
+                                  borderRadius: '0.25rem',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  color: 'rgb(var(--text-secondary))',
+                                  transition: 'all 0.15s',
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.background = 'rgba(34, 197, 94, 0.15)';
+                                  e.currentTarget.style.color = '#22c55e';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.background = chat.isActive ? 'rgb(var(--bg-tertiary))' : 'rgb(var(--bg-secondary))';
+                                  e.currentTarget.style.color = 'rgb(var(--text-secondary))';
+                                }}
+                              >
+                                <Download size={14} />
                               </button>
                               <button
                                 className="sidebar-chat-menu-btn"

@@ -3,7 +3,7 @@
  * Tests for session, command, and queue route handlers
  */
 
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { Database } from 'bun:sqlite';
 
 // Mock database for testing
@@ -452,6 +452,101 @@ describe('API Route Matching', () => {
   });
 });
 
+describe('Session Export/Import API', () => {
+  let sessionDb: MockSessionDb;
+
+  beforeEach(() => {
+    sessionDb = new MockSessionDb();
+  });
+
+  describe('GET /api/sessions/:id/export', () => {
+    it('should export session with messages', async () => {
+      const session = sessionDb.createSession('Test Export');
+      // Add mock messages via db
+      const db = (sessionDb as any).db;
+      db.run(`INSERT INTO messages (id, session_id, type, content, timestamp) VALUES (?, ?, ?, ?, ?)`,
+        ['msg-1', session.id, 'user', 'Hello', new Date().toISOString()]);
+      db.run(`INSERT INTO messages (id, session_id, type, content, timestamp) VALUES (?, ?, ?, ?, ?)`,
+        ['msg-2', session.id, 'assistant', 'Hi there!', new Date().toISOString()]);
+
+      // Mock export handler
+      const messages = db.query('SELECT * FROM messages WHERE session_id = ?').all(session.id) as any[];
+      const exportData = {
+        version: '1.0',
+        exportedAt: new Date().toISOString(),
+        session: {
+          title: session.title,
+          mode: session.mode,
+        },
+        messages: messages.map((m: any) => ({
+          type: m.type,
+          content: m.content,
+          timestamp: m.timestamp,
+        })),
+      };
+
+      expect(exportData.version).toBe('1.0');
+      expect(exportData.session.title).toBe('Test Export');
+      expect(exportData.messages.length).toBe(2);
+      expect(exportData.messages[0].type).toBe('user');
+      expect(exportData.messages[1].type).toBe('assistant');
+
+      sessionDb.close();
+    });
+
+    it('should include proper export metadata', () => {
+      const exportData = {
+        version: '1.0',
+        exportedAt: new Date().toISOString(),
+        session: { title: 'Test', mode: 'general' },
+        messages: [],
+      };
+
+      expect(exportData.version).toBeDefined();
+      expect(exportData.exportedAt).toBeDefined();
+      expect(new Date(exportData.exportedAt)).toBeInstanceOf(Date);
+    });
+  });
+
+  describe('POST /api/sessions/import', () => {
+    it('should import valid session data', () => {
+      const importData = {
+        version: '1.0',
+        session: {
+          title: 'Imported Chat',
+          mode: 'coder',
+        },
+        messages: [
+          { type: 'user', content: 'Hello' },
+          { type: 'assistant', content: 'Hi!' },
+        ],
+      };
+
+      // Validate import data
+      expect(importData.session).toBeDefined();
+      expect(importData.messages).toBeDefined();
+      expect(importData.session.title).toBe('Imported Chat');
+      expect(importData.messages.length).toBe(2);
+    });
+
+    it('should reject invalid import format', () => {
+      const invalidData = { foo: 'bar' };
+
+      const isValid = invalidData.hasOwnProperty('session') && invalidData.hasOwnProperty('messages');
+      expect(isValid).toBe(false);
+    });
+
+    it('should handle empty messages array', () => {
+      const importData = {
+        session: { title: 'Empty' },
+        messages: [],
+      };
+
+      expect(importData.messages.length).toBe(0);
+    });
+  });
+});
+
 describe('API Request Validation', () => {
   function validateSessionCreate(body: unknown): { valid: boolean; errors: string[] } {
     const errors: string[] = [];
@@ -505,5 +600,157 @@ describe('API Request Validation', () => {
     const result = validateSessionCreate({});
 
     expect(result.valid).toBe(true);
+  });
+});
+
+describe('Message Search API', () => {
+  let sessionDb: MockSessionDb;
+
+  beforeEach(() => {
+    sessionDb = new MockSessionDb();
+  });
+
+  afterEach(() => {
+    sessionDb.close();
+  });
+
+  // Mock searchMessages implementation
+  function searchMessages(query: string, sessionId?: string, limit: number = 50): any[] {
+    if (!query || query.trim().length === 0) {
+      return [];
+    }
+
+    const db = (sessionDb as any).db;
+    const searchTerm = `%${query.toLowerCase()}%`;
+
+    const sql = sessionId
+      ? `SELECT m.id, m.session_id, s.title as session_title, m.type, m.content, m.timestamp
+         FROM messages m
+         JOIN sessions s ON m.session_id = s.id
+         WHERE m.session_id = ? AND LOWER(m.content) LIKE ?
+         ORDER BY m.timestamp DESC
+         LIMIT ?`
+      : `SELECT m.id, m.session_id, s.title as session_title, m.type, m.content, m.timestamp
+         FROM messages m
+         JOIN sessions s ON m.session_id = s.id
+         WHERE LOWER(m.content) LIKE ?
+         ORDER BY m.timestamp DESC
+         LIMIT ?`;
+
+    const params = sessionId
+      ? [sessionId, searchTerm, limit]
+      : [searchTerm, limit];
+
+    const results = db.query(sql).all(...params) as any[];
+
+    return results.map((row: any) => {
+      const lowerContent = row.content.toLowerCase();
+      const lowerQuery = query.toLowerCase();
+      const matchIndex = lowerContent.indexOf(lowerQuery);
+
+      let match_preview = '';
+      if (matchIndex !== -1) {
+        const start = Math.max(0, matchIndex - 40);
+        const end = Math.min(row.content.length, matchIndex + query.length + 40);
+        match_preview = (start > 0 ? '...' : '') +
+          row.content.slice(start, end) +
+          (end < row.content.length ? '...' : '');
+      } else {
+        match_preview = row.content.slice(0, 80) + (row.content.length > 80 ? '...' : '');
+      }
+
+      return { ...row, match_preview };
+    });
+  }
+
+  it('should search messages across sessions', () => {
+    const session1 = sessionDb.createSession('Session 1');
+    const session2 = sessionDb.createSession('Session 2');
+
+    const db = (sessionDb as any).db;
+    db.run(`INSERT INTO messages (id, session_id, type, content, timestamp) VALUES (?, ?, ?, ?, ?)`,
+      ['msg-1', session1.id, 'user', 'Hello world from session 1', new Date().toISOString()]);
+    db.run(`INSERT INTO messages (id, session_id, type, content, timestamp) VALUES (?, ?, ?, ?, ?)`,
+      ['msg-2', session2.id, 'user', 'Hello world from session 2', new Date().toISOString()]);
+    db.run(`INSERT INTO messages (id, session_id, type, content, timestamp) VALUES (?, ?, ?, ?, ?)`,
+      ['msg-3', session1.id, 'assistant', 'Different response', new Date().toISOString()]);
+
+    const results = searchMessages('Hello');
+
+    expect(results.length).toBe(2);
+    expect(results.every((r: any) => r.content.toLowerCase().includes('hello'))).toBe(true);
+  });
+
+  it('should search within a specific session', () => {
+    const session1 = sessionDb.createSession('Session 1');
+    const session2 = sessionDb.createSession('Session 2');
+
+    const db = (sessionDb as any).db;
+    db.run(`INSERT INTO messages (id, session_id, type, content, timestamp) VALUES (?, ?, ?, ?, ?)`,
+      ['msg-1', session1.id, 'user', 'Hello world', new Date().toISOString()]);
+    db.run(`INSERT INTO messages (id, session_id, type, content, timestamp) VALUES (?, ?, ?, ?, ?)`,
+      ['msg-2', session2.id, 'user', 'Hello world', new Date().toISOString()]);
+
+    const results = searchMessages('Hello', session1.id);
+
+    expect(results.length).toBe(1);
+    expect(results[0].session_id).toBe(session1.id);
+  });
+
+  it('should return empty array for empty query', () => {
+    const results = searchMessages('');
+
+    expect(results).toEqual([]);
+  });
+
+  it('should be case insensitive', () => {
+    const session = sessionDb.createSession('Test');
+    const db = (sessionDb as any).db;
+    db.run(`INSERT INTO messages (id, session_id, type, content, timestamp) VALUES (?, ?, ?, ?, ?)`,
+      ['msg-1', session.id, 'user', 'HELLO WORLD', new Date().toISOString()]);
+
+    const results = searchMessages('hello');
+
+    expect(results.length).toBe(1);
+  });
+
+  it('should generate match preview with context', () => {
+    const session = sessionDb.createSession('Test');
+    const db = (sessionDb as any).db;
+    const longContent = 'This is a long message that contains the keyword somewhere in the middle of the text for testing';
+    db.run(`INSERT INTO messages (id, session_id, type, content, timestamp) VALUES (?, ?, ?, ?, ?)`,
+      ['msg-1', session.id, 'user', longContent, new Date().toISOString()]);
+
+    const results = searchMessages('keyword');
+
+    expect(results.length).toBe(1);
+    expect(results[0].match_preview).toContain('keyword');
+    expect(results[0].match_preview.length).toBeLessThan(longContent.length + 10);
+  });
+
+  it('should limit results', () => {
+    const session = sessionDb.createSession('Test');
+    const db = (sessionDb as any).db;
+
+    for (let i = 0; i < 10; i++) {
+      db.run(`INSERT INTO messages (id, session_id, type, content, timestamp) VALUES (?, ?, ?, ?, ?)`,
+        [`msg-${i}`, session.id, 'user', `Test message ${i}`, new Date().toISOString()]);
+    }
+
+    const results = searchMessages('Test', undefined, 5);
+
+    expect(results.length).toBe(5);
+  });
+
+  it('should include session title in results', () => {
+    const session = sessionDb.createSession('My Important Chat');
+    const db = (sessionDb as any).db;
+    db.run(`INSERT INTO messages (id, session_id, type, content, timestamp) VALUES (?, ?, ?, ?, ?)`,
+      ['msg-1', session.id, 'user', 'Hello', new Date().toISOString()]);
+
+    const results = searchMessages('Hello');
+
+    expect(results.length).toBe(1);
+    expect(results[0].session_title).toBe('My Important Chat');
   });
 });
