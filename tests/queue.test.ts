@@ -120,8 +120,8 @@ describe('QueueDatabase', () => {
 
     const stats = queueDb.getQueueStats();
     expect(stats).toBeDefined();
-    expect(stats.totalTasks).toBe(1);
-    expect(stats.pendingTasks).toBe(1);
+    expect(stats.total_tasks).toBe(1);
+    expect(stats.pending_tasks).toBe(1);
     expect(typeof stats).toBe('object');
   });
 });
@@ -454,8 +454,8 @@ describe('Integration Tests', () => {
     }
 
     const stats = taskQueue.getStats();
-    expect(stats.pendingTasks).toBeGreaterThanOrEqual(3);
-    expect(stats.totalTasks).toBeGreaterThanOrEqual(3);
+    expect(stats.pending_tasks).toBeGreaterThanOrEqual(3);
+    expect(stats.total_tasks).toBeGreaterThanOrEqual(3);
     expect(stats.availableSlots).toBeDefined();
   });
 
@@ -480,7 +480,7 @@ describe('Integration Tests', () => {
     expect(tasks.length).toBe(taskCount);
 
     const stats = taskQueue.getStats();
-    expect(stats.totalTasks).toBeGreaterThanOrEqual(taskCount);
-    expect(stats.pendingTasks).toBeGreaterThanOrEqual(taskCount);
+    expect(stats.total_tasks).toBeGreaterThanOrEqual(taskCount);
+    expect(stats.pending_tasks).toBeGreaterThanOrEqual(taskCount);
   });
 });
