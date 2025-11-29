@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Agent Girl CLI - Terminal-based chat interface
- * 
+ *
  * Usage:
  *   bun run agent-cli.ts chat "Your message here"
  *   bun run agent-cli.ts interactive
@@ -9,8 +9,10 @@
  *   bun run agent-cli.ts automations run rechnung --data '{...}'
  */
 
-import { ClaudeSession } from '@anthropic-ai/claude-agent-sdk';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import * as readline from 'readline';
+import { homedir } from 'os';
+import { join } from 'path';
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -44,19 +46,11 @@ const GERMAN_AUTOMATIONS = {
   },
 };
 
-async function createSession(): Promise<ClaudeSession> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    throw new Error('ANTHROPIC_API_KEY not set. Please set it in your environment.');
-  }
-
-  const session = new ClaudeSession({
-    model: 'claude-sonnet-4-5-20250929',
-    maxTurns: 10,
-    bypassPermissions: true,
-  });
-
-  return session;
+interface QueryMessage {
+  type: string;
+  content?: string;
+  text?: string;
+  subtype?: string;
 }
 
 async function chat(message: string): Promise<void> {
@@ -65,17 +59,42 @@ async function chat(message: string): Promise<void> {
   console.log('Claude: ');
 
   try {
-    const session = await createSession();
-    
-    for await (const event of session.runAndStream(message)) {
-      if (event.type === 'text_delta') {
-        process.stdout.write(event.text);
+    const result = query({
+      prompt: message,
+      options: {
+        model: 'claude-sonnet-4-5-20250929',
+        maxTurns: 10,
+        workingDirectory: process.cwd(),
+        permissionMode: 'bypassPermissions',
+      }
+    });
+
+    for await (const msg of result) {
+      const m = msg as QueryMessage;
+      // Handle assistant text output
+      if (m.type === 'assistant' && m.content) {
+        // Content can be array of content blocks
+        const content = m.content as unknown;
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            if (block.type === 'text' && block.text) {
+              process.stdout.write(block.text);
+            }
+          }
+        } else if (typeof content === 'string') {
+          process.stdout.write(content);
+        }
+      }
+      // Handle result message with final text
+      if (m.type === 'result' && m.text) {
+        process.stdout.write(m.text);
       }
     }
-    
+
     console.log('\n');
-  } catch (error: any) {
-    console.error(`\n❌ Error: ${error.message}`);
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error(`\n❌ Error: ${err.message}`);
     process.exit(1);
   }
 }
@@ -104,17 +123,39 @@ async function interactive(): Promise<void> {
 
       console.log('\nClaude: ');
       try {
-        const session = await createSession();
-        
-        for await (const event of session.runAndStream(input)) {
-          if (event.type === 'text_delta') {
-            process.stdout.write(event.text);
+        const result = query({
+          prompt: input,
+          options: {
+            model: 'claude-sonnet-4-5-20250929',
+            maxTurns: 10,
+            workingDirectory: process.cwd(),
+            permissionMode: 'bypassPermissions',
+          }
+        });
+
+        for await (const msg of result) {
+          const m = msg as QueryMessage;
+          if (m.type === 'assistant' && m.content) {
+            const content = m.content as unknown;
+            if (Array.isArray(content)) {
+              for (const block of content) {
+                if (block.type === 'text' && block.text) {
+                  process.stdout.write(block.text);
+                }
+              }
+            } else if (typeof content === 'string') {
+              process.stdout.write(content);
+            }
+          }
+          if (m.type === 'result' && m.text) {
+            process.stdout.write(m.text);
           }
         }
-        
+
         console.log('\n');
-      } catch (error: any) {
-        console.error(`\n❌ Error: ${error.message}\n`);
+      } catch (error: unknown) {
+        const err = error as Error;
+        console.error(`\n❌ Error: ${err.message}\n`);
       }
 
       prompt();
@@ -126,7 +167,7 @@ async function interactive(): Promise<void> {
 
 async function listAutomations(): Promise<void> {
   console.log('\n📋 German Automations Available:\n');
-  
+
   for (const [id, automation] of Object.entries(GERMAN_AUTOMATIONS)) {
     console.log(`  ${id}`);
     console.log(`    Name: ${automation.name}`);
@@ -138,7 +179,7 @@ async function listAutomations(): Promise<void> {
 
 async function runAutomation(automationId: string, data: string): Promise<void> {
   const automation = GERMAN_AUTOMATIONS[automationId as keyof typeof GERMAN_AUTOMATIONS];
-  
+
   if (!automation) {
     console.error(`\n❌ Unknown automation: ${automationId}`);
     console.log('\nAvailable automations:', Object.keys(GERMAN_AUTOMATIONS).join(', '));
@@ -146,7 +187,7 @@ async function runAutomation(automationId: string, data: string): Promise<void> 
   }
 
   console.log(`\n⚙️  Running ${automation.name}...\n`);
-  
+
   let parsedData = {};
   try {
     parsedData = data ? JSON.parse(data) : {};
@@ -171,17 +212,39 @@ Please process this request and provide:
 3. Any warnings or notes`;
 
   try {
-    const session = await createSession();
-    
-    for await (const event of session.runAndStream(prompt)) {
-      if (event.type === 'text_delta') {
-        process.stdout.write(event.text);
+    const result = query({
+      prompt,
+      options: {
+        model: 'claude-sonnet-4-5-20250929',
+        maxTurns: 5,
+        workingDirectory: process.cwd(),
+        permissionMode: 'bypassPermissions',
+      }
+    });
+
+    for await (const msg of result) {
+      const m = msg as QueryMessage;
+      if (m.type === 'assistant' && m.content) {
+        const content = m.content as unknown;
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            if (block.type === 'text' && block.text) {
+              process.stdout.write(block.text);
+            }
+          }
+        } else if (typeof content === 'string') {
+          process.stdout.write(content);
+        }
+      }
+      if (m.type === 'result' && m.text) {
+        process.stdout.write(m.text);
       }
     }
-    
+
     console.log('\n');
-  } catch (error: any) {
-    console.error(`\n❌ Error: ${error.message}`);
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error(`\n❌ Error: ${err.message}`);
     process.exit(1);
   }
 }
@@ -207,14 +270,14 @@ Examples:
   bun run agent-cli.ts automations run rechnung --data '{"kunde":"Test GmbH"}'
 
 Environment:
-  ANTHROPIC_API_KEY    Required for Claude API access
+  ANTHROPIC_API_KEY    Required for Claude API access (or use OAuth login)
 `);
 }
 
 // Main
 async function main(): Promise<void> {
   switch (command) {
-    case 'chat':
+    case 'chat': {
       const message = args.slice(1).join(' ');
       if (!message) {
         console.error('\n❌ Please provide a message');
@@ -223,6 +286,7 @@ async function main(): Promise<void> {
       }
       await chat(message);
       break;
+    }
 
     case 'interactive':
     case 'i':
@@ -230,7 +294,7 @@ async function main(): Promise<void> {
       break;
 
     case 'automations':
-    case 'auto':
+    case 'auto': {
       const subCommand = args[1];
       if (subCommand === 'list') {
         await listAutomations();
@@ -245,6 +309,7 @@ async function main(): Promise<void> {
         process.exit(1);
       }
       break;
+    }
 
     case '--help':
     case 'help':

@@ -343,17 +343,6 @@ All file paths should be relative to this directory or use absolute paths within
 Run bash commands with the understanding that this is your current working directory.
 `;
 
-    // Debug: Log system prompt size
-    const promptWordCount = systemPromptWithContext.split(/\s+/).length;
-    const estimatedTokens = Math.round(promptWordCount * 1.3);
-    console.log(`📏 System prompt size: ${promptWordCount} words (~${estimatedTokens} tokens)`);
-
-    // Debug: Write full system prompt to temp file for inspection
-    const fs = await import('fs');
-    const debugPath = `/tmp/system-prompt-${session.mode || 'general'}-debug.txt`;
-    fs.writeFileSync(debugPath, systemPromptWithContext);
-    console.log(`📝 Full system prompt written to: ${debugPath}`);
-
     // Inject working directory context into all custom agent prompts
     const agentsWithWorkingDir = injectWorkingDirIntoAgents(AGENT_REGISTRY, workingDir);
 

@@ -510,16 +510,23 @@ export class QueueDatabase {
     const stmt = this.db.prepare(`
       SELECT
         COUNT(*) as total_tasks,
-        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_tasks,
-        SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running_tasks,
-        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_tasks,
-        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed_tasks
+        COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) as pending_tasks,
+        COALESCE(SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END), 0) as running_tasks,
+        COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0) as completed_tasks,
+        COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) as failed_tasks
       FROM queue_tasks
       ${where}
     `);
 
-    const row = stmt.get(...params) as any;
-    return row || {};
+    const row = stmt.get(...params) as Record<string, number | null>;
+    // Ensure all values are numbers (not null)
+    return {
+      total_tasks: row?.total_tasks ?? 0,
+      pending_tasks: row?.pending_tasks ?? 0,
+      running_tasks: row?.running_tasks ?? 0,
+      completed_tasks: row?.completed_tasks ?? 0,
+      failed_tasks: row?.failed_tasks ?? 0,
+    };
   }
 
   /**
