@@ -30,7 +30,7 @@ export interface Session {
   message_count: number;
   working_directory: string;
   permission_mode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
-  mode: 'general' | 'coder' | 'intense-research' | 'spark';
+  mode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified';
   context_input_tokens?: number;
   context_window?: number;
   context_percentage?: number;
@@ -117,7 +117,7 @@ export function useSessionAPI() {
   /**
    * Create a new session
    */
-  const createSession = useCallback(async (title?: string, mode?: 'general' | 'coder' | 'intense-research' | 'spark'): Promise<Session | null> => {
+  const createSession = useCallback(async (title?: string, mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified'): Promise<Session | null> => {
     setIsLoading(true);
     setError(null);
 
@@ -306,11 +306,11 @@ export function useSessionAPI() {
   }, []);
 
   /**
-   * Update session chat mode (general, coder, intense-research, spark)
+   * Update session chat mode (general, coder, intense-research, spark, unified)
    */
   const updateSessionMode = useCallback(async (
     sessionId: string,
-    mode: 'general' | 'coder' | 'intense-research' | 'spark'
+    mode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified'
   ): Promise<{ success: boolean; session?: Session; error?: string }> => {
     setIsLoading(true);
     setError(null);
