@@ -29,7 +29,7 @@ import { CommandTextRenderer } from '../message/CommandTextRenderer';
 interface NewChatWelcomeProps {
   inputValue: string;
   onInputChange: (value: string) => void;
-  onSubmit: (files?: FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark') => void;
+  onSubmit: (files?: FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified') => void;
   onStop?: () => void;
   disabled?: boolean;
   isGenerating?: boolean;
@@ -37,8 +37,8 @@ interface NewChatWelcomeProps {
   onTogglePlanMode?: () => void;
   availableCommands?: SlashCommand[];
   onOpenBuildWizard?: () => void;
-  mode?: 'general' | 'coder' | 'intense-research' | 'spark';
-  onModeChange?: (mode: 'general' | 'coder' | 'intense-research' | 'spark') => void;
+  mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified';
+  onModeChange?: (mode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified') => void;
 }
 
 const CAPABILITIES = [
@@ -56,7 +56,7 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
   const [_isDraggingOver, setIsDraggingOver] = useState(false);
 
   // Mode selection state (synchronized with parent via props)
-  const [selectedMode, setSelectedMode] = useState<'general' | 'coder' | 'intense-research' | 'spark'>(mode || 'general');
+  const [selectedMode, setSelectedMode] = useState<'general' | 'coder' | 'intense-research' | 'spark' | 'unified'>(mode || 'general');
 
   // Sync local mode state with prop when it changes
   useEffect(() => {
@@ -66,7 +66,7 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
   }, [mode]);
 
   // Handle mode change from indicator
-  const handleModeIndicatorChange = (newMode: 'general' | 'coder' | 'intense-research' | 'spark') => {
+  const handleModeIndicatorChange = (newMode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified') => {
     setSelectedMode(newMode);
     if (onModeChange) {
       onModeChange(newMode);
@@ -348,26 +348,26 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <div className="w-full max-w-4xl px-4">
+      <div className="w-full max-w-full sm:max-w-3xl md:max-w-4xl px-2 sm:px-4">
         {/* Greeting */}
-        <div className="flex flex-col gap-1 justify-center items-center mb-8">
-          <div className="flex flex-row justify-center gap-3 w-fit px-5">
-            <div className="text-[40px] font-semibold line-clamp-1 text-gradient">
+        <div className="flex flex-col gap-1 justify-center items-center mb-4 sm:mb-6 md:mb-8">
+          <div className="flex flex-row justify-center gap-3 w-full px-2 sm:px-5">
+            <div className="text-xl sm:text-2xl md:text-3xl lg:text-[40px] font-semibold text-center text-gradient leading-tight">
               {userName ? `Hi, ${userName}. I'm Agent girl` : "Hi. I'm Agent girl"}
             </div>
           </div>
 
           {/* Typewriter capabilities */}
-          <div className="flex justify-center items-center mt-2 h-8">
-            <div className="text-lg text-gray-400 font-medium flex items-center">
-              <span>{displayedText}</span>
-              <span className="inline-block w-[3px] h-[18px] bg-gray-400 ml-0.5 animate-blink"></span>
+          <div className="flex justify-center items-center mt-1 sm:mt-2 h-6 sm:h-8 px-2">
+            <div className="text-sm sm:text-base md:text-lg text-gray-400 font-medium flex items-center text-center">
+              <span className="break-words">{displayedText}</span>
+              <span className="inline-block w-[2px] sm:w-[3px] h-[14px] sm:h-[18px] bg-gray-400 ml-0.5 animate-blink"></span>
             </div>
           </div>
         </div>
 
         {/* Input Container */}
-        <div className="w-full max-w-[960px] mx-auto">
+        <div className="w-full max-w-full sm:max-w-[640px] md:max-w-[800px] lg:max-w-[960px] mx-auto">
           {/* Slash Command Autocomplete Menu - Above input */}
           {showCommandMenu && filteredCommands.length > 0 && (
             <div className="mb-2 w-full bg-gray-800 border border-gray-700 rounded-lg shadow-lg overflow-hidden">
@@ -406,7 +406,7 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
                     <button
                       key={file.id}
                       type="button"
-                      className="flex relative gap-1 items-center p-1.5 w-60 text-left bg-gray-800 rounded-2xl border border-gray-700 group"
+                      className="flex relative gap-1 items-center p-1.5 w-full max-w-60 text-left bg-gray-800 rounded-2xl border border-gray-700 group"
                     >
                       {/* Preview thumbnail */}
                       <div className="flex justify-center items-center">
@@ -497,8 +497,8 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
               </div>
 
               {/* Action Buttons */}
-              <div className="flex justify-between items-center mx-3.5 mt-1.5 mb-3.5 max-w-full">
-                <div className="self-end flex items-center gap-1.5">
+              <div className="flex justify-between items-center mx-2 sm:mx-3.5 mt-1 sm:mt-1.5 mb-2 sm:mb-3.5 max-w-full">
+                <div className="self-end flex items-center gap-1 sm:gap-1.5">
                   {/* File Upload */}
                   <div className="flex gap-1">
                     <input
@@ -512,10 +512,10 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
                     <button
                       onClick={handleFileClick}
                       type="button"
-                      className="border rounded-lg border-white/10 bg-transparent transition p-1.5 outline-none focus:outline-none text-white hover:bg-gray-800"
+                      className="border rounded-md sm:rounded-lg border-white/10 bg-transparent transition p-1 sm:p-1.5 outline-none focus:outline-none text-white hover:bg-gray-800"
                       aria-label="Upload files"
                     >
-                      <Plus className="size-5" />
+                      <Plus className="size-4 sm:size-5" />
                     </button>
 
                     {/* Plan Mode toggle button */}
@@ -523,16 +523,12 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
                       <button
                         onClick={onTogglePlanMode}
                         type="button"
-                        className={`${isPlanMode ? 'send-button-active' : 'border border-white/10 bg-transparent text-white hover:bg-gray-800'} rounded-lg transition outline-none focus:outline-none`}
-                        style={{
-                          fontSize: '0.75rem',
-                          fontWeight: 500,
-                          padding: '0.375rem 0.75rem',
-                        }}
+                        className={`${isPlanMode ? 'send-button-active' : 'border border-white/10 bg-transparent text-white hover:bg-gray-800'} rounded-md sm:rounded-lg transition outline-none focus:outline-none text-[10px] sm:text-xs font-medium px-1.5 py-1 sm:px-3 sm:py-1.5`}
                         title={isPlanMode ? "Plan Mode Active - Click to deactivate" : "Activate Plan Mode"}
                         aria-label={isPlanMode ? "Deactivate Plan Mode" : "Activate Plan Mode"}
                       >
-                        Plan Mode
+                        <span className="hidden sm:inline">Plan Mode</span>
+                        <span className="sm:hidden">Plan</span>
                       </button>
                     )}
                   </div>
@@ -544,23 +540,23 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
                     <button
                       type="button"
                       onClick={onStop}
-                      className="stop-button-active transition rounded-lg p-2 self-center"
+                      className="stop-button-active transition rounded-md sm:rounded-lg p-1.5 sm:p-2 self-center"
                       aria-label="Stop Generating"
                     >
-                      <Square className="size-4" fill="currentColor" />
+                      <Square className="size-3.5 sm:size-4" fill="currentColor" />
                     </button>
                   ) : (
                     <button
                       type="submit"
                       disabled={disabled || !inputValue.trim()}
-                      className={`transition rounded-lg p-2 self-center ${
+                      className={`transition rounded-md sm:rounded-lg p-1.5 sm:p-2 self-center ${
                         !disabled && inputValue.trim()
                           ? 'send-button-active'
                           : 'bg-gray-500 text-white/40 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-600'
                       }`}
                       aria-label="Send Message"
                     >
-                      <Send className="size-4" />
+                      <Send className="size-3.5 sm:size-4" />
                     </button>
                   )}
                 </div>
@@ -569,7 +565,7 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
           </form>
 
           {/* Mode Selector below input */}
-          <div className="mt-6">
+          <div className="mt-3 sm:mt-4 md:mt-6">
             <ModeSelector selectedMode={selectedMode} onSelectMode={setSelectedMode} onOpenBuildWizard={onOpenBuildWizard} />
           </div>
         </div>

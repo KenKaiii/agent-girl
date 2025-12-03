@@ -20,14 +20,16 @@ export function KeyboardShortcuts({ isOpen, onClose }: KeyboardShortcutsProps) {
       items: [
         { keys: ['⌘', 'K'], description: 'New Chat' },
         { keys: ['⌘', 'T'], description: 'New Chat Tab' },
-        { keys: ['⌘', '←'], description: 'Previous Chat' },
-        { keys: ['⌘', '→'], description: 'Next Chat' },
+        { keys: ['⌘', '['], description: 'Previous Chat' },
+        { keys: ['⌘', ']'], description: 'Next Chat' },
         { keys: ['⌘', 'H'], description: 'Back to Recent' },
       ],
     },
     {
       category: 'Display & View',
       items: [
+        { keys: ['⌘', 'B'], description: 'Toggle Sidebar' },
+        { keys: ['⌘', 'F'], description: 'Search in Chat' },
         { keys: ['⌘', 'E'], description: 'Toggle Code Visibility' },
         { keys: ['⌘', 'Shift', 'M'], description: 'Toggle Compact/Full View' },
         { keys: ['⌘', '/'], description: 'Show Keyboard Shortcuts' },

@@ -249,6 +249,218 @@ export async function handleSessionRoutes(
     });
   }
 
+  // GET /api/sessions/:id/export/markdown - Export session as Markdown
+  if (url.pathname.match(/^\/api\/sessions\/[^/]+\/export\/markdown$/) && req.method === 'GET') {
+    const sessionId = url.pathname.split('/')[3];
+    const session = sessionDb.getSession(sessionId);
+
+    if (!session) {
+      return new Response(JSON.stringify({ error: 'Session not found' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const messages = sessionDb.getSessionMessages(sessionId);
+    const exportDate = new Date().toISOString().split('T')[0];
+
+    // Build markdown content
+    let markdown = `# ${session.title}\n\n`;
+    markdown += `> **Mode:** ${session.mode || 'general'} | **Created:** ${new Date(session.created_at).toLocaleString()} | **Messages:** ${session.message_count}\n\n`;
+    markdown += `---\n\n`;
+
+    for (const msg of messages) {
+      const time = new Date(msg.timestamp).toLocaleTimeString();
+
+      if (msg.type === 'user') {
+        markdown += `## 👤 User (${time})\n\n`;
+        markdown += `${msg.content}\n\n`;
+      } else {
+        markdown += `## 🤖 Assistant (${time})\n\n`;
+        // Parse content if it's JSON (assistant messages store structured content)
+        try {
+          const content = JSON.parse(msg.content);
+          if (Array.isArray(content)) {
+            for (const block of content) {
+              if (block.type === 'text') {
+                markdown += `${block.text}\n\n`;
+              } else if (block.type === 'tool_use') {
+                markdown += `<details>\n<summary>🔧 Tool: ${block.name}</summary>\n\n\`\`\`json\n${JSON.stringify(block.input, null, 2)}\n\`\`\`\n</details>\n\n`;
+              } else if (block.type === 'thinking') {
+                markdown += `<details>\n<summary>💭 Thinking</summary>\n\n${block.thinking}\n</details>\n\n`;
+              }
+            }
+          } else {
+            markdown += `${msg.content}\n\n`;
+          }
+        } catch {
+          markdown += `${msg.content}\n\n`;
+        }
+      }
+      markdown += `---\n\n`;
+    }
+
+    markdown += `\n*Exported from Agent Girl on ${exportDate}*\n`;
+
+    const filename = `${session.title.replace(/[^a-zA-Z0-9]/g, '_')}_${exportDate}.md`;
+
+    return new Response(markdown, {
+      headers: {
+        'Content-Type': 'text/markdown; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+      },
+    });
+  }
+
+  // GET /api/sessions/:id/export/summary - Export summary (text-only, no code/tools)
+  if (url.pathname.match(/^\/api\/sessions\/[^/]+\/export\/summary$/) && req.method === 'GET') {
+    const sessionId = url.pathname.split('/')[3];
+    const session = sessionDb.getSession(sessionId);
+
+    if (!session) {
+      return new Response(JSON.stringify({ error: 'Session not found' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const messages = sessionDb.getSessionMessages(sessionId);
+    const exportDate = new Date().toISOString().split('T')[0];
+
+    // Build summary - text only, no code blocks or tool outputs
+    let summary = `# ${session.title} - Summary\n\n`;
+    summary += `**Date:** ${new Date(session.created_at).toLocaleDateString()}\n`;
+    summary += `**Mode:** ${session.mode || 'general'}\n`;
+    summary += `**Messages:** ${session.message_count}\n\n`;
+    summary += `---\n\n`;
+
+    for (const msg of messages) {
+      if (msg.type === 'user') {
+        summary += `**User:** ${msg.content}\n\n`;
+      } else {
+        // Extract only text content from assistant messages
+        try {
+          const content = JSON.parse(msg.content);
+          if (Array.isArray(content)) {
+            const textBlocks = content.filter(b => b.type === 'text').map(b => b.text);
+            if (textBlocks.length > 0) {
+              // Remove code blocks from text
+              const cleanText = textBlocks.join('\n').replace(/```[\s\S]*?```/g, '[code block]').trim();
+              if (cleanText) {
+                summary += `**Assistant:** ${cleanText}\n\n`;
+              }
+            }
+          } else {
+            summary += `**Assistant:** ${msg.content.replace(/```[\s\S]*?```/g, '[code block]')}\n\n`;
+          }
+        } catch {
+          summary += `**Assistant:** ${msg.content.replace(/```[\s\S]*?```/g, '[code block]')}\n\n`;
+        }
+      }
+    }
+
+    const filename = `${session.title.replace(/[^a-zA-Z0-9]/g, '_')}_summary_${exportDate}.md`;
+
+    return new Response(summary, {
+      headers: {
+        'Content-Type': 'text/markdown; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+      },
+    });
+  }
+
+  // GET /api/sessions/:id/stats - Get session statistics
+  if (url.pathname.match(/^\/api\/sessions\/[^/]+\/stats$/) && req.method === 'GET') {
+    const sessionId = url.pathname.split('/')[3];
+    const session = sessionDb.getSession(sessionId);
+
+    if (!session) {
+      return new Response(JSON.stringify({ error: 'Session not found' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const messages = sessionDb.getSessionMessages(sessionId);
+
+    // Calculate statistics
+    let userMessages = 0;
+    let assistantMessages = 0;
+    let totalChars = 0;
+    let toolUseCount = 0;
+    let codeBlockCount = 0;
+    const toolTypes: Record<string, number> = {};
+
+    for (const msg of messages) {
+      if (msg.type === 'user') {
+        userMessages++;
+        totalChars += msg.content.length;
+      } else {
+        assistantMessages++;
+        try {
+          const content = JSON.parse(msg.content);
+          if (Array.isArray(content)) {
+            for (const block of content) {
+              if (block.type === 'text') {
+                totalChars += block.text?.length || 0;
+                // Count code blocks in text
+                const codeMatches = block.text?.match(/```/g);
+                if (codeMatches) codeBlockCount += codeMatches.length / 2;
+              } else if (block.type === 'tool_use') {
+                toolUseCount++;
+                const toolName = block.name || 'unknown';
+                toolTypes[toolName] = (toolTypes[toolName] || 0) + 1;
+              }
+            }
+          }
+        } catch {
+          totalChars += msg.content.length;
+        }
+      }
+    }
+
+    // Estimate tokens (rough: 1 token ≈ 4 chars)
+    const estimatedTokens = Math.round(totalChars / 4);
+
+    // Calculate duration
+    const firstMsg = messages[0];
+    const lastMsg = messages[messages.length - 1];
+    const duration = firstMsg && lastMsg
+      ? new Date(lastMsg.timestamp).getTime() - new Date(firstMsg.timestamp).getTime()
+      : 0;
+
+    const stats = {
+      session: {
+        id: session.id,
+        title: session.title,
+        mode: session.mode,
+        createdAt: session.created_at,
+      },
+      messages: {
+        total: messages.length,
+        user: userMessages,
+        assistant: assistantMessages,
+      },
+      content: {
+        totalChars,
+        estimatedTokens,
+        codeBlocks: Math.floor(codeBlockCount),
+        toolUses: toolUseCount,
+        toolBreakdown: toolTypes,
+      },
+      timing: {
+        durationMs: duration,
+        durationMinutes: Math.round(duration / 60000),
+        firstMessage: firstMsg?.timestamp,
+        lastMessage: lastMsg?.timestamp,
+      },
+    };
+
+    return new Response(JSON.stringify(stats, null, 2), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   // POST /api/sessions/import - Import session from JSON
   if (url.pathname === '/api/sessions/import' && req.method === 'POST') {
     try {

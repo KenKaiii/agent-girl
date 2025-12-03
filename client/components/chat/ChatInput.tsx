@@ -19,7 +19,7 @@
  */
 
 import React, { useRef, useState, useEffect } from 'react';
-import { Send, Plus, X, Square, Palette, List, ListOrdered } from 'lucide-react';
+import { Send, Plus, X, Square, Palette, List, ListOrdered, Hammer, Monitor, Link } from 'lucide-react';
 import type { FileAttachment } from '../message/types';
 import type { BackgroundProcess } from '../process/BackgroundProcessMonitor';
 import { ModeIndicator } from './ModeIndicator';
@@ -33,7 +33,7 @@ import { useMessageQueue } from '../../hooks/useMessageQueue';
 interface ChatInputProps {
   value: string;
   onChange: (value: string) => void;
-  onSubmit: (files?: FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark') => void;
+  onSubmit: (files?: FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified') => void;
   onStop?: () => void;
   disabled?: boolean;
   isGenerating?: boolean;
@@ -42,8 +42,8 @@ interface ChatInputProps {
   onTogglePlanMode?: () => void;
   backgroundProcesses?: BackgroundProcess[];
   onKillProcess?: (bashId: string) => void;
-  mode?: 'general' | 'coder' | 'intense-research' | 'spark';
-  onModeChange?: (mode: 'general' | 'coder' | 'intense-research' | 'spark') => void;
+  mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified';
+  onModeChange?: (mode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified') => void;
   availableCommands?: SlashCommand[];
   contextUsage?: {
     inputTokens: number;
@@ -51,9 +51,13 @@ interface ChatInputProps {
     contextPercentage: number;
   };
   selectedModel?: string;
+  layoutMode?: 'chat-only' | 'split-screen';
+  onOpenBuildWizard?: () => void;
+  previewUrl?: string | null;
 }
 
-export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGenerating, placeholder, isPlanMode, onTogglePlanMode, backgroundProcesses: _backgroundProcesses = [], onKillProcess: _onKillProcess, mode, onModeChange, availableCommands = [], contextUsage, selectedModel }: ChatInputProps) {
+export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGenerating, placeholder, isPlanMode, onTogglePlanMode, backgroundProcesses: _backgroundProcesses = [], onKillProcess: _onKillProcess, mode, onModeChange, availableCommands = [], contextUsage, selectedModel, layoutMode = 'chat-only', onOpenBuildWizard, previewUrl }: ChatInputProps) {
+  const isCompact = layoutMode === 'split-screen';
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [attachedFiles, setAttachedFiles] = useState<FileAttachment[]>([]);
@@ -342,6 +346,36 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
         <form className="flex gap-1.5 w-full relative" onSubmit={(e) => { e.preventDefault(); onSubmit(); }}>
         {/* Main input container with rounded border */}
         <div className={`input-field-wrapper ${isDraggingOver ? 'ring-2 ring-blue-500 ring-opacity-50' : ''}`}>
+          {/* Preview Context Indicator - shows when split-screen is active */}
+          {layoutMode === 'split-screen' && previewUrl && (
+            <div
+              className="flex items-center gap-2 mx-2 mt-2 px-2.5 py-1.5 rounded-lg"
+              style={{
+                background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(139, 92, 246, 0.15))',
+                border: '1px solid rgba(59, 130, 246, 0.25)',
+              }}
+            >
+              <div className="flex items-center gap-1.5">
+                <Monitor size={14} style={{ color: '#3b82f6' }} />
+                <Link size={10} style={{ color: '#8b5cf6' }} />
+              </div>
+              <span style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.7)' }}>
+                Linked to Preview
+              </span>
+              <span
+                className="truncate"
+                style={{
+                  fontSize: '10px',
+                  color: 'rgba(255, 255, 255, 0.4)',
+                  maxWidth: '150px',
+                }}
+                title={previewUrl}
+              >
+                {previewUrl.replace(/^https?:\/\//, '')}
+              </span>
+            </div>
+          )}
+
           {/* File attachments preview */}
           {attachedFiles.length > 0 && (
             <div className="flex flex-wrap gap-2 items-center mx-2 mt-2.5 -mb-1">
@@ -405,12 +439,13 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
               <div
                 className="absolute px-1 pt-3 w-full text-sm pointer-events-none z-10 text-gray-100"
                 style={{
-                  minHeight: '72px',
-                  maxHeight: '144px',
+                  minHeight: isCompact ? '48px' : '72px',
+                  maxHeight: isCompact ? '96px' : '144px',
                   overflowY: 'auto',
                   textIndent: mode ? `${modeIndicatorWidth}px` : '0px',
                   whiteSpace: 'pre-wrap',
                   wordWrap: 'break-word',
+                  fontSize: isCompact ? '0.8125rem' : undefined,
                 }}
               >
                 <CommandTextRenderer content={value} />
@@ -428,14 +463,15 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
               placeholder={placeholder || "Send a Message"}
               className="px-1 pt-3 w-full text-sm bg-transparent resize-none scrollbar-hidden outline-hidden placeholder:text-white/40"
               style={{
-                minHeight: '72px',
-                maxHeight: '144px',
+                minHeight: isCompact ? '48px' : '72px',
+                maxHeight: isCompact ? '96px' : '144px',
                 overflowY: 'auto',
                 textIndent: mode ? `${modeIndicatorWidth}px` : '0px',
                 color: value.match(/(^|\s)(\/([a-z-]+))(?=\s|$)/m) ? 'transparent' : 'rgb(243, 244, 246)',
                 caretColor: 'rgb(243, 244, 246)',
                 position: 'relative',
                 zIndex: 20,
+                fontSize: isCompact ? '0.8125rem' : undefined,
               }}
             />
           </div>
@@ -463,7 +499,7 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
                   <Plus size={20} />
                 </button>
 
-                {/* Plan Mode toggle button */}
+                {/* Plan Mode toggle button - icon only in compact */}
                 {onTogglePlanMode && (
                   <button
                     onClick={onTogglePlanMode}
@@ -473,23 +509,43 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
                     style={{
                       fontSize: '0.75rem',
                       fontWeight: 500,
-                      padding: '0.375rem 0.75rem',
+                      padding: isCompact ? '0.375rem 0.5rem' : '0.375rem 0.75rem',
                     }}
                   >
-                    Plan Mode
+                    {isCompact ? 'Plan' : 'Plan Mode'}
                   </button>
                 )}
 
-                {/* Queue Mode Indicator Badge */}
-                {queue.items.length > 0 && (
+                {/* Build Mode button */}
+                {onOpenBuildWizard && (
+                  <button
+                    onClick={onOpenBuildWizard}
+                    className="btn-icon rounded-lg flex items-center gap-1.5"
+                    title="Open Build Wizard - Create projects with guided setup"
+                    type="button"
+                    style={{
+                      fontSize: '0.75rem',
+                      fontWeight: 500,
+                      padding: isCompact ? '0.375rem 0.5rem' : '0.375rem 0.75rem',
+                      background: 'linear-gradient(90deg, rgba(255, 199, 168, 0.15) 0%, rgba(255, 228, 218, 0.15) 100%)',
+                      border: '1px solid rgba(255, 199, 168, 0.3)',
+                    }}
+                  >
+                    <Hammer size={isCompact ? 14 : 16} />
+                    {!isCompact && <span>Build</span>}
+                  </button>
+                )}
+
+                {/* Queue Mode Indicator Badge - hidden in compact */}
+                {!isCompact && queue.items.length > 0 && (
                   <div className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-500/20 border border-blue-500/30 text-xs font-medium text-blue-400">
                     <ListOrdered size={14} />
                     <span>Queue: {queue.items.length}</span>
                   </div>
                 )}
 
-                {/* Style Configuration button - only in Coder mode */}
-                {mode === 'coder' && (
+                {/* Style Configuration button - only in Coder mode, hidden in compact */}
+                {!isCompact && mode === 'coder' && (
                   <button
                     onClick={() => setIsStyleConfigOpen(true)}
                     className="btn-icon rounded-lg"
@@ -500,8 +556,8 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
                   </button>
                 )}
 
-                {/* Features button - only in Coder mode */}
-                {mode === 'coder' && (
+                {/* Features button - only in Coder mode, hidden in compact */}
+                {!isCompact && mode === 'coder' && (
                   <button
                     onClick={() => setIsFeaturesModalOpen(true)}
                     className="btn-icon rounded-lg"
@@ -551,6 +607,31 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
                 }
 
                 // Standard context usage display for other models
+                // Compact mode: just percentage and small bar
+                if (isCompact) {
+                  return (
+                    <div className="flex items-center gap-1.5 mr-1.5 px-2 py-1 rounded-md bg-[#1a1c1e] border border-white/20">
+                      <span className={`text-[10px] font-semibold ${
+                        contextUsage.contextPercentage >= 90 ? 'text-red-400' :
+                        contextUsage.contextPercentage >= 70 ? 'text-yellow-400' :
+                        'text-emerald-400'
+                      }`}>
+                        {contextUsage.contextPercentage}%
+                      </span>
+                      <div className="w-12 h-1 bg-white/20 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${
+                            contextUsage.contextPercentage >= 90 ? 'bg-red-400' :
+                            contextUsage.contextPercentage >= 70 ? 'bg-yellow-400' :
+                            'bg-emerald-400'
+                          }`}
+                          style={{ width: `${Math.min(contextUsage.contextPercentage, 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                }
+
                 return (
                   <div className="flex items-center gap-3 mr-3 px-3 py-1.5 rounded-lg bg-[#1a1c1e] border border-white/20 shadow-sm">
                     {/* Icon with status color */}

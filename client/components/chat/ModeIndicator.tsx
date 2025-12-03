@@ -22,9 +22,9 @@ import React, { useRef, useEffect, useState } from 'react';
 import { MessageCircle, Code, Target, Zap, ChevronDown } from 'lucide-react';
 
 interface ModeIndicatorProps {
-  mode: 'general' | 'coder' | 'intense-research' | 'spark';
+  mode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified';
   onWidthChange?: (width: number) => void;
-  onModeChange?: (mode: 'general' | 'coder' | 'intense-research' | 'spark') => void;
+  onModeChange?: (mode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified') => void;
 }
 
 const MODE_CONFIGS = {
@@ -52,13 +52,20 @@ const MODE_CONFIGS = {
     gradient: 'linear-gradient(90deg, #FAE9A8 0%, #FFF4DA 25%, #ffffff 50%, #FFF4DA 75%, #FAE9A8 100%)',
     textColor: '#000000',
   },
+  'unified': {
+    name: 'Unified',
+    icon: Target,
+    gradient: 'linear-gradient(90deg, #A8C7FA 0%, #DAEFFF 25%, #ffffff 50%, #DAEFFF 75%, #A8C7FA 100%)',
+    textColor: '#000000',
+  },
 };
 
-const MODES_ARRAY: Array<'general' | 'coder' | 'intense-research' | 'spark'> = [
+const MODES_ARRAY: Array<'general' | 'coder' | 'intense-research' | 'spark' | 'unified'> = [
   'general',
   'coder',
   'intense-research',
   'spark',
+  // Note: 'unified' is intentionally not shown in selector - it's an internal mode
 ];
 
 export function ModeIndicator({ mode, onWidthChange, onModeChange }: ModeIndicatorProps) {
@@ -74,7 +81,7 @@ export function ModeIndicator({ mode, onWidthChange, onModeChange }: ModeIndicat
     }
   }, [mode, onWidthChange]);
 
-  const handleModeSelect = (selectedMode: 'general' | 'coder' | 'intense-research' | 'spark') => {
+  const handleModeSelect = (selectedMode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified') => {
     setIsOpen(false);
     if (onModeChange && selectedMode !== mode) {
       onModeChange(selectedMode);

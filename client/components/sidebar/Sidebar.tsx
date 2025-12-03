@@ -19,7 +19,7 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Menu, Edit3, Search, Trash2, Edit, FolderOpen, Copy, Code2, Download, Upload, MessageSquare } from 'lucide-react';
+import { Menu, Edit3, Search, Trash2, Edit, FolderOpen, Copy, Code2, Download, Upload, MessageSquare, FileText, BarChart3 } from 'lucide-react';
 import { toast } from '../../utils/toast';
 import { DeleteConfirmationModal } from '../ui/DeleteConfirmationModal';
 import { ChatListSkeleton, SearchResultsSkeleton, LoadingSpinner } from '../ui/Skeleton';
@@ -932,6 +932,100 @@ export function Sidebar({
                                 }}
                               >
                                 <Download size={14} />
+                              </button>
+                              <button
+                                className="sidebar-chat-menu-btn"
+                                aria-label="Export Markdown"
+                                title="Export as Markdown"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  try {
+                                    const response = await fetch(`/api/sessions/${chat.id}/export/markdown`);
+                                    if (response.ok) {
+                                      const text = await response.text();
+                                      const blob = new Blob([text], { type: 'text/markdown' });
+                                      const url = URL.createObjectURL(blob);
+                                      const a = document.createElement('a');
+                                      a.href = url;
+                                      a.download = `${chat.title.replace(/[^a-zA-Z0-9]/g, '_')}.md`;
+                                      document.body.appendChild(a);
+                                      a.click();
+                                      document.body.removeChild(a);
+                                      URL.revokeObjectURL(url);
+                                      toast.success('Markdown exported');
+                                    } else {
+                                      toast.error('Export failed');
+                                    }
+                                  } catch {
+                                    toast.error('Export failed');
+                                  }
+                                }}
+                                style={{
+                                  padding: '0.25rem',
+                                  background: chat.isActive ? 'rgb(var(--bg-tertiary))' : 'rgb(var(--bg-secondary))',
+                                  border: 'none',
+                                  borderRadius: '0.25rem',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  color: 'rgb(var(--text-secondary))',
+                                  transition: 'all 0.15s',
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.background = 'rgba(59, 130, 246, 0.15)';
+                                  e.currentTarget.style.color = '#3b82f6';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.background = chat.isActive ? 'rgb(var(--bg-tertiary))' : 'rgb(var(--bg-secondary))';
+                                  e.currentTarget.style.color = 'rgb(var(--text-secondary))';
+                                }}
+                              >
+                                <FileText size={14} />
+                              </button>
+                              <button
+                                className="sidebar-chat-menu-btn"
+                                aria-label="Session Stats"
+                                title="View Statistics"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  try {
+                                    const response = await fetch(`/api/sessions/${chat.id}/stats`);
+                                    if (response.ok) {
+                                      const stats = await response.json();
+                                      toast.success(`${stats.messages.total} msgs | ~${stats.content.estimatedTokens.toLocaleString()} tokens | ${stats.content.toolUses} tools`, {
+                                        description: `Duration: ${stats.timing.durationMinutes} min | Code blocks: ${stats.content.codeBlocks}`,
+                                        duration: 5000,
+                                      });
+                                    } else {
+                                      toast.error('Failed to load stats');
+                                    }
+                                  } catch {
+                                    toast.error('Failed to load stats');
+                                  }
+                                }}
+                                style={{
+                                  padding: '0.25rem',
+                                  background: chat.isActive ? 'rgb(var(--bg-tertiary))' : 'rgb(var(--bg-secondary))',
+                                  border: 'none',
+                                  borderRadius: '0.25rem',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  color: 'rgb(var(--text-secondary))',
+                                  transition: 'all 0.15s',
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.background = 'rgba(168, 85, 247, 0.15)';
+                                  e.currentTarget.style.color = '#a855f7';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.background = chat.isActive ? 'rgb(var(--bg-tertiary))' : 'rgb(var(--bg-secondary))';
+                                  e.currentTarget.style.color = 'rgb(var(--text-secondary))';
+                                }}
+                              >
+                                <BarChart3 size={14} />
                               </button>
                               <button
                                 className="sidebar-chat-menu-btn"

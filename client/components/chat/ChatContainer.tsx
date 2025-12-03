@@ -18,12 +18,13 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { flushSync } from 'react-dom';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { NewChatWelcome } from './NewChatWelcome';
 import { Sidebar } from '../sidebar/Sidebar';
+import { ResizableSidebar, useSidebarWidth } from '../sidebar/ResizableSidebar';
 import { ModelSelector } from '../header/ModelSelector';
 import { WorkingDirectoryDisplay } from '../header/WorkingDirectoryDisplay';
 import { AboutButton } from '../header/AboutButton';
@@ -37,7 +38,8 @@ import { KeyboardShortcuts } from '../ui/KeyboardShortcuts';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { WorkingDirectoryContext } from '../../hooks/useWorkingDirectory';
 import { useSessionAPI, type Session } from '../../hooks/useSessionAPI';
-import { Menu, Edit3, ChevronLeft, ChevronRight, History, ExternalLink, Eye, EyeOff, Code2, Monitor, MessageSquare } from 'lucide-react';
+import { useResponsive } from '../../hooks/useResponsive';
+import { Menu, Edit3, ChevronLeft, ChevronRight, History, ExternalLink, Eye, EyeOff, Code2, Monitor, MessageSquare, Search, X, ChevronUp, ChevronDown } from 'lucide-react';
 import type { Message } from '../message/types';
 import { toast } from '../../utils/toast';
 import { showError } from '../../utils/errorMessages';
@@ -45,12 +47,48 @@ import type { BackgroundProcess } from '../process/BackgroundProcessMonitor';
 import type { SlashCommand } from '../../hooks/useWebSocket';
 import { useMessageQueue } from '../../hooks/useMessageQueue';
 
+// AI Edit request from preview annotations
+export interface AIEditRequest {
+  prompt: string;
+  annotations: Array<{
+    id: number;
+    type: string;
+    area: string;
+    note?: string;
+    bounds?: { x: number; y: number; width: number; height: number };
+  }>;
+  previewUrl: string;
+  screenshot?: string; // base64 data URL
+  elementInfo?: {
+    tagName: string;
+    className: string;
+    id: string;
+    textContent?: string;
+    selector: string;
+  };
+  localData?: Record<string, string>;
+  // Enhanced file path context for finding source files
+  fileContext?: {
+    framework: string | null;
+    possibleFiles: string[];
+    componentHints: string[];
+    routePattern: string;
+  };
+  // Viewport info for responsive context
+  viewport?: {
+    width: number;
+    height: number;
+    device: string;
+  };
+}
+
 interface ChatContainerProps {
   layoutMode?: 'chat-only' | 'split-screen';
   onLayoutModeChange?: (mode: 'chat-only' | 'split-screen') => void;
   previewUrl?: string | null;
   onSetPreviewUrl?: () => void;
   onDetectPreviewUrl?: () => void;
+  onAIEditRequestHandler?: (handler: (request: AIEditRequest) => void) => void;
 }
 
 export function ChatContainer({
@@ -58,7 +96,8 @@ export function ChatContainer({
   onLayoutModeChange,
   previewUrl,
   onSetPreviewUrl,
-  onDetectPreviewUrl
+  onDetectPreviewUrl,
+  onAIEditRequestHandler
 }: ChatContainerProps = {}) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState(() => {
@@ -84,7 +123,7 @@ export function ChatContainer({
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [_isLoadingSessions, setIsLoadingSessions] = useState(true);
-  const [currentSessionMode, setCurrentSessionMode] = useState<'general' | 'coder' | 'intense-research' | 'spark'>('general');
+  const [currentSessionMode, setCurrentSessionMode] = useState<'general' | 'coder' | 'intense-research' | 'spark' | 'unified'>('general');
 
   // Slash commands available for current session
   const [availableCommands, setAvailableCommands] = useState<SlashCommand[]>([]);
@@ -171,7 +210,17 @@ export function ChatContainer({
   // Keyboard shortcuts modal state
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
 
+  // In-chat search state
+  const [showSearchBar, setShowSearchBar] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchMatches, setSearchMatches] = useState<number[]>([]);
+  const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
+
   const sessionAPI = useSessionAPI();
+
+  // Responsive hooks
+  const { isMobile, isTablet } = useResponsive();
+  const sidebarWidth = useSidebarWidth(isSidebarOpen);
 
   // Per-session loading state helpers
   const isSessionLoading = (sessionId: string | null): boolean => {
@@ -376,11 +425,48 @@ export function ChatContainer({
         e.preventDefault();
         // This would open chat folder - placeholder for future
       }
+
+      // ⌘ F - Search in chat
+      if (isMeta && e.key === 'f') {
+        e.preventDefault();
+        setShowSearchBar(prev => !prev);
+        if (!showSearchBar) {
+          setSearchQuery('');
+          setSearchMatches([]);
+          setCurrentMatchIndex(0);
+        }
+      }
+
+      // Escape - Close search bar
+      if (e.key === 'Escape' && showSearchBar) {
+        e.preventDefault();
+        setShowSearchBar(false);
+        setSearchQuery('');
+        setSearchMatches([]);
+      }
+
+      // ⌘ B - Toggle sidebar
+      if (isMeta && e.key === 'b') {
+        e.preventDefault();
+        setIsSidebarOpen(prev => !prev);
+      }
+
+      // ⌘ [ - Navigate to previous chat
+      if (isMeta && e.key === '[') {
+        e.preventDefault();
+        handlePrevChat();
+      }
+
+      // ⌘ ] - Navigate to next chat
+      if (isMeta && e.key === ']') {
+        e.preventDefault();
+        handleNextChat();
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showCode, displayMode, navigationHistory]);
+  }, [showCode, displayMode, navigationHistory, showSearchBar, isSidebarOpen]);
 
   const loadSessions = async (): Promise<Session[]> => {
     setIsLoadingSessions(true);
@@ -651,8 +737,8 @@ export function ChatContainer({
     // If no session exists yet, the mode will be applied when session is created
   };
 
-  // Handle session mode change (general, coder, intense-research, spark)
-  const handleModeChange = async (newMode: 'general' | 'coder' | 'intense-research' | 'spark') => {
+  // Handle session mode change (general, coder, intense-research, spark, unified)
+  const handleModeChange = async (newMode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified') => {
     // Always update local state immediately
     setCurrentSessionMode(newMode);
     console.log('🎭 Mode changed to:', newMode);
@@ -1402,7 +1488,7 @@ export function ChatContainer({
     });
   };
 
-  const handleSubmit = async (files?: import('../message/types').FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark', messageOverride?: string) => {
+  const handleSubmit = async (files?: import('../message/types').FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified', messageOverride?: string) => {
     const messageText = messageOverride || inputValue;
     if (!messageText.trim()) return;
 
@@ -1562,63 +1648,181 @@ export function ChatContainer({
     }, 100);
   };
 
+  // Handle AI edit request from preview annotations
+  const handleAIEditRequest = useCallback(async (request: AIEditRequest) => {
+    // Build the edit prompt with full context
+    const annotationDetails = request.annotations.map(a =>
+      `  - Area ${a.id}: ${a.type}${a.area !== 'freeform' ? ` at ${a.area}` : ''}${a.note ? ` (note: ${a.note})` : ''}`
+    ).join('\n');
+
+    let fullPrompt = `🎯 **Preview Edit Request**\n\n`;
+    fullPrompt += `**Target URL:** ${request.previewUrl}\n\n`;
+
+    // Add file path context for AI to find the right files
+    if (request.fileContext) {
+      fullPrompt += `**📁 File Detection:**\n`;
+      if (request.fileContext.framework) {
+        fullPrompt += `  - Framework: ${request.fileContext.framework}\n`;
+        fullPrompt += `  - Routing: ${request.fileContext.routePattern}\n`;
+      }
+      if (request.fileContext.possibleFiles.length > 0) {
+        fullPrompt += `  - Likely source files:\n`;
+        request.fileContext.possibleFiles.slice(0, 5).forEach(file => {
+          fullPrompt += `    • \`${file}\`\n`;
+        });
+      }
+      if (request.fileContext.componentHints.length > 0) {
+        fullPrompt += `  - Component locations: ${request.fileContext.componentHints.join(', ')}\n`;
+      }
+      fullPrompt += '\n';
+    }
+
+    // Add viewport context
+    if (request.viewport) {
+      fullPrompt += `**📱 Viewport:** ${request.viewport.device} (${request.viewport.width}×${request.viewport.height}px)\n\n`;
+    }
+
+    fullPrompt += `**Marked Areas (${request.annotations.length}):**\n${annotationDetails}\n\n`;
+
+    if (request.elementInfo) {
+      fullPrompt += `**Selected Element:**\n`;
+      fullPrompt += `  - Tag: \`<${request.elementInfo.tagName.toLowerCase()}>\`\n`;
+      fullPrompt += `  - Selector: \`${request.elementInfo.selector}\`\n`;
+      if (request.elementInfo.className) fullPrompt += `  - Class: \`${request.elementInfo.className}\`\n`;
+      if (request.elementInfo.id) fullPrompt += `  - ID: \`${request.elementInfo.id}\`\n`;
+      if (request.elementInfo.textContent) fullPrompt += `  - Text: "${request.elementInfo.textContent.slice(0, 100)}${request.elementInfo.textContent.length > 100 ? '...' : ''}"\n`;
+      fullPrompt += '\n';
+    }
+
+    if (request.localData && Object.keys(request.localData).length > 0) {
+      fullPrompt += `**Local Data to Use:**\n`;
+      Object.entries(request.localData).forEach(([key, value]) => {
+        fullPrompt += `  - ${key}: ${value}\n`;
+      });
+      fullPrompt += '\n';
+    }
+
+    fullPrompt += `**User Request:** ${request.prompt}\n\n`;
+    fullPrompt += `Please use the file detection hints above to find and edit the correct source files. Start by reading the suggested files to verify they match the preview content, then make the requested changes.`;
+
+    // If screenshot is available, include it as an image attachment
+    const files: import('../message/types').FileAttachment[] = [];
+    if (request.screenshot) {
+      files.push({
+        id: `screenshot-${Date.now()}`,
+        name: 'screenshot.png',
+        type: 'image/png',
+        size: request.screenshot.length,
+        preview: request.screenshot,
+      });
+    }
+
+    // Submit to chat
+    setInputValue(fullPrompt);
+
+    // Small delay to ensure state is set, then submit
+    setTimeout(() => {
+      handleSubmit(files.length > 0 ? files : undefined, 'coder', fullPrompt);
+    }, 50);
+  }, [handleSubmit]);
+
+  // Register the AI edit handler with the parent
+  useEffect(() => {
+    if (onAIEditRequestHandler) {
+      onAIEditRequestHandler(handleAIEditRequest);
+    }
+  }, [onAIEditRequestHandler, handleAIEditRequest]);
+
   return (
     <div className="flex h-screen">
-      {/* Sidebar */}
-      <Sidebar
+      {/* Resizable Sidebar */}
+      <ResizableSidebar
         isOpen={isSidebarOpen}
         onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
-        chats={sessions.map(session => {
-          // Extract folder name from working_directory path
-          const folderName = session.working_directory?.split('/').filter(Boolean).pop() || session.title;
-          return {
-            id: session.id,
-            title: folderName,
-            timestamp: new Date(session.updated_at),
-            isActive: session.id === currentSessionId,
-            isLoading: loadingSessions.has(session.id),
-            workingDirectory: session.working_directory,
-          };
-        })}
-        onNewChat={handleNewChat}
-        onChatSelect={handleSessionSelect}
-        onChatDelete={handleChatDelete}
-        onChatRename={handleChatRename}
-        showCompact={displayMode === 'compact'}
-        onToggleCompact={() => setDisplayMode(displayMode === 'compact' ? 'full' : 'compact')}
-        showCode={showCode}
-        onToggleCode={() => setShowCode(!showCode)}
-        onNewChatTab={() => window.open(window.location.origin, '_blank')}
-        onPreviousChat={() => {
-          if (navigationHistoryRef.current.length > 0) {
-            const previousId = navigationHistoryRef.current.pop();
-            if (previousId) handleSessionSelect(previousId);
-          }
-        }}
-        onNextChat={() => {
-          // Next chat navigation would need to be implemented based on your navigation model
-          // For now, this is a placeholder
-        }}
-        onBackToRecent={() => {
-          if (navigationHistoryRef.current.length > 0) {
-            navigationHistoryRef.current = [];
-            if (sessions.length > 0) handleSessionSelect(sessions[0].id);
-          }
-        }}
-        canPreviousChat={navigationHistoryRef.current.length > 0}
-        canNextChat={false}
-        canBackToRecent={navigationHistoryRef.current.length > 0}
-      />
+      >
+        <Sidebar
+          isOpen={isSidebarOpen}
+          onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
+          chats={sessions.map(session => {
+            // Extract folder name from working_directory path
+            const folderName = session.working_directory?.split('/').filter(Boolean).pop() || session.title;
+            return {
+              id: session.id,
+              title: folderName,
+              timestamp: new Date(session.updated_at),
+              isActive: session.id === currentSessionId,
+              isLoading: loadingSessions.has(session.id),
+              workingDirectory: session.working_directory,
+            };
+          })}
+          onNewChat={handleNewChat}
+          onChatSelect={handleSessionSelect}
+          onChatDelete={handleChatDelete}
+          onChatRename={handleChatRename}
+          showCompact={displayMode === 'compact'}
+          onToggleCompact={() => setDisplayMode(displayMode === 'compact' ? 'full' : 'compact')}
+          showCode={showCode}
+          onToggleCode={() => setShowCode(!showCode)}
+          onNewChatTab={() => window.open(window.location.origin, '_blank')}
+          onPreviousChat={() => {
+            if (navigationHistoryRef.current.length > 0) {
+              const previousId = navigationHistoryRef.current.pop();
+              if (previousId) handleSessionSelect(previousId);
+            }
+          }}
+          onNextChat={() => {
+            // Next chat navigation would need to be implemented based on your navigation model
+            // For now, this is a placeholder
+          }}
+          onBackToRecent={() => {
+            if (navigationHistoryRef.current.length > 0) {
+              navigationHistoryRef.current = [];
+              if (sessions.length > 0) handleSessionSelect(sessions[0].id);
+            }
+          }}
+          canPreviousChat={navigationHistoryRef.current.length > 0}
+          canNextChat={false}
+          canBackToRecent={navigationHistoryRef.current.length > 0}
+        />
+      </ResizableSidebar>
 
-      {/* Main Chat Area */}
-      <div className="flex flex-col flex-1 h-screen" style={{ marginLeft: isSidebarOpen ? '416px' : '0', transition: 'margin-left 0.2s ease-in-out' }}>
-        {/* Header - Always visible */}
-        <nav className="header">
+      {/* Main Chat Area - responsive margin based on sidebar width */}
+      <div
+        className="flex flex-col flex-1 h-screen"
+        style={{
+          marginLeft: isMobile ? 0 : `${sidebarWidth}px`,
+          transition: 'margin-left 0.2s ease-in-out',
+        }}
+      >
+        {/* Header - Always visible - Compact in split-screen mode */}
+        <nav
+          className="header"
+          style={{
+            height: layoutMode === 'split-screen' ? '48px' : undefined,
+            minHeight: layoutMode === 'split-screen' ? '48px' : undefined,
+          }}
+        >
           <div className="header-content">
-            <div className="header-inner">
+            <div className="header-inner" style={{ padding: layoutMode === 'split-screen' ? '0 0.75rem' : undefined }}>
               {/* Left side */}
               <div className="header-left">
-                {!isSidebarOpen && (
+                {/* Mobile: Always show hamburger menu */}
+                {isMobile && (
+                  <button
+                    className="header-btn"
+                    aria-label="Open Sidebar"
+                    onClick={() => setIsSidebarOpen(true)}
+                    style={{
+                      background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(139, 92, 246, 0.15))',
+                      border: '1px solid rgba(59, 130, 246, 0.3)',
+                    }}
+                  >
+                    <Menu />
+                  </button>
+                )}
+
+                {/* Desktop: Show controls when sidebar is closed */}
+                {!isSidebarOpen && !isMobile && (
                   <>
                     {/* Sidebar toggle */}
                     <button className="header-btn" aria-label="Toggle Sidebar" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
@@ -1682,12 +1886,12 @@ export function ChatContainer({
                 )}
               </div>
 
-            {/* Center - Logo and Model Selector */}
+            {/* Center - Logo and Model Selector - Compact in split-screen */}
             <div className="header-center">
               <div className="flex flex-col items-start w-full">
                 <div className="flex justify-between items-center w-full">
-                  <div className="flex items-center gap-3">
-                    {!isSidebarOpen && (
+                  <div className="flex items-center gap-2" style={{ gap: layoutMode === 'split-screen' ? '0.5rem' : '0.75rem' }}>
+                    {!isSidebarOpen && layoutMode !== 'split-screen' && (
                       <img
                         src="/client/agent-boy.svg"
                         alt="Agent Girl"
@@ -1695,15 +1899,19 @@ export function ChatContainer({
                         loading="eager"
                         onError={(e) => {
                           console.error('Failed to load agent-boy.svg');
-                          // Retry loading
                           setTimeout(() => {
                             e.currentTarget.src = '/client/agent-boy.svg?' + Date.now();
                           }, 100);
                         }}
                       />
                     )}
-                    <div className="header-title text-gradient">
-                      Agent Girl
+                    <div
+                      className="header-title text-gradient"
+                      style={{
+                        fontSize: layoutMode === 'split-screen' ? '0.875rem' : undefined,
+                      }}
+                    >
+                      {layoutMode === 'split-screen' ? 'Chat' : 'Agent Girl'}
                     </div>
                     {/* Model Selector */}
                     <ModelSelector
@@ -1777,35 +1985,43 @@ export function ChatContainer({
                 </>
               )}
 
-              {/* Compact/Full toggle */}
-              <button
-                onClick={() => setDisplayMode(displayMode === 'full' ? 'compact' : 'full')}
-                className="flex items-center gap-3 px-3 py-2 hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
-                aria-label={displayMode === 'full' ? 'Hide verbose output' : 'Show all output'}
-                title={displayMode === 'full' ? 'Hide verbose output (thinking, WebSearch, tools)' : 'Show all output including thinking and tool use'}
-                style={{ pointerEvents: 'auto', cursor: 'pointer' }}
-              >
-                <span className="text-sm" style={{ color: 'rgb(var(--text-secondary))' }}>
-                  {displayMode === 'compact' ? 'compact' : 'full'}
-                </span>
-                {displayMode === 'compact' ? (
-                  <EyeOff className="w-4 h-4" style={{ color: 'rgb(var(--text-secondary))' }} />
-                ) : (
-                  <Eye className="w-4 h-4" style={{ color: 'rgb(var(--text-secondary))' }} />
-                )}
-              </button>
+              {/* Compact/Full toggle - hidden in split-screen for space */}
+              {layoutMode !== 'split-screen' && (
+                <button
+                  onClick={() => setDisplayMode(displayMode === 'full' ? 'compact' : 'full')}
+                  className="flex items-center gap-3 px-3 py-2 hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+                  aria-label={displayMode === 'full' ? 'Hide verbose output' : 'Show all output'}
+                  title={displayMode === 'full' ? 'Hide verbose output (thinking, WebSearch, tools)' : 'Show all output including thinking and tool use'}
+                  style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+                >
+                  <span className="text-sm" style={{ color: 'rgb(var(--text-secondary))' }}>
+                    {displayMode === 'compact' ? 'compact' : 'full'}
+                  </span>
+                  {displayMode === 'compact' ? (
+                    <EyeOff className="w-4 h-4" style={{ color: 'rgb(var(--text-secondary))' }} />
+                  ) : (
+                    <Eye className="w-4 h-4" style={{ color: 'rgb(var(--text-secondary))' }} />
+                  )}
+                </button>
+              )}
 
-              {/* Global code visibility toggle */}
+              {/* Global code visibility toggle - icon-only in split-screen */}
               <button
                 onClick={() => setShowCode(!showCode)}
                 className="flex items-center gap-3 px-3 py-2 hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
                 aria-label={showCode ? 'Hide code blocks' : 'Show code blocks'}
                 title={showCode ? 'Hide all code blocks' : 'Show all code blocks'}
-                style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+                style={{
+                  pointerEvents: 'auto',
+                  cursor: 'pointer',
+                  padding: layoutMode === 'split-screen' ? '0.375rem 0.5rem' : undefined,
+                }}
               >
-                <span className="text-sm" style={{ color: 'rgb(var(--text-secondary))' }}>
-                  {showCode ? 'code' : 'no code'}
-                </span>
+                {layoutMode !== 'split-screen' && (
+                  <span className="text-sm" style={{ color: 'rgb(var(--text-secondary))' }}>
+                    {showCode ? 'code' : 'no code'}
+                  </span>
+                )}
                 {showCode ? (
                   <Code2 className="w-4 h-4" style={{ color: 'rgb(var(--text-secondary))' }} />
                 ) : (
@@ -1815,36 +2031,170 @@ export function ChatContainer({
                 )}
               </button>
 
-              {/* Radio Player */}
-              <RadioPlayer />
-              {/* Working Directory Display */}
-              {currentSessionId && sessions.find(s => s.id === currentSessionId)?.working_directory && (
+              {/* Radio Player - hidden in split-screen mode */}
+              {layoutMode !== 'split-screen' && <RadioPlayer />}
+              {/* Working Directory Display - compact in split-screen mode */}
+              {currentSessionId && sessions.find(s => s.id === currentSessionId)?.working_directory && layoutMode !== 'split-screen' && (
                 <WorkingDirectoryDisplay
                   directory={sessions.find(s => s.id === currentSessionId)?.working_directory || ''}
                   sessionId={currentSessionId}
                   onChangeDirectory={handleChangeDirectory}
                 />
               )}
-              {/* Queue Toggle Button - Hidden */}
-              {/* <button
-                className="header-btn relative"
-                onClick={() => setIsQueueOpen(!isQueueOpen)}
-                title={isQueueOpen ? 'Close queue' : 'Open queue'}
-                aria-label="Toggle Queue Panel"
-              >
-                <ListOrdered size={18} />
-                {queue.items.length > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-blue-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-                    {queue.items.length > 9 ? '9+' : queue.items.length}
-                  </span>
-                )}
-              </button> */}
-              {/* About Button */}
-              <AboutButton />
+              {/* About Button - hidden in split-screen mode */}
+              {layoutMode !== 'split-screen' && <AboutButton />}
             </div>
           </div>
         </div>
       </nav>
+
+        {/* Search Bar */}
+        {showSearchBar && (
+          <div
+            style={{
+              position: 'sticky',
+              top: '60px',
+              zIndex: 100,
+              padding: '0.5rem 1rem',
+              background: 'rgb(var(--bg-secondary))',
+              borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem',
+            }}
+          >
+            <div style={{ position: 'relative', flex: 1, maxWidth: '400px' }}>
+              <Search
+                size={16}
+                style={{
+                  position: 'absolute',
+                  left: '0.75rem',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: 'rgb(var(--text-secondary))',
+                }}
+              />
+              <input
+                type="text"
+                placeholder="Search in chat..."
+                value={searchQuery}
+                onChange={(e) => {
+                  const query = e.target.value;
+                  setSearchQuery(query);
+                  if (query.length >= 2) {
+                    // Find matching message indices
+                    const matches: number[] = [];
+                    messages.forEach((msg, idx) => {
+                      const content = typeof msg.content === 'string'
+                        ? msg.content
+                        : JSON.stringify(msg.content);
+                      if (content.toLowerCase().includes(query.toLowerCase())) {
+                        matches.push(idx);
+                      }
+                    });
+                    setSearchMatches(matches);
+                    setCurrentMatchIndex(0);
+                    if (matches.length > 0 && scrollContainerRef.current) {
+                      const messageElements = scrollContainerRef.current.querySelectorAll('[data-message-index]');
+                      const targetElement = Array.from(messageElements).find(
+                        el => el.getAttribute('data-message-index') === String(matches[0])
+                      );
+                      targetElement?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                  } else {
+                    setSearchMatches([]);
+                  }
+                }}
+                autoFocus
+                style={{
+                  width: '100%',
+                  padding: '0.5rem 0.75rem 0.5rem 2.25rem',
+                  background: 'rgb(var(--bg-input))',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '0.5rem',
+                  color: 'rgb(var(--text-primary))',
+                  fontSize: '0.875rem',
+                  outline: 'none',
+                }}
+              />
+            </div>
+            {searchMatches.length > 0 && (
+              <>
+                <span style={{ color: 'rgb(var(--text-secondary))', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
+                  {currentMatchIndex + 1} / {searchMatches.length}
+                </span>
+                <button
+                  onClick={() => {
+                    const newIdx = currentMatchIndex > 0 ? currentMatchIndex - 1 : searchMatches.length - 1;
+                    setCurrentMatchIndex(newIdx);
+                    if (scrollContainerRef.current) {
+                      const messageElements = scrollContainerRef.current.querySelectorAll('[data-message-index]');
+                      const targetElement = Array.from(messageElements).find(
+                        el => el.getAttribute('data-message-index') === String(searchMatches[newIdx])
+                      );
+                      targetElement?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                  }}
+                  style={{
+                    padding: '0.25rem',
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    border: 'none',
+                    borderRadius: '0.25rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    color: 'rgb(var(--text-secondary))',
+                  }}
+                  title="Previous match"
+                >
+                  <ChevronUp size={16} />
+                </button>
+                <button
+                  onClick={() => {
+                    const newIdx = currentMatchIndex < searchMatches.length - 1 ? currentMatchIndex + 1 : 0;
+                    setCurrentMatchIndex(newIdx);
+                    if (scrollContainerRef.current) {
+                      const messageElements = scrollContainerRef.current.querySelectorAll('[data-message-index]');
+                      const targetElement = Array.from(messageElements).find(
+                        el => el.getAttribute('data-message-index') === String(searchMatches[newIdx])
+                      );
+                      targetElement?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                  }}
+                  style={{
+                    padding: '0.25rem',
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    border: 'none',
+                    borderRadius: '0.25rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    color: 'rgb(var(--text-secondary))',
+                  }}
+                  title="Next match"
+                >
+                  <ChevronDown size={16} />
+                </button>
+              </>
+            )}
+            <button
+              onClick={() => {
+                setShowSearchBar(false);
+                setSearchQuery('');
+                setSearchMatches([]);
+              }}
+              style={{
+                padding: '0.25rem',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                color: 'rgb(var(--text-secondary))',
+                display: 'flex',
+              }}
+              title="Close search (Esc)"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        )}
 
         {messages.length === 0 ? (
           // New Chat Welcome Screen
@@ -1905,6 +2255,9 @@ export function ChatContainer({
               availableCommands={availableCommands}
               contextUsage={currentSessionId ? contextUsage.get(currentSessionId) : undefined}
               selectedModel={selectedModel}
+              layoutMode={layoutMode}
+              onOpenBuildWizard={handleOpenBuildWizard}
+              previewUrl={previewUrl}
             />
 
           </>

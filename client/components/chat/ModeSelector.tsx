@@ -22,7 +22,7 @@ import React, { useState } from 'react';
 import { MessageCircle, Code, Target, Zap, Hammer } from 'lucide-react';
 
 interface ModeOption {
-  id: 'general' | 'coder' | 'intense-research' | 'spark' | 'build';
+  id: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified' | 'build';
   name: string;
   description: string;
   icon: React.ReactNode;
@@ -70,8 +70,8 @@ const MODES: ModeOption[] = [
 ];
 
 interface ModeSelectorProps {
-  selectedMode: 'general' | 'coder' | 'intense-research' | 'spark';
-  onSelectMode: (mode: 'general' | 'coder' | 'intense-research' | 'spark') => void;
+  selectedMode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified';
+  onSelectMode: (mode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified') => void;
   onOpenBuildWizard?: () => void;
 }
 
@@ -92,13 +92,13 @@ export function ModeSelector({ selectedMode, onSelectMode, onOpenBuildWizard }: 
     if (mode.isBuildMode) {
       onOpenBuildWizard?.();
     } else {
-      onSelectMode(mode.id as 'general' | 'coder' | 'intense-research' | 'spark');
+      onSelectMode(mode.id as 'general' | 'coder' | 'intense-research' | 'spark' | 'unified');
     }
   };
 
   return (
     <>
-      <div className="w-full overflow-auto scrollbar-none flex flex-row items-center justify-center gap-2 flex-wrap text-base">
+      <div className="w-full overflow-auto scrollbar-none flex flex-row items-center justify-center gap-1.5 sm:gap-2 flex-wrap text-xs sm:text-sm md:text-base">
         {MODES.map((mode, index) => {
           const isSelected = selectedMode === mode.id && !mode.isBuildMode;
           return (
@@ -107,7 +107,7 @@ export function ModeSelector({ selectedMode, onSelectMode, onOpenBuildWizard }: 
               onClick={() => handleModeClick(mode)}
               onMouseEnter={(e) => handleMouseEnter(mode.id, e)}
               onMouseLeave={() => setHoveredMode(null)}
-              className={`promptCard waterfall flex flex-col shrink-0 px-4 py-2 rounded-lg group items-center justify-center text-center ${
+              className={`promptCard waterfall flex flex-col shrink-0 px-2 py-1.5 sm:px-3 sm:py-1.5 md:px-4 md:py-2 rounded-md sm:rounded-lg group items-center justify-center text-center ${
                 isSelected
                   ? 'border-none'
                   : 'border-b-2 border-white/10 hover:border-white/20 text-white/90 hover:text-white transition'
@@ -132,10 +132,10 @@ export function ModeSelector({ selectedMode, onSelectMode, onOpenBuildWizard }: 
               }),
             }}
           >
-            <div className="flex gap-3 justify-between items-center w-full h-7"
+            <div className="flex gap-1.5 sm:gap-2 md:gap-3 justify-between items-center w-full h-5 sm:h-6 md:h-7"
                  style={isSelected ? { color: '#000000' } : {}}>
-              <div className="flex flex-row flex-1 gap-3 items-center min-w-0 transition">
-                <div className="flex justify-center items-center">
+              <div className="flex flex-row flex-1 gap-1.5 sm:gap-2 md:gap-3 items-center min-w-0 transition">
+                <div className="flex justify-center items-center [&>svg]:size-3 sm:[&>svg]:size-3.5 md:[&>svg]:size-4">
                   {mode.icon}
                 </div>
                 <div className="truncate font-medium">{mode.name}</div>

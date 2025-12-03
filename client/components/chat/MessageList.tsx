@@ -183,6 +183,7 @@ export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollCon
                     }}
                     ref={virtualizer.measureElement}
                     data-index={virtualItem.index}
+                    data-message-index={virtualItem.index}
                   >
                     <MessageRenderer message={message} displayMode={displayMode} showCode={showCode} onRemoveMessage={onRemoveMessage} />
                   </div>

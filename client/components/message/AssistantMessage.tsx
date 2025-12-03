@@ -48,7 +48,8 @@ function TextWithFilePaths({ children }: { children: React.ReactNode }) {
 
   // Regex to match file paths (Unix absolute, Windows, relative, home dir ~, and standalone filenames with spaces)
   // Only matches actual files, not just "/" or partial paths
-  const pathRegex = /((?:~\/[\w\s./-]+)|(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[A-Za-z]:\\[\w\\\s.-]+)|(?:\.\.?\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[\w\s_-]+\.(?:md|txt|json|yml|yaml|sh|py|js|ts|jsx|tsx|css|html|xml|toml|ini|cfg|conf|log|env|gitignore|dockerignore|rs|go|java|c|cpp|h|hpp|rb|php|swift|kt|scala|sql|vue|svelte|command)))/g;
+  // Note: Standalone filenames must start with non-whitespace to avoid capturing leading spaces
+  const pathRegex = /((?:~\/[\w\s./-]+)|(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[A-Za-z]:\\[\w\\\s.-]+)|(?:\.\.?\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[\w_-][\w\s_-]*\.(?:md|txt|json|yml|yaml|sh|py|js|ts|jsx|tsx|css|html|xml|toml|ini|cfg|conf|log|env|gitignore|dockerignore|rs|go|java|c|cpp|h|hpp|rb|php|swift|kt|scala|sql|vue|svelte|command)))/g;
 
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
@@ -1283,7 +1284,7 @@ function ExitPlanModeComponent({ toolUse }: { toolUse: ToolUseBlock }) {
 
                   // Inline code with file path detection
                   const inlineContent = String(children);
-                  const isFilePath = /^(?:~\/[\w\s./-]+)|(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[A-Za-z]:\\[\w\\\s.-]+)|(?:\.\.?\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[\w\s_-]+\.(?:md|txt|json|yml|yaml|sh|py|js|ts|jsx|tsx|css|html|xml|toml|ini|cfg|conf|log|env|gitignore|dockerignore|rs|go|java|c|cpp|h|hpp|rb|php|swift|kt|scala|sql|vue|svelte|command))$/.test(inlineContent);
+                  const isFilePath = /^(?:~\/[\w\s./-]+)|(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[A-Za-z]:\\[\w\\\s.-]+)|(?:\.\.?\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[\w_-][\w\s_-]*\.(?:md|txt|json|yml|yaml|sh|py|js|ts|jsx|tsx|css|html|xml|toml|ini|cfg|conf|log|env|gitignore|dockerignore|rs|go|java|c|cpp|h|hpp|rb|php|swift|kt|scala|sql|vue|svelte|command))$/.test(inlineContent);
 
                   if (isFilePath) {
                     return <InlineCodeWithHoverActions filePath={inlineContent}>{children}</InlineCodeWithHoverActions>;
@@ -1851,7 +1852,7 @@ function TextComponent({ text, showCode = true }: { text: TextBlock; showCode?: 
               // Inline code with file path detection
               const inlineContent = String(children);
               // Only match actual files, not just "/" or partial paths
-              const isFilePath = /^(?:~\/[\w\s./-]+)|(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[A-Za-z]:\\[\w\\\s.-]+)|(?:\.\.?\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[\w\s_-]+\.(?:md|txt|json|yml|yaml|sh|py|js|ts|jsx|tsx|css|html|xml|toml|ini|cfg|conf|log|env|gitignore|dockerignore|rs|go|java|c|cpp|h|hpp|rb|php|swift|kt|scala|sql|vue|svelte|command))$/.test(inlineContent);
+              const isFilePath = /^(?:~\/[\w\s./-]+)|(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[A-Za-z]:\\[\w\\\s.-]+)|(?:\.\.?\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[\w_-][\w\s_-]*\.(?:md|txt|json|yml|yaml|sh|py|js|ts|jsx|tsx|css|html|xml|toml|ini|cfg|conf|log|env|gitignore|dockerignore|rs|go|java|c|cpp|h|hpp|rb|php|swift|kt|scala|sql|vue|svelte|command))$/.test(inlineContent);
 
               if (isFilePath) {
                 return <InlineCodeWithHoverActions filePath={inlineContent}>{children}</InlineCodeWithHoverActions>;
