@@ -29,6 +29,7 @@ import { WorkingDirectoryDisplay } from '../header/WorkingDirectoryDisplay';
 import { AboutButton } from '../header/AboutButton';
 import { RadioPlayer } from '../header/RadioPlayer';
 import { PlanApprovalModal } from '../plan/PlanApprovalModal';
+import { QuestionModal, type Question } from '../question/QuestionModal';
 import { BuildWizard } from '../build-wizard/BuildWizard';
 import { ScrollButton } from './ScrollButton';
 import { CommandQueueDisplay } from '../queue/CommandQueueDisplay';
@@ -146,6 +147,12 @@ export function ChatContainer({
 
   // Plan approval
   const [pendingPlan, setPendingPlan] = useState<string | null>(null);
+
+  // Question modal state
+  const [pendingQuestion, setPendingQuestion] = useState<{
+    toolId: string;
+    questions: Question[];
+  } | null>(null);
 
   // Background processes (per-session)
   const [backgroundProcesses, setBackgroundProcesses] = useState<Map<string, BackgroundProcess[]>>(new Map());
@@ -715,6 +722,49 @@ export function ChatContainer({
   const handleRejectPlan = () => {
     setPendingPlan(null);
     if (currentSessionId) setSessionLoading(currentSessionId, false);
+  };
+
+  // Handle question submission
+  const handleQuestionSubmit = (toolId: string, answers: Record<string, string>) => {
+    if (!currentSessionId) return;
+
+    // Send answers back to server
+    sendMessage({
+      type: 'answer_question',
+      toolId,
+      answers,
+      sessionId: currentSessionId,
+    });
+
+    // Add user message showing their answers
+    const answerText = Object.entries(answers)
+      .map(([header, answer]) => `**${header}:** ${answer}`)
+      .join('\n');
+
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      type: 'user',
+      content: answerText,
+      timestamp: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, userMessage]);
+
+    // Clear modal
+    setPendingQuestion(null);
+  };
+
+  // Handle question cancel - send cancellation to server
+  const handleQuestionCancel = (toolId: string) => {
+    if (currentSessionId) {
+      // Notify server to cancel the pending question
+      sendMessage({
+        type: 'cancel_question',
+        toolId,
+        sessionId: currentSessionId,
+      });
+      setSessionLoading(currentSessionId, false);
+    }
+    setPendingQuestion(null);
   };
 
   const { isConnected, sendMessage, stopGeneration } = useWebSocket({
@@ -1309,6 +1359,22 @@ export function ChatContainer({
 
           console.log(`📊 Context usage updated for session ${targetSessionId.substring(0, 8)}: ${usageMsg.contextPercentage}%`);
         }
+      } else if (message.type === 'ask_user_question' && 'toolId' in message && 'questions' in message) {
+        // Handle AskUserQuestion tool - show modal to get user's answers
+        const questionMsg = message as {
+          type: 'ask_user_question';
+          toolId: string;
+          questions: Question[];
+          sessionId?: string;
+        };
+        console.log('❓ Received question from Claude:', questionMsg.questions);
+        setPendingQuestion({
+          toolId: questionMsg.toolId,
+          questions: questionMsg.questions,
+        });
+      } else if (message.type === 'question_answered') {
+        // Clear the question modal when answer is confirmed
+        setPendingQuestion(null);
       } else if (message.type === 'keepalive') {
         // Keepalive messages are sent every 30s to prevent WebSocket idle timeout
         // during long-running operations. No action needed - just acknowledge receipt.
@@ -1852,6 +1918,16 @@ export function ChatContainer({
           onApprove={handleApprovePlan}
           onReject={handleRejectPlan}
           isResponseInProgress={isLoading}
+        />
+      )}
+
+      {/* Question Modal */}
+      {pendingQuestion && (
+        <QuestionModal
+          toolId={pendingQuestion.toolId}
+          questions={pendingQuestion.questions}
+          onSubmit={handleQuestionSubmit}
+          onCancel={handleQuestionCancel}
         />
       )}
 

@@ -22,6 +22,7 @@ import { sessionStreamManager } from "../sessionStreamManager";
 import { expandSlashCommand } from "../slashCommandExpander";
 import { renameSessionFolderFromFirstMessage, updateSessionTitleFromFirstMessage } from "../folderNaming";
 import { getDefaultWorkingDirectory } from "../directoryUtils";
+import { createAskUserQuestionServer, setQuestionCallback, answerQuestion, cancelQuestion } from "../mcp/askUserQuestion";
 
 interface ChatWebSocketData {
   type: 'hot-reload' | 'chat';
@@ -71,6 +72,10 @@ export async function handleWebSocketMessage(
       await handleKillBackgroundProcess(ws, data);
     } else if (data.type === 'stop_generation') {
       await handleStopGeneration(ws, data);
+    } else if (data.type === 'answer_question') {
+      await handleAnswerQuestion(ws, data, activeQueries);
+    } else if (data.type === 'cancel_question') {
+      await handleCancelQuestion(ws, data);
     }
   } catch (error) {
     console.error('WebSocket message error:', error);
@@ -424,12 +429,26 @@ Run bash commands with the understanding that this is your current working direc
     // SDK automatically uses its bundled CLI at @anthropic-ai/claude-agent-sdk/cli.js
     // No need to specify pathToClaudeCodeExecutable - the SDK handles this internally
 
-    // Add MCP servers if provider has them
-    // No need to set allowedTools - bypassPermissions gives access to all tools
-    // MCP tools will be available through mcpServers, built-in tools through bypassPermissions
-    if (Object.keys(mcpServers).length > 0) {
-      queryOptions.mcpServers = mcpServers;
-    }
+    // Add MCP servers including our custom AskUserQuestion tool
+    // The SDK doesn't expose AskUserQuestion in programmatic mode, so we provide it via MCP
+    const askUserQuestionServer = createAskUserQuestionServer(sessionId as string);
+    queryOptions.mcpServers = {
+      ...mcpServers,
+      'ask-user-question': askUserQuestionServer,
+    };
+
+    // Set up question callback to send questions to frontend via WebSocket
+    setQuestionCallback((toolId: string, questions: unknown[], questionSessionId: string) => {
+      sessionStreamManager.safeSend(
+        questionSessionId,
+        JSON.stringify({
+          type: 'ask_user_question',
+          toolId,
+          questions,
+          sessionId: questionSessionId,
+        })
+      );
+    });
 
     // Add PreToolUse hook to intercept background Bash commands and long-running commands
     queryOptions.hooks = {
@@ -782,9 +801,14 @@ Run bash commands with the understanding that this is your current working direc
 
               // Capture SDK's internal session ID from first system message
               if (message.type === 'system' && (message as { subtype?: string }).subtype === 'init') {
-                const sdkSessionId = (message as { session_id?: string }).session_id;
+                const initMsg = message as { session_id?: string; tools?: string[] };
+                const sdkSessionId = initMsg.session_id;
                 if (sdkSessionId && sdkSessionId !== sessionId) {
                   sessionDb.updateSdkSessionId(sessionId as string, sdkSessionId);
+                }
+                // Log available tools for debugging
+                if (initMsg.tools) {
+                  console.log(`🔧 SDK available tools (${initMsg.tools.length}):`, initMsg.tools.join(', '));
                 }
                 continue; // Skip further processing for system messages
               }
@@ -1129,6 +1153,13 @@ Run bash commands with the understanding that this is your current working direc
                 continue; // Skip duplicate ExitPlanMode
               }
 
+              // AskUserQuestion is provided via our custom MCP server since SDK doesn't expose it
+              // The MCP tool name is 'mcp__ask-user-question__AskUserQuestion'
+              // Skip sending tool_use events for it to avoid duplicate UI (callback handles it)
+              if (block.name === 'mcp__ask-user-question__AskUserQuestion') {
+                continue; // MCP server callback sends to frontend
+              }
+
               // Background processes are now intercepted and spawned via PreToolUse hook
               // No need for detection here since the hook blocks SDK execution
 
@@ -1459,6 +1490,86 @@ async function handleStopGeneration(
     ws.send(JSON.stringify({
       type: 'error',
       error: error instanceof Error ? error.message : 'Failed to stop generation'
+    }));
+  }
+}
+
+async function handleAnswerQuestion(
+  ws: ServerWebSocket<ChatWebSocketData>,
+  data: Record<string, unknown>,
+  _activeQueries: Map<string, unknown>
+): Promise<void> {
+  const { sessionId, toolId, answers } = data;
+
+  if (!sessionId || !toolId || !answers) {
+    ws.send(JSON.stringify({ type: 'error', error: 'Missing sessionId, toolId, or answers' }));
+    return;
+  }
+
+  try {
+    console.log(`❓ User answered question (toolId: ${toolId}) for session: ${sessionId.toString().substring(0, 8)}`);
+    console.log('📝 Answers:', answers);
+
+    // Resolve the pending question promise with the user's answers
+    // This unblocks the MCP tool handler and returns answers to Claude
+    const answered = answerQuestion(toolId as string, answers as Record<string, string>);
+
+    if (answered) {
+      // Confirm to client
+      ws.send(JSON.stringify({
+        type: 'question_answered',
+        toolId: toolId,
+        sessionId: sessionId
+      }));
+    } else {
+      console.warn(`⚠️ No pending question found for toolId: ${toolId}`);
+      ws.send(JSON.stringify({
+        type: 'error',
+        error: 'Question not found or already answered'
+      }));
+    }
+
+  } catch (error) {
+    console.error('❌ Error handling question answer:', error);
+    ws.send(JSON.stringify({
+      type: 'error',
+      error: error instanceof Error ? error.message : 'Failed to process answer'
+    }));
+  }
+}
+
+async function handleCancelQuestion(
+  ws: ServerWebSocket<ChatWebSocketData>,
+  data: Record<string, unknown>
+): Promise<void> {
+  const { sessionId, toolId } = data;
+
+  if (!sessionId || !toolId) {
+    ws.send(JSON.stringify({ type: 'error', error: 'Missing sessionId or toolId' }));
+    return;
+  }
+
+  try {
+    console.log(`❌ User cancelled question (toolId: ${toolId}) for session: ${sessionId.toString().substring(0, 8)}`);
+
+    // Cancel the pending question - this rejects the promise in the MCP tool
+    const cancelled = cancelQuestion(toolId as string);
+
+    if (cancelled) {
+      ws.send(JSON.stringify({
+        type: 'question_cancelled',
+        toolId: toolId,
+        sessionId: sessionId
+      }));
+    } else {
+      console.warn(`⚠️ No pending question found to cancel for toolId: ${toolId}`);
+    }
+
+  } catch (error) {
+    console.error('❌ Error cancelling question:', error);
+    ws.send(JSON.stringify({
+      type: 'error',
+      error: error instanceof Error ? error.message : 'Failed to cancel question'
     }));
   }
 }
