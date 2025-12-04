@@ -41,7 +41,7 @@ const MODE_CONFIGS = {
     textColor: '#000000',
   },
   'intense-research': {
-    name: 'Intense Research',
+    name: 'Research',
     icon: Target,
     gradient: 'linear-gradient(90deg, #C7A8FA 0%, #DAAEEE 25%, #ffffff 50%, #DAAEEE 75%, #C7A8FA 100%)',
     textColor: '#000000',
@@ -89,7 +89,7 @@ export function ModeIndicator({ mode, onWidthChange, onModeChange }: ModeIndicat
   };
 
   return (
-    <div className="absolute py-2 select-none" style={{ zIndex: 100 }}>
+    <div className="relative select-none" style={{ zIndex: 100 }}>
       <div className="relative">
         {/* Main Mode Button */}
         <button
@@ -116,9 +116,18 @@ export function ModeIndicator({ mode, onWidthChange, onModeChange }: ModeIndicat
           <ChevronDown className="size-3.5 ml-0.5" strokeWidth={2} />
         </button>
 
-        {/* Dropdown Menu */}
+        {/* Dropdown Menu - Opens downward for better mobile support */}
         {isOpen && (
-          <div className="absolute bottom-full left-0 mb-1 rounded-lg shadow-2xl" style={{ minWidth: '200px', backdropFilter: 'blur(8px)', zIndex: 9999, backgroundColor: 'rgba(31, 41, 55, 0.95)' }}>
+          <div
+            className="absolute top-full left-0 mt-1 rounded-lg shadow-2xl overflow-hidden"
+            style={{
+              minWidth: '180px',
+              backdropFilter: 'blur(12px)',
+              zIndex: 9999,
+              backgroundColor: 'rgba(20, 20, 24, 0.98)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+            }}
+          >
             {MODES_ARRAY.map((modeOption) => {
               const modeConfig = MODE_CONFIGS[modeOption];
               const ModeIcon = modeConfig.icon;
@@ -128,21 +137,29 @@ export function ModeIndicator({ mode, onWidthChange, onModeChange }: ModeIndicat
                 <button
                   key={modeOption}
                   onClick={() => handleModeSelect(modeOption)}
-                  className="w-full px-4 py-2.5 flex items-center gap-2 text-sm transition-all hover:brightness-110"
+                  className="w-full px-3 py-2 flex items-center gap-2 text-sm transition-all"
                   style={{
-                    backgroundImage: isSelected ? modeConfig.gradient : 'linear-gradient(90deg, rgba(100, 100, 100, 0.3) 0%, rgba(100, 100, 100, 0.2) 100%)',
+                    backgroundImage: isSelected ? modeConfig.gradient : 'none',
+                    backgroundColor: isSelected ? undefined : 'transparent',
                     backgroundSize: '200% auto',
-                    color: modeConfig.textColor,
-                    border: 'none',
+                    color: isSelected ? modeConfig.textColor : 'rgba(255, 255, 255, 0.9)',
                     cursor: 'pointer',
-                    borderLeft: isSelected ? '3px solid rgba(255, 255, 255, 0.5)' : 'none',
-                    paddingLeft: isSelected ? 'calc(1rem - 3px)' : '1rem',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isSelected) {
+                      e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isSelected) {
+                      e.currentTarget.style.backgroundColor = 'transparent';
+                    }
                   }}
                 >
                   <ModeIcon className="size-4" strokeWidth={1.5} />
                   <span className="font-medium flex-1 text-left">{modeConfig.name}</span>
                   {isSelected && (
-                    <span className="text-xs font-bold">✓</span>
+                    <span className="text-xs">✓</span>
                   )}
                 </button>
               );

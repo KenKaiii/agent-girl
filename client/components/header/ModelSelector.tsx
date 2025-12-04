@@ -65,7 +65,7 @@ export function ModelSelector({ selectedModel, onModelChange, disabled = false, 
           cursor: disabled ? 'not-allowed' : 'pointer',
           opacity: disabled ? 0.5 : 1,
         }}
-        title={hasMessages ? 'Model locked for this conversation. Start a new chat to change models.' : undefined}
+        title={hasMessages ? 'Wechsel möglich - Kontext wird übergeben' : undefined}
       >
         <span className="font-heading text-sm">{currentModel.name}</span>
         <ChevronDown

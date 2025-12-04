@@ -140,8 +140,11 @@ export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollCon
   // Auto-scroll to bottom only if user is at bottom
   useEffect(() => {
     if (parentRef.current && isAtBottom) {
-      // Only scroll if user is at bottom
-      parentRef.current.scrollTop = parentRef.current.scrollHeight;
+      // Smooth scroll to bottom when user is already near the bottom
+      parentRef.current.scrollTo({
+        top: parentRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
     }
   }, [messages, isAtBottom]);
 
@@ -162,10 +165,10 @@ export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollCon
   return (
     <div
       ref={parentRef}
-      className="flex overflow-auto z-10 flex-col flex-auto justify-between pb-2.5 w-full max-w-full h-0 scrollbar-hidden"
+      className="flex overflow-auto z-10 flex-col flex-auto justify-between pb-2.5 w-full max-w-full h-0 min-h-0 scrollbar-hidden"
     >
-      <div className="flex flex-col w-full h-full">
-        <div className="h-full flex pt-8">
+      <div className="flex flex-col w-full h-full min-h-0">
+        <div className="h-full min-h-0 flex pt-8">
           <div className="pt-2 w-full">
             <div className="w-full" style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}>
               {virtualizer.getVirtualItems().map((virtualItem) => {

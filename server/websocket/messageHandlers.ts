@@ -23,6 +23,10 @@ import { expandSlashCommand } from "../slashCommandExpander";
 import { renameSessionFolderFromFirstMessage, updateSessionTitleFromFirstMessage } from "../folderNaming";
 import { getDefaultWorkingDirectory } from "../directoryUtils";
 import { createAskUserQuestionServer, setQuestionCallback, answerQuestion, cancelQuestion } from "../mcp/askUserQuestion";
+import { wsRateLimiter } from "../utils/rateLimiter";
+import { logger } from "../utils/logger";
+import { WebSocketMessageSchema, validateInput } from "../utils/validation";
+import { RateLimitError } from "../utils/Result";
 
 interface ChatWebSocketData {
   type: 'hot-reload' | 'chat';
@@ -59,8 +63,31 @@ export async function handleWebSocketMessage(
 ): Promise<void> {
   if (ws.data?.type === 'hot-reload') return;
 
+  // Get client identifier for rate limiting (use session ID or remote address)
+  const clientId = ws.data?.sessionId || 'anonymous';
+
+  // Check rate limit
+  if (!wsRateLimiter.canProceed(clientId)) {
+    const retryAfter = wsRateLimiter.getBlockedTimeRemaining(clientId);
+    logger.warn('Rate limit exceeded', { clientId, retryAfter });
+
+    ws.send(JSON.stringify({
+      type: 'error',
+      error: 'Rate limit exceeded. Please slow down.',
+      retryAfter,
+    }));
+    return;
+  }
+
   try {
     const data = JSON.parse(message);
+
+    // Log incoming message (without sensitive content)
+    logger.debug('WebSocket message received', {
+      type: data.type,
+      sessionId: data.sessionId,
+      clientId,
+    });
 
     if (data.type === 'chat') {
       await handleChatMessage(ws, data, activeQueries);
@@ -76,9 +103,11 @@ export async function handleWebSocketMessage(
       await handleAnswerQuestion(ws, data, activeQueries);
     } else if (data.type === 'cancel_question') {
       await handleCancelQuestion(ws, data);
+    } else {
+      logger.warn('Unknown message type', { type: data.type });
     }
   } catch (error) {
-    console.error('WebSocket message error:', error);
+    logger.error('WebSocket message error', { clientId }, error as Error);
     ws.send(JSON.stringify({
       type: 'error',
       error: error instanceof Error ? error.message : 'Invalid message format'
@@ -275,6 +304,24 @@ async function handleChatMessage(
   // Get model configuration
   const modelConfig = MODEL_MAP[model as string] || MODEL_MAP['sonnet'];
   const { apiModelId, provider } = modelConfig;
+
+  // Handle model switching - prepend context summary for continuity
+  const modelSwitched = session.last_model && session.last_model !== model;
+  if (modelSwitched) {
+    const contextSummary = sessionDb.getContextSummary(sessionId as string);
+    if (contextSummary) {
+      console.log(`🔄 Model switched from ${session.last_model} to ${model} - adding context summary`);
+      promptText = `${contextSummary}\n\n---\n\n${promptText}`;
+    } else {
+      console.log(`🔄 Model switched from ${session.last_model} to ${model}`);
+    }
+
+    // Clear SDK session ID to force fresh subprocess (no resume with different model)
+    sessionDb.updateSdkSessionId(sessionId as string, null);
+  }
+
+  // Update the model being used
+  sessionDb.updateProgress(sessionId as string, { model: model as string });
 
   // Configure provider (sets ANTHROPIC_BASE_URL and ANTHROPIC_API_KEY env vars)
   const providerType = provider as 'anthropic' | 'z-ai' | 'moonshot';
@@ -1134,6 +1181,27 @@ Run bash commands with the understanding that this is your current working direc
               toolUseCount++;
               const toolTimestamp = new Date().toISOString();
               console.log(`🔧 [${toolTimestamp}] Tool #${toolUseCount}: ${block.name}`);
+
+              // Track file operations for progress (Read, Write, Edit tools)
+              const toolInput = block.input as Record<string, unknown>;
+              if (block.name === 'Read' && toolInput?.file_path) {
+                sessionDb.updateProgress(sessionId as string, {
+                  filesRead: [toolInput.file_path as string],
+                  lastActivity: 'reading',
+                });
+              } else if ((block.name === 'Write' || block.name === 'Edit') && toolInput?.file_path) {
+                sessionDb.updateProgress(sessionId as string, {
+                  filesWritten: [toolInput.file_path as string],
+                  lastActivity: 'writing',
+                });
+              } else if (block.name === 'Task') {
+                // Track agent spawn as current task
+                const taskPrompt = toolInput?.prompt as string || '';
+                sessionDb.updateProgress(sessionId as string, {
+                  currentTask: taskPrompt.slice(0, 100) + (taskPrompt.length > 100 ? '...' : ''),
+                  lastActivity: 'analyzing',
+                });
+              }
 
               // Check if this is ExitPlanMode tool (deduplicate - only send first one per turn)
               if (block.name === 'ExitPlanMode' && !exitPlanModeSentThisTurn) {

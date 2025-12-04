@@ -107,6 +107,7 @@ export function AnnotationCanvas({
 
       drawAnnotation(ctx, tempAnnotation, false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- drawAnnotation is stable, defined after this hook
   }, [annotations, selectedAnnotationId, isDrawing, currentPoints, activeTool, color, strokeWidth, startPoint, width, height]);
 
   // Draw a single annotation

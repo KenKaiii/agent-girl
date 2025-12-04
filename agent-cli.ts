@@ -64,9 +64,8 @@ async function chat(message: string): Promise<void> {
       options: {
         model: 'claude-sonnet-4-5-20250929',
         maxTurns: 10,
-        workingDirectory: process.cwd(),
         permissionMode: 'bypassPermissions',
-      }
+      } as Record<string, unknown>
     });
 
     for await (const msg of result) {
@@ -128,9 +127,8 @@ async function interactive(): Promise<void> {
           options: {
             model: 'claude-sonnet-4-5-20250929',
             maxTurns: 10,
-            workingDirectory: process.cwd(),
             permissionMode: 'bypassPermissions',
-          }
+          } as Record<string, unknown>
         });
 
         for await (const msg of result) {
@@ -217,9 +215,8 @@ Please process this request and provide:
       options: {
         model: 'claude-sonnet-4-5-20250929',
         maxTurns: 5,
-        workingDirectory: process.cwd(),
         permissionMode: 'bypassPermissions',
-      }
+      } as Record<string, unknown>
     });
 
     for await (const msg of result) {

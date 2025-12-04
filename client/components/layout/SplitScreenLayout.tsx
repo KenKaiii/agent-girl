@@ -10,20 +10,21 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ChatContainer, type AIEditRequest } from '../chat/ChatContainer';
 import {
-  AnnotationCanvas,
-  AnnotationToolbar,
+  ElementSelector,
+  ModeSelector,
+  SelectionToolbar,
+  FloatingPrompt,
   AIEditPanel,
   LocalDataManager,
   useLocalData,
   useLiveReload,
   buildEnhancedContext,
+  PortFinder,
 } from '../preview';
-import type { AnnotationTool, Annotation } from '../preview';
+import type { SelectedElement, SelectionMode } from '../preview';
 import {
   Monitor,
   Smartphone,
-  RefreshCw,
-  ExternalLink,
   X,
   GripVertical,
   Maximize2,
@@ -95,15 +96,14 @@ export function SplitScreenLayout() {
   // Is preview maximized (full width)
   const [isPreviewMaximized, setIsPreviewMaximized] = useState(false);
 
-  // Annotation system state
-  const [isAnnotationMode, setIsAnnotationMode] = useState(false);
-  const [activeTool, setActiveTool] = useState<AnnotationTool>('rect');
-  const [annotations, setAnnotations] = useState<Annotation[]>([]);
-  const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
-  const [annotationColor, setAnnotationColor] = useState('#3b82f6');
+  // Element selection mode state
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectionMode, setSelectionMode] = useState<SelectionMode>('element');
+  const [selectedElements, setSelectedElements] = useState<SelectedElement[]>([]);
   const [isAIEditPanelOpen, setIsAIEditPanelOpen] = useState(false);
   const [isLocalDataManagerOpen, setIsLocalDataManagerOpen] = useState(false);
-  const [annotationHistory, setAnnotationHistory] = useState<Annotation[][]>([]);
+  const [showFloatingPrompt, setShowFloatingPrompt] = useState(false);
+  const [floatingPromptPosition, setFloatingPromptPosition] = useState({ x: 0, y: 0 });
   const { fields: localDataFields, setFields: setLocalDataFields } = useLocalData();
 
   // AI Edit handler from ChatContainer
@@ -114,7 +114,7 @@ export function SplitScreenLayout() {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // Live reload hook - auto-refresh on file changes
-  const { refresh: refreshPreview, isReloading, lastReloadTime } = useLiveReload(
+  const { refresh: refreshPreview, isReloading } = useLiveReload(
     iframeRef,
     previewUrl,
     () => console.log('HMR update detected')
@@ -217,6 +217,35 @@ export function SplitScreenLayout() {
     };
   }, []);
 
+  // Keyboard shortcuts - Escape to exit selection mode
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        // Exit selection mode
+        if (isSelectionMode) {
+          setIsSelectionMode(false);
+          setSelectedElements([]);
+          setShowFloatingPrompt(false);
+        }
+        // Close floating prompt if open
+        if (showFloatingPrompt) {
+          setShowFloatingPrompt(false);
+        }
+        // Close device picker if open
+        if (showDevicePicker) {
+          setShowDevicePicker(false);
+        }
+        // Close AI Edit panel if open
+        if (isAIEditPanelOpen) {
+          setIsAIEditPanelOpen(false);
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isSelectionMode, showFloatingPrompt, showDevicePicker, isAIEditPanelOpen]);
+
   const handleDragStart = (e: React.MouseEvent) => {
     e.preventDefault();
     isDraggingRef.current = true;
@@ -228,11 +257,6 @@ export function SplitScreenLayout() {
     if (iframeRef.current) {
       iframeRef.current.style.pointerEvents = 'none';
     }
-  };
-
-  // Open preview in new tab
-  const openInNewTab = () => {
-    if (previewUrl) window.open(previewUrl, '_blank');
   };
 
   // Update preview dimensions when container size changes
@@ -256,125 +280,54 @@ export function SplitScreenLayout() {
     return () => resizeObserver.disconnect();
   }, [showPreview, previewDevice]);
 
-  // Annotation handlers
-  const handleAnnotationsChange = useCallback((newAnnotations: Annotation[]) => {
-    setAnnotationHistory(prev => [...prev, annotations]);
-    setAnnotations(newAnnotations);
-  }, [annotations]);
+  // Selection handlers
+  const handleSelectionChange = useCallback((elements: SelectedElement[]) => {
+    setSelectedElements(elements);
 
-  const handleUndoAnnotation = useCallback(() => {
-    if (annotationHistory.length > 0) {
-      const previous = annotationHistory[annotationHistory.length - 1];
-      setAnnotations(previous);
-      setAnnotationHistory(prev => prev.slice(0, -1));
-    }
-  }, [annotationHistory]);
+    // Position floating prompt next to last selected element
+    if (elements.length > 0 && previewContentRef.current) {
+      const lastElement = elements[elements.length - 1];
+      const containerRect = previewContentRef.current.getBoundingClientRect();
 
-  const handleClearAnnotations = useCallback(() => {
-    if (annotations.length > 0) {
-      setAnnotationHistory(prev => [...prev, annotations]);
-      setAnnotations([]);
-      setSelectedAnnotationId(null);
+      // Calculate position relative to container
+      const x = Math.min(lastElement.bounds.x + lastElement.bounds.width + 20, containerRect.width - 320);
+      const y = Math.max(lastElement.bounds.y, 60);
+
+      setFloatingPromptPosition({ x: Math.max(20, x), y });
+      setShowFloatingPrompt(true);
+    } else {
+      setShowFloatingPrompt(false);
     }
-  }, [annotations]);
+  }, []);
+
+  const handleClearSelection = useCallback(() => {
+    setSelectedElements([]);
+    setShowFloatingPrompt(false);
+  }, []);
 
   const handleSubmitToAI = useCallback(() => {
+    setShowFloatingPrompt(false);
     setIsAIEditPanelOpen(true);
   }, []);
 
-  // Capture screenshot of annotation area
-  const captureAnnotationScreenshot = useCallback(async (): Promise<string | undefined> => {
-    if (!previewContentRef.current || annotations.length === 0) return undefined;
-
-    try {
-      // Find the bounding box that contains all annotations
-      let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
-
-      for (const annotation of annotations) {
-        if (annotation.bounds) {
-          minX = Math.min(minX, annotation.bounds.x);
-          minY = Math.min(minY, annotation.bounds.y);
-          maxX = Math.max(maxX, annotation.bounds.x + annotation.bounds.width);
-          maxY = Math.max(maxY, annotation.bounds.y + annotation.bounds.height);
-        } else if (annotation.points.length > 0) {
-          for (const point of annotation.points) {
-            minX = Math.min(minX, point.x - 20);
-            minY = Math.min(minY, point.y - 20);
-            maxX = Math.max(maxX, point.x + 20);
-            maxY = Math.max(maxY, point.y + 20);
-          }
-        }
-      }
-
-      // Add some padding
-      const padding = 20;
-      minX = Math.max(0, minX - padding);
-      minY = Math.max(0, minY - padding);
-      maxX = Math.min(previewDimensions.width, maxX + padding);
-      maxY = Math.min(previewDimensions.height, maxY + padding);
-
-      const width = maxX - minX;
-      const height = maxY - minY;
-
-      if (width <= 0 || height <= 0) return undefined;
-
-      // Create a canvas and draw the preview area + annotations
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return undefined;
-
-      // Fill with white background (iframe content)
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, width, height);
-
-      // Draw annotation indicators on the screenshot
-      ctx.strokeStyle = '#3b82f6';
-      ctx.lineWidth = 3;
-      ctx.setLineDash([5, 5]);
-
-      for (const annotation of annotations) {
-        if (annotation.bounds) {
-          ctx.strokeRect(
-            annotation.bounds.x - minX,
-            annotation.bounds.y - minY,
-            annotation.bounds.width,
-            annotation.bounds.height
-          );
-        }
-      }
-
-      // Add a label showing this is a marked area
-      ctx.setLineDash([]);
-      ctx.fillStyle = '#3b82f6';
-      ctx.font = 'bold 14px system-ui';
-      ctx.fillText('📍 Marked Area', 10, 20);
-
-      return canvas.toDataURL('image/png');
-    } catch (error) {
-      console.error('Failed to capture screenshot:', error);
-      return undefined;
-    }
-  }, [annotations, previewDimensions]);
-
-  const handleAIEditSubmit = useCallback(async (prompt: string, localData?: Record<string, string>) => {
-    // Build context from annotations
-    const annotationContext = annotations.map((a, i) => ({
+  // Handle floating prompt submission
+  const handleFloatingPromptSubmit = useCallback((prompt: string) => {
+    // Build context and submit
+    const elementContext = selectedElements.map((el, i) => ({
       id: i + 1,
-      type: a.tool,
-      area: a.bounds ? `(${Math.round(a.bounds.x)}, ${Math.round(a.bounds.y)}) - ${Math.round(a.bounds.width)}x${Math.round(a.bounds.height)}` : 'freeform',
-      note: a.text || undefined,
-      bounds: a.bounds,
+      tagName: el.tagName,
+      selector: el.selector,
+      className: el.className,
+      elementId: el.elementId,
+      textContent: el.textContent,
+      path: el.path.join(' > '),
+      bounds: el.bounds,
+      styles: el.computedStyles,
     }));
 
-    // Capture screenshot of the annotated area
-    const screenshot = await captureAnnotationScreenshot();
-
-    // Get enhanced context with file paths and framework info
     const enhancedContext = previewUrl ? buildEnhancedContext(
       previewUrl,
-      undefined, // elementInfo - could be added later with inspector
+      undefined,
       {
         width: previewDimensions.width,
         height: previewDimensions.height,
@@ -382,14 +335,56 @@ export function SplitScreenLayout() {
       }
     ) : undefined;
 
-    // Build AI edit request with enhanced context
     const editRequest: AIEditRequest = {
       prompt,
-      annotations: annotationContext,
+      elements: elementContext,
       previewUrl: previewUrl || '',
-      screenshot,
+      fileContext: enhancedContext?.fileContext,
+      viewport: enhancedContext?.viewport,
+    };
+
+    if (aiEditHandlerRef.current) {
+      aiEditHandlerRef.current(editRequest);
+    }
+
+    // Clear state
+    setSelectedElements([]);
+    setShowFloatingPrompt(false);
+    setIsSelectionMode(false);
+  }, [selectedElements, previewUrl, previewDimensions, previewDevice]);
+
+  // Handle AI edit submission with selected elements
+  const handleAIEditSubmit = useCallback(async (prompt: string, localData?: Record<string, string>) => {
+    // Build context from selected elements
+    const elementContext = selectedElements.map((el, i) => ({
+      id: i + 1,
+      tagName: el.tagName,
+      selector: el.selector,
+      className: el.className,
+      elementId: el.elementId,
+      textContent: el.textContent,
+      path: el.path.join(' > '),
+      bounds: el.bounds,
+      styles: el.computedStyles,
+    }));
+
+    // Get enhanced context with file paths and framework info
+    const enhancedContext = previewUrl ? buildEnhancedContext(
+      previewUrl,
+      undefined,
+      {
+        width: previewDimensions.width,
+        height: previewDimensions.height,
+        device: previewDevice,
+      }
+    ) : undefined;
+
+    // Build AI edit request with element context
+    const editRequest: AIEditRequest = {
+      prompt,
+      elements: elementContext,
+      previewUrl: previewUrl || '',
       localData,
-      // Add file path context to help AI find the right files
       fileContext: enhancedContext?.fileContext,
       viewport: enhancedContext?.viewport,
     };
@@ -398,25 +393,23 @@ export function SplitScreenLayout() {
     if (aiEditHandlerRef.current) {
       aiEditHandlerRef.current(editRequest);
     } else {
-      // Fallback: log to console if handler not available
       console.log('AI Edit Request (handler not connected):', editRequest);
     }
 
-    // Clear annotations after submission
-    setAnnotations([]);
+    // Clear selection after submission
+    setSelectedElements([]);
     setIsAIEditPanelOpen(false);
-    setIsAnnotationMode(false);
-  }, [annotations, previewUrl, previewDevice, previewDimensions, captureAnnotationScreenshot]);
+    setIsSelectionMode(false);
+  }, [selectedElements, previewUrl, previewDevice, previewDimensions]);
 
-  // Toggle annotation mode
-  const toggleAnnotationMode = useCallback(() => {
-    setIsAnnotationMode(prev => !prev);
-    if (isAnnotationMode) {
-      // Clear annotations when exiting annotation mode
-      setAnnotations([]);
-      setSelectedAnnotationId(null);
+  // Toggle selection mode
+  const toggleSelectionMode = useCallback(() => {
+    setIsSelectionMode(prev => !prev);
+    if (isSelectionMode) {
+      // Clear selection when exiting
+      setSelectedElements([]);
     }
-  }, [isAnnotationMode]);
+  }, [isSelectionMode]);
 
   // Set preview URL manually
   const handleSetPreviewUrl = () => {
@@ -486,18 +479,43 @@ export function SplitScreenLayout() {
     }
   };
 
+  // Keyboard shortcuts - Escape to exit selection mode
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        // Exit selection mode
+        if (isSelectionMode) {
+          setIsSelectionMode(false);
+          setSelectedElements([]);
+          setShowFloatingPrompt(false);
+        }
+        // Close floating prompt if open
+        if (showFloatingPrompt) {
+          setShowFloatingPrompt(false);
+        }
+        // Close device picker if open
+        if (showDevicePicker) {
+          setShowDevicePicker(false);
+        }
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isSelectionMode, showFloatingPrompt, showDevicePicker]);
+
   return (
     <div
       ref={containerRef}
       className="h-screen w-screen flex overflow-hidden"
       style={{ background: '#0a0a0b' }}
     >
-      {/* Chat Panel */}
+      {/* Chat Panel - Responsive min/max widths for tablets and small screens */}
       <div
-        className="h-full flex flex-col overflow-hidden relative"
+        className="h-full min-h-0 flex flex-col overflow-hidden relative"
         style={{
           width: showPreview && !isPreviewMaximized ? `${splitPosition}%` : isPreviewMaximized ? '0%' : '100%',
-          minWidth: showPreview && !isPreviewMaximized ? '200px' : isPreviewMaximized ? '0' : undefined,
+          minWidth: showPreview && !isPreviewMaximized ? '320px' : isPreviewMaximized ? '0' : undefined,
+          maxWidth: showPreview && !isPreviewMaximized ? 'calc(100% - 320px)' : undefined,
           transition: isDragging ? 'none' : 'width 0.2s ease-out',
           opacity: isPreviewMaximized ? 0 : 1,
         }}
@@ -561,38 +579,28 @@ export function SplitScreenLayout() {
           className="h-full flex flex-col overflow-hidden"
           style={{
             width: isPreviewMaximized ? '100%' : `${100 - splitPosition}%`,
-            minWidth: isPreviewMaximized ? undefined : '200px',
+            minWidth: isPreviewMaximized ? undefined : '320px',
+            maxWidth: isPreviewMaximized ? undefined : 'calc(100% - 320px)',
             transition: isDragging ? 'none' : 'width 0.2s ease-out',
             background: '#111114',
           }}
         >
-          {/* Preview Header - Compact */}
+          {/* Preview Header - Browser-Style */}
           <div
-            className="flex items-center justify-between px-3 flex-shrink-0"
+            className="flex items-center gap-2 px-3 flex-shrink-0"
             style={{
-              height: '44px',
+              height: '48px',
               background: '#0d0d0f',
               borderBottom: '1px solid #222',
             }}
           >
-            {/* Left: URL Display */}
-            <div className="flex items-center gap-2 flex-1 min-w-0">
-              <Globe size={14} className="text-gray-500 flex-shrink-0" />
-              <button
-                onClick={handleSetPreviewUrl}
-                className="text-xs truncate hover:text-gray-300 transition-colors text-left"
-                style={{
-                  color: '#888',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: 0,
-                }}
-                title="Click to change URL"
-              >
-                {previewUrl || 'No URL - Click to set'}
-              </button>
-            </div>
+            {/* URL Bar with Port Finder */}
+            <PortFinder
+              currentUrl={previewUrl}
+              onUrlChange={setPreviewUrl}
+              onRefresh={refreshPreview}
+              isReloading={isReloading}
+            />
 
             {/* Center: Device Picker + Dimensions */}
             <div className="flex items-center gap-2 mx-2" ref={devicePickerRef}>
@@ -721,56 +729,54 @@ export function SplitScreenLayout() {
 
             {/* Right: Actions */}
             <div className="flex items-center gap-0.5">
-              {/* Annotation Mode Toggle */}
+              {/* Selection Mode Selector - Only show when selection is active */}
+              {isSelectionMode && (
+                <ModeSelector
+                  mode={selectionMode}
+                  onModeChange={setSelectionMode}
+                />
+              )}
+
+              {/* Selection Mode Toggle */}
               <button
-                onClick={toggleAnnotationMode}
-                className="p-1.5 rounded transition-colors"
+                onClick={toggleSelectionMode}
+                className="p-1.5 rounded transition-all"
                 style={{
-                  background: isAnnotationMode ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
-                  color: isAnnotationMode ? '#3b82f6' : '#666',
+                  background: isSelectionMode ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                  color: isSelectionMode ? '#3b82f6' : '#666',
+                  boxShadow: isSelectionMode ? '0 0 0 1px rgba(59, 130, 246, 0.3)' : 'none',
                 }}
-                title={isAnnotationMode ? 'Exit annotation mode' : 'Annotate preview'}
+                title={isSelectionMode ? 'Auswahl beenden (Esc)' : 'Elemente auswählen'}
               >
-                <Pencil size={13} />
+                <Pencil size={14} />
               </button>
+
               {/* Local Data Manager */}
               <button
                 onClick={() => setIsLocalDataManagerOpen(true)}
                 className="p-1.5 rounded hover:bg-white/10 transition-colors text-gray-500 hover:text-gray-300"
                 title="Local data (Impressum, etc.)"
               >
-                <Database size={13} />
+                <Database size={14} />
               </button>
+
               {/* Divider */}
               <div className="w-px h-4 bg-white/10 mx-1" />
-              <button
-                onClick={refreshPreview}
-                className="p-1.5 rounded hover:bg-white/10 transition-colors text-gray-500 hover:text-gray-300"
-                title={lastReloadTime ? `Refresh (last: ${lastReloadTime.toLocaleTimeString()})` : 'Refresh'}
-                disabled={isReloading}
-              >
-                <RefreshCw size={13} className={isReloading ? 'animate-spin' : ''} />
-              </button>
-              <button
-                onClick={openInNewTab}
-                className="p-1.5 rounded hover:bg-white/10 transition-colors text-gray-500 hover:text-gray-300"
-                title="Open in new tab"
-              >
-                <ExternalLink size={13} />
-              </button>
+
+              {/* Window Controls */}
               <button
                 onClick={() => setIsPreviewMaximized(!isPreviewMaximized)}
                 className="p-1.5 rounded hover:bg-white/10 transition-colors text-gray-500 hover:text-gray-300"
                 title={isPreviewMaximized ? 'Exit fullscreen' : 'Fullscreen'}
               >
-                {isPreviewMaximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                {isPreviewMaximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
               </button>
               <button
                 onClick={togglePreview}
                 className="p-1.5 rounded hover:bg-red-500/20 transition-colors text-gray-500 hover:text-red-400"
                 title="Close preview"
               >
-                <X size={13} />
+                <X size={14} />
               </button>
             </div>
           </div>
@@ -828,20 +834,23 @@ export function SplitScreenLayout() {
                   sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
                 />
 
-                {/* Annotation Canvas Overlay */}
-                {isAnnotationMode && previewDimensions.width > 0 && (
-                  <AnnotationCanvas
-                    width={previewDimensions.width}
-                    height={previewDimensions.height}
-                    activeTool={activeTool}
-                    annotations={annotations}
-                    onAnnotationsChange={handleAnnotationsChange}
-                    selectedAnnotationId={selectedAnnotationId}
-                    onSelectAnnotation={setSelectedAnnotationId}
-                    color={annotationColor}
-                    strokeWidth={3}
-                  />
-                )}
+                {/* Element Selector Overlay */}
+                <ElementSelector
+                  iframeRef={iframeRef}
+                  enabled={isSelectionMode}
+                  selectionMode={selectionMode}
+                  selectedElements={selectedElements}
+                  onSelectionChange={handleSelectionChange}
+                  onModeChange={setSelectionMode}
+                  onOpenPrompt={(element, pos) => {
+                    setFloatingPromptPosition(pos);
+                    setShowFloatingPrompt(true);
+                  }}
+                  onInlineEdit={(element, newText) => {
+                    console.log('Inline edit:', element.selector, newText);
+                    // Handle inline edit - could trigger AI or direct update
+                  }}
+                />
               </div>
             ) : (
               /* Empty state */
@@ -875,27 +884,34 @@ export function SplitScreenLayout() {
               </div>
             )}
 
-            {/* Annotation Toolbar - Floating at bottom */}
-            {isAnnotationMode && previewUrl && (
+            {/* Selection Toolbar - Floating at bottom */}
+            {isSelectionMode && previewUrl && (
               <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20">
-                <AnnotationToolbar
-                  activeTool={activeTool}
-                  onToolChange={setActiveTool}
-                  annotations={annotations}
-                  onClearAll={handleClearAnnotations}
-                  onUndo={handleUndoAnnotation}
+                <SelectionToolbar
+                  selectedElements={selectedElements}
+                  selectionMode={selectionMode}
+                  onModeChange={setSelectionMode}
+                  onClearSelection={handleClearSelection}
                   onSubmitToAI={handleSubmitToAI}
-                  selectedColor={annotationColor}
-                  onColorChange={setAnnotationColor}
                 />
               </div>
+            )}
+
+            {/* Floating Prompt - Next to selection */}
+            {showFloatingPrompt && selectedElements.length > 0 && (
+              <FloatingPrompt
+                element={selectedElements[selectedElements.length - 1]}
+                position={floatingPromptPosition}
+                onSubmit={handleFloatingPromptSubmit}
+                onClose={() => setShowFloatingPrompt(false)}
+              />
             )}
 
             {/* AI Edit Panel */}
             <AIEditPanel
               isOpen={isAIEditPanelOpen}
               onClose={() => setIsAIEditPanelOpen(false)}
-              annotations={annotations}
+              selectedElements={selectedElements}
               onSubmit={handleAIEditSubmit}
               localDataFields={localDataFields}
               onLocalDataChange={(id, value) => {

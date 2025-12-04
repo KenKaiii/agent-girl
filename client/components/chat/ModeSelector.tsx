@@ -47,7 +47,7 @@ const MODES: ModeOption[] = [
   },
   {
     id: 'intense-research',
-    name: 'Intense Research',
+    name: 'Research',
     description: '5 agents deep research',
     icon: <Target className="size-4" />,
     gradient: 'linear-gradient(90deg, #C7A8FA 0%, #DAAEEE 25%, #ffffff 50%, #DAAEEE 75%, #C7A8FA 100%)',
@@ -98,7 +98,7 @@ export function ModeSelector({ selectedMode, onSelectMode, onOpenBuildWizard }: 
 
   return (
     <>
-      <div className="w-full overflow-auto scrollbar-none flex flex-row items-center justify-center gap-1.5 sm:gap-2 flex-wrap text-xs sm:text-sm md:text-base">
+      <div className="w-full overflow-x-auto scrollbar-none flex flex-row items-center justify-center gap-1.5 sm:gap-2 text-xs sm:text-sm md:text-base pb-1" style={{ flexWrap: 'nowrap' }}>
         {MODES.map((mode, index) => {
           const isSelected = selectedMode === mode.id && !mode.isBuildMode;
           return (

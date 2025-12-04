@@ -27,6 +27,7 @@ import { ThinkingBlock } from './ThinkingBlock';
 import { CodeBlockWithCopy } from './CodeBlockWithCopy';
 import { URLBadge } from './URLBadge';
 import { MermaidDiagram } from './MermaidDiagram';
+import { DiffViewer } from './DiffViewer';
 import { Shield, FileText, FolderOpen, Copy, Trash2, Eye, EyeOff, Code2, ChevronUp } from 'lucide-react';
 import { showError } from '../../utils/errorMessages';
 import { useWorkingDirectory } from '../../hooks/useWorkingDirectory';
@@ -1335,9 +1336,8 @@ function ExitPlanModeComponent({ toolUse }: { toolUse: ToolUseBlock }) {
   );
 }
 
-// Edit/Write tool component matching edit-write-update.md design
+// Edit/Write tool component with enhanced DiffViewer (bolt.new style)
 function EditToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
-  const [isExpanded, setIsExpanded] = useState(false);
   const input = toolUse.input;
 
   // Detect language from file extension
@@ -1368,141 +1368,27 @@ function EditToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
     return languageMap[ext || ''] || 'text';
   };
 
-  const language = getLanguageFromPath((input.file_path as string) || '');
+  const filePath = (input.file_path as string) || '';
+  const language = getLanguageFromPath(filePath);
 
-  // Calculate stats for Edit
-  const calculateStats = () => {
-    if (toolUse.name === 'Edit') {
-      const oldLines = (input.old_string as string)?.split('\n').length || 0;
-      const newLines = (input.new_string as string)?.split('\n').length || 0;
-      return {
-        added: newLines,
-        removed: oldLines,
-      };
-    } else if (toolUse.name === 'Write') {
-      const contentLines = (input.content as string)?.split('\n').length || 0;
-      return {
-        added: contentLines,
-        removed: 0,
-      };
-    }
-    return { added: 0, removed: 0 };
-  };
+  // Get old/new content based on tool type
+  const oldContent = toolUse.name === 'Edit' ? (input.old_string as string) : null;
+  const newContent = toolUse.name === 'Write'
+    ? (input.content as string) || ''
+    : (input.new_string as string) || '';
 
-  const stats = calculateStats();
+  // Try to extract start line from context if available
+  const startLine = (input.start_line as number) || 1;
 
   return (
-    <div className="w-full border border-white/10 rounded-xl my-3 overflow-hidden">
-      {/* Header */}
-      <div className="flex justify-between px-4 py-2 w-full text-xs bg-[#0C0E10] border-b border-white/10">
-        <div className="flex overflow-hidden flex-1 gap-2 items-center whitespace-nowrap">
-          {/* Code icon */}
-          <svg className="size-4" strokeWidth="1.5" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <g clipPath="url(#clip0_1981_4166)">
-              <path d="M5.33398 4.33301L1.33398 8.47707L5.33398 12.333" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M10.666 4.33301L14.666 8.47707L10.666 12.333" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M9.33333 1.33301L7 14.6663" stroke="currentColor" strokeLinecap="round" />
-            </g>
-            <defs>
-              <clipPath id="clip0_1981_4166">
-                <rect width="16" height="16" fill="white" />
-              </clipPath>
-            </defs>
-          </svg>
-          <span className="text-sm font-medium leading-6">{toolUse.name}</span>
-          <div className="bg-gray-700 shrink-0 min-h-4 w-[1px] h-4" role="separator" aria-orientation="vertical" />
-          <span className="flex-1 min-w-0 text-xs truncate text-white/60">
-            {input.file_path as string}
-          </span>
-          <FilePathActions filePath={input.file_path as string} />
-        </div>
-        <div className="flex gap-1 items-center whitespace-nowrap">
-          <span className="text-green-500">+ {stats.added}</span>
-          {' / '}
-          <span className="text-red-500">- {stats.removed}</span>
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            data-collapsed={!isExpanded}
-            className="p-1.5 rounded-lg transition-all data-[collapsed=true]:-rotate-180"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="3.5" stroke="currentColor" className="size-3">
-              <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {/* Diff Viewer */}
-      {isExpanded && (
-        <div className="max-h-[124px] overflow-auto bg-black/30">
-          {/* Deleted chunk (old_string) */}
-          {input.old_string && (
-            <div className="bg-red-500/10 border-l-2 border-red-500">
-              <SyntaxHighlighter
-                language={language}
-                style={vscDarkPlus as { [key: string]: React.CSSProperties }}
-                PreTag="div"
-                customStyle={{
-                  margin: 0,
-                  padding: '0.5rem',
-                  background: 'transparent',
-                  fontSize: '0.75rem',
-                  lineHeight: '1.5',
-                }}
-                showLineNumbers={false}
-                wrapLines={true}
-                lineProps={(_lineNumber) => ({
-                  style: {
-                    textDecoration: 'line-through',
-                    opacity: 0.7,
-                    display: 'flex',
-                  },
-                })}
-                codeTagProps={{
-                  style: {
-                    fontFamily: 'monospace',
-                  },
-                }}
-              >
-                {input.old_string as string}
-              </SyntaxHighlighter>
-            </div>
-          )}
-
-          {/* Added/New content (new_string or content) */}
-          {(input.new_string || input.content) && (
-            <div className="bg-green-500/10 border-l-2 border-green-500">
-              <SyntaxHighlighter
-                language={language}
-                style={vscDarkPlus as { [key: string]: React.CSSProperties }}
-                PreTag="div"
-                showLineNumbers={true}
-                customStyle={{
-                  margin: 0,
-                  padding: '0.5rem',
-                  background: 'transparent',
-                  fontSize: '0.75rem',
-                  lineHeight: '1.5',
-                }}
-                lineNumberStyle={{
-                  minWidth: '2.5em',
-                  paddingRight: '1em',
-                  color: '#10b981',
-                  userSelect: 'none',
-                }}
-                codeTagProps={{
-                  style: {
-                    fontFamily: 'monospace',
-                  },
-                }}
-              >
-                {(input.new_string || input.content) as string}
-              </SyntaxHighlighter>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+    <DiffViewer
+      filePath={filePath}
+      oldContent={oldContent}
+      newContent={newContent}
+      language={language}
+      startLine={startLine}
+      maxHeight={300}
+    />
   );
 }
 

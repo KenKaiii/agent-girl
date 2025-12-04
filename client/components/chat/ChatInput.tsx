@@ -62,7 +62,6 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [attachedFiles, setAttachedFiles] = useState<FileAttachment[]>([]);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
-  const [modeIndicatorWidth, setModeIndicatorWidth] = useState(80);
   const [isStyleConfigOpen, setIsStyleConfigOpen] = useState(false);
   const [isFeaturesModalOpen, setIsFeaturesModalOpen] = useState(false);
 
@@ -102,13 +101,17 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
     const textarea = textareaRef.current;
     if (!textarea) return;
 
+    // Heights based on compact mode (split-screen)
+    const minHeight = isCompact ? 40 : 56;
+    const maxHeight = isCompact ? 80 : 120;
+
     // Reset height to recalculate
-    textarea.style.height = '72px';
+    textarea.style.height = `${minHeight}px`;
 
     // Set height based on scrollHeight, capped at max
-    const newHeight = Math.min(textarea.scrollHeight, 144);
+    const newHeight = Math.min(textarea.scrollHeight, maxHeight);
     textarea.style.height = `${newHeight}px`;
-  }, [value]);
+  }, [value, isCompact]);
 
   // Prevent browser default drag behavior (allows drop zones to work)
   useEffect(() => {
@@ -429,20 +432,23 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
             </div>
           )}
 
-          {/* Textarea */}
-          <div className="relative px-2.5" style={{ overflow: 'visible' }}>
-            {/* Mode Indicator */}
-            {mode && <ModeIndicator mode={mode} onWidthChange={setModeIndicatorWidth} onModeChange={onModeChange} />}
+          {/* Mode Indicator - Own row with margin */}
+          {mode && (
+            <div className="px-2.5 pt-1.5">
+              <ModeIndicator mode={mode} onModeChange={onModeChange} />
+            </div>
+          )}
 
+          {/* Textarea - Below mode indicator */}
+          <div className="relative px-2.5" style={{ overflow: 'visible' }}>
             {/* Command Pill Overlay */}
             {value.match(/(^|\s)(\/([a-z-]+))(?=\s|$)/m) && (
               <div
-                className="absolute px-1 pt-3 w-full text-sm pointer-events-none z-10 text-gray-100"
+                className="absolute px-1 pt-1 w-full text-sm pointer-events-none z-10 text-gray-100"
                 style={{
-                  minHeight: isCompact ? '48px' : '72px',
-                  maxHeight: isCompact ? '96px' : '144px',
+                  minHeight: isCompact ? '40px' : '56px',
+                  maxHeight: isCompact ? '80px' : '120px',
                   overflowY: 'auto',
-                  textIndent: mode ? `${modeIndicatorWidth}px` : '0px',
                   whiteSpace: 'pre-wrap',
                   wordWrap: 'break-word',
                   fontSize: isCompact ? '0.8125rem' : undefined,
@@ -461,12 +467,11 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
               placeholder={placeholder || "Send a Message"}
-              className="px-1 pt-3 w-full text-sm bg-transparent resize-none scrollbar-hidden outline-hidden placeholder:text-white/40"
+              className="px-1 pt-1 w-full text-sm bg-transparent resize-none scrollbar-hidden outline-hidden placeholder:text-white/40"
               style={{
-                minHeight: isCompact ? '48px' : '72px',
-                maxHeight: isCompact ? '96px' : '144px',
+                minHeight: isCompact ? '40px' : '56px',
+                maxHeight: isCompact ? '80px' : '120px',
                 overflowY: 'auto',
-                textIndent: mode ? `${modeIndicatorWidth}px` : '0px',
                 color: value.match(/(^|\s)(\/([a-z-]+))(?=\s|$)/m) ? 'transparent' : 'rgb(243, 244, 246)',
                 caretColor: 'rgb(243, 244, 246)',
                 position: 'relative',

@@ -20,7 +20,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
-import type { Annotation } from './AnnotationCanvas';
+import type { SelectedElement } from './ElementSelector';
 
 interface LocalDataField {
   id: string;
@@ -32,25 +32,25 @@ interface LocalDataField {
 interface AIEditPanelProps {
   isOpen: boolean;
   onClose: () => void;
-  annotations: Annotation[];
+  selectedElements: SelectedElement[];
   onSubmit: (prompt: string, localData?: Record<string, string>) => void;
   isLoading?: boolean;
   localDataFields?: LocalDataField[];
   onLocalDataChange?: (id: string, value: string) => void;
 }
 
-// Quick action suggestions based on annotation types
+// Quick action suggestions based on selected elements
 const QUICK_ACTIONS = [
-  { icon: <Type size={14} />, label: 'Change text', prompt: 'Change the text in the marked area to: ' },
-  { icon: <Image size={14} />, label: 'Replace image', prompt: 'Replace the image in the marked area with: ' },
-  { icon: <Palette size={14} />, label: 'Change color', prompt: 'Change the color of the marked element to: ' },
-  { icon: <Layout size={14} />, label: 'Adjust layout', prompt: 'Adjust the layout of the marked section to: ' },
+  { icon: <Type size={14} />, label: 'Text ändern', prompt: 'Ändere den Text im ausgewählten Element zu: ' },
+  { icon: <Image size={14} />, label: 'Bild ersetzen', prompt: 'Ersetze das Bild im ausgewählten Element mit: ' },
+  { icon: <Palette size={14} />, label: 'Farbe ändern', prompt: 'Ändere die Farbe des ausgewählten Elements zu: ' },
+  { icon: <Layout size={14} />, label: 'Layout anpassen', prompt: 'Passe das Layout des ausgewählten Bereichs an: ' },
 ];
 
 export function AIEditPanel({
   isOpen,
   onClose,
-  annotations,
+  selectedElements,
   onSubmit,
   isLoading = false,
   localDataFields = [],
@@ -130,7 +130,7 @@ export function AIEditPanel({
             className="px-2 py-0.5 text-xs rounded-full"
             style={{ background: 'rgba(59, 130, 246, 0.2)', color: '#60a5fa' }}
           >
-            {annotations.length} area{annotations.length !== 1 ? 's' : ''} selected
+            {selectedElements.length} Element{selectedElements.length !== 1 ? 'e' : ''} ausgewählt
           </span>
         </div>
         <button
@@ -243,8 +243,8 @@ export function AIEditPanel({
 
         {/* Hints */}
         <div className="flex items-center justify-between mt-2 text-xs text-gray-500">
-          <span>Press Cmd+Enter to send</span>
-          <span>{annotations.length} annotation{annotations.length !== 1 ? 's' : ''} will be included</span>
+          <span>Cmd+Enter zum Senden</span>
+          <span>{selectedElements.length} Element{selectedElements.length !== 1 ? 'e' : ''} werden übermittelt</span>
         </div>
       </div>
     </div>

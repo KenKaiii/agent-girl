@@ -4,6 +4,8 @@
  */
 
 import path from 'path';
+import { sanitizePath } from './utils/pathSecurity';
+import { logger } from './utils/logger';
 
 interface StaticFileServerOptions {
   binaryDir: string;
@@ -14,6 +16,24 @@ interface StaticFileServerOptions {
   tailwindcss: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   autoprefixer: any;
+}
+
+/**
+ * Validate and resolve a file path, preventing path traversal attacks
+ */
+function resolveSecurePath(basePath: string, requestPath: string): string | null {
+  // Remove leading slash and decode URI components
+  const cleanPath = decodeURIComponent(requestPath).replace(/^\/+/, '');
+
+  // Use sanitizePath to prevent traversal
+  const resolved = sanitizePath(cleanPath, basePath);
+
+  if (!resolved) {
+    logger.warn('Path traversal attempt blocked', { requestPath, basePath });
+    return null;
+  }
+
+  return resolved;
 }
 
 /**
@@ -66,7 +86,10 @@ export async function handleStaticFile(
 
   // Serve CSS files from client directory
   if (url.pathname.startsWith('/client/') && url.pathname.endsWith('.css')) {
-    const filePath = path.join(binaryDir, url.pathname);
+    const filePath = resolveSecurePath(binaryDir, url.pathname);
+    if (!filePath) {
+      return new Response('Forbidden', { status: 403 });
+    }
     const file = Bun.file(filePath);
 
     if (await file.exists()) {
@@ -170,7 +193,10 @@ export async function handleStaticFile(
 
   // Transpile TypeScript on-the-fly (dev mode only)
   if (!isStandalone && url.pathname.startsWith('/client/') && (url.pathname.endsWith('.tsx') || url.pathname.endsWith('.ts'))) {
-    const filePath = path.join(binaryDir, url.pathname);
+    const filePath = resolveSecurePath(binaryDir, url.pathname);
+    if (!filePath) {
+      return new Response('Forbidden', { status: 403 });
+    }
     const file = Bun.file(filePath);
 
     if (await file.exists()) {
@@ -202,7 +228,10 @@ export async function handleStaticFile(
 
   // Serve MP3 files
   if (url.pathname.endsWith('.mp3')) {
-    const filePath = path.join(binaryDir, url.pathname.slice(1)); // Remove leading slash
+    const filePath = resolveSecurePath(binaryDir, url.pathname);
+    if (!filePath) {
+      return new Response('Forbidden', { status: 403 });
+    }
     const file = Bun.file(filePath);
 
     if (await file.exists()) {
@@ -216,7 +245,10 @@ export async function handleStaticFile(
 
   // Serve SVG files
   if (url.pathname.startsWith('/client/') && url.pathname.endsWith('.svg')) {
-    const filePath = path.join(binaryDir, url.pathname);
+    const filePath = resolveSecurePath(binaryDir, url.pathname);
+    if (!filePath) {
+      return new Response('Forbidden', { status: 403 });
+    }
     const file = Bun.file(filePath);
 
     if (await file.exists()) {

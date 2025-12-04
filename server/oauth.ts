@@ -6,7 +6,13 @@ import * as fs from 'fs';
 
 const execAsync = promisify(exec);
 
-const CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
+// OAuth Client ID - load from environment for security
+const CLIENT_ID = process.env.OAUTH_CLIENT_ID || '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
+
+// Log warning if using default (in development only)
+if (!process.env.OAUTH_CLIENT_ID && process.env.NODE_ENV !== 'production') {
+  console.warn('⚠️  Using default OAUTH_CLIENT_ID. Set OAUTH_CLIENT_ID env var for production.');
+}
 const AUTHORIZATION_URL = 'https://claude.ai/oauth/authorize';
 const TOKEN_URL = 'https://console.anthropic.com/v1/oauth/token';
 const REDIRECT_URI = 'https://console.anthropic.com/oauth/code/callback';

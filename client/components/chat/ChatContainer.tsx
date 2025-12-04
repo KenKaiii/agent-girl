@@ -47,25 +47,27 @@ import type { BackgroundProcess } from '../process/BackgroundProcessMonitor';
 import type { SlashCommand } from '../../hooks/useWebSocket';
 import { useMessageQueue } from '../../hooks/useMessageQueue';
 
-// AI Edit request from preview annotations
+// AI Edit request from preview element selection
 export interface AIEditRequest {
   prompt: string;
-  annotations: Array<{
+  elements: Array<{
     id: number;
-    type: string;
-    area: string;
-    note?: string;
+    tagName: string;
+    selector: string;
+    className?: string;
+    elementId?: string;
+    textContent?: string;
+    path?: string;
     bounds?: { x: number; y: number; width: number; height: number };
+    styles?: {
+      color: string;
+      backgroundColor: string;
+      fontSize: string;
+      fontFamily: string;
+    };
   }>;
   previewUrl: string;
   screenshot?: string; // base64 data URL
-  elementInfo?: {
-    tagName: string;
-    className: string;
-    id: string;
-    textContent?: string;
-    selector: string;
-  };
   localData?: Record<string, string>;
   // Enhanced file path context for finding source files
   fileContext?: {
@@ -95,7 +97,7 @@ export function ChatContainer({
   layoutMode = 'chat-only',
   onLayoutModeChange,
   previewUrl,
-  onSetPreviewUrl,
+  onSetPreviewUrl: _onSetPreviewUrl,
   onDetectPreviewUrl,
   onAIEditRequestHandler
 }: ChatContainerProps = {}) {
@@ -247,9 +249,25 @@ export function ChatContainer({
   const isCurrentSessionLoading = currentSessionId ? loadingSessions.has(currentSessionId) : false;
 
   // Save model selection to localStorage
+  // Supports mid-chat model switching with context handoff
   const handleModelChange = (modelId: string) => {
+    const previousModel = selectedModel;
     setSelectedModel(modelId);
     localStorage.setItem('agent-boy-model', modelId);
+
+    // If switching mid-chat, notify user and prepare context handoff
+    if (messages.length > 0 && previousModel !== modelId) {
+      const modelNames: Record<string, string> = {
+        'opus': 'Claude Opus 4.5',
+        'sonnet': 'Claude Sonnet 4.5',
+        'haiku': 'Claude Haiku 4.5',
+        'glm-4.6': 'GLM 4.6',
+        'kimi-k2-thinking': 'Kimi K2 Thinking',
+        'kimi-k2-thinking-turbo': 'Kimi K2 Turbo',
+      };
+      const newModelName = modelNames[modelId] || modelId;
+      toast.info(`Model gewechselt zu ${newModelName}. Der nächste Prompt erhält einen Kontext-Überblick.`);
+    }
   };
 
   // Load sessions on mount and restore from URL
@@ -1648,11 +1666,11 @@ export function ChatContainer({
     }, 100);
   };
 
-  // Handle AI edit request from preview annotations
+  // Handle AI edit request from preview element selection
   const handleAIEditRequest = useCallback(async (request: AIEditRequest) => {
     // Build the edit prompt with full context
-    const annotationDetails = request.annotations.map(a =>
-      `  - Area ${a.id}: ${a.type}${a.area !== 'freeform' ? ` at ${a.area}` : ''}${a.note ? ` (note: ${a.note})` : ''}`
+    const elementDetails = request.elements.map(el =>
+      `  - **Element ${el.id}**: \`<${el.tagName}>\` (${el.selector})${el.textContent ? ` - "${el.textContent.slice(0, 50)}${el.textContent.length > 50 ? '...' : ''}"` : ''}`
     ).join('\n');
 
     let fullPrompt = `🎯 **Preview Edit Request**\n\n`;
@@ -1682,15 +1700,22 @@ export function ChatContainer({
       fullPrompt += `**📱 Viewport:** ${request.viewport.device} (${request.viewport.width}×${request.viewport.height}px)\n\n`;
     }
 
-    fullPrompt += `**Marked Areas (${request.annotations.length}):**\n${annotationDetails}\n\n`;
+    fullPrompt += `**Selected Elements (${request.elements.length}):**\n${elementDetails}\n\n`;
 
-    if (request.elementInfo) {
-      fullPrompt += `**Selected Element:**\n`;
-      fullPrompt += `  - Tag: \`<${request.elementInfo.tagName.toLowerCase()}>\`\n`;
-      fullPrompt += `  - Selector: \`${request.elementInfo.selector}\`\n`;
-      if (request.elementInfo.className) fullPrompt += `  - Class: \`${request.elementInfo.className}\`\n`;
-      if (request.elementInfo.id) fullPrompt += `  - ID: \`${request.elementInfo.id}\`\n`;
-      if (request.elementInfo.textContent) fullPrompt += `  - Text: "${request.elementInfo.textContent.slice(0, 100)}${request.elementInfo.textContent.length > 100 ? '...' : ''}"\n`;
+    // Add detailed element info for each selected element
+    if (request.elements.length > 0) {
+      fullPrompt += `**Element Details:**\n`;
+      request.elements.forEach(el => {
+        fullPrompt += `  **${el.id}. \`<${el.tagName}>\`**\n`;
+        fullPrompt += `    - Selector: \`${el.selector}\`\n`;
+        if (el.className) fullPrompt += `    - Class: \`${el.className}\`\n`;
+        if (el.elementId) fullPrompt += `    - ID: \`${el.elementId}\`\n`;
+        if (el.path) fullPrompt += `    - Path: \`${el.path}\`\n`;
+        if (el.textContent) fullPrompt += `    - Text: "${el.textContent.slice(0, 100)}${el.textContent.length > 100 ? '...' : ''}"\n`;
+        if (el.styles) {
+          fullPrompt += `    - Styles: color=${el.styles.color}, bg=${el.styles.backgroundColor}, font=${el.styles.fontSize}\n`;
+        }
+      });
       fullPrompt += '\n';
     }
 
@@ -1788,7 +1813,7 @@ export function ChatContainer({
 
       {/* Main Chat Area - responsive margin based on sidebar width */}
       <div
-        className="flex flex-col flex-1 h-screen"
+        className="flex flex-col flex-1 h-screen min-h-0 overflow-hidden"
         style={{
           marginLeft: isMobile ? 0 : `${sidebarWidth}px`,
           transition: 'margin-left 0.2s ease-in-out',
@@ -1913,12 +1938,11 @@ export function ChatContainer({
                     >
                       {layoutMode === 'split-screen' ? 'Chat' : 'Agent Girl'}
                     </div>
-                    {/* Model Selector */}
+                    {/* Model Selector - now allows mid-chat switching with context handoff */}
                     <ModelSelector
                       selectedModel={selectedModel}
                       onModelChange={handleModelChange}
                       hasMessages={messages.length > 0}
-                      disabled={messages.length > 0}
                     />
                   </div>
                 </div>
@@ -1927,109 +1951,88 @@ export function ChatContainer({
 
             {/* Right side */}
             <div className="header-right">
-              {/* Layout Mode Toggle */}
-              {onLayoutModeChange && (
-                <>
-                  {/* Preview URL Input - only show in split-screen mode */}
-                  {layoutMode === 'split-screen' && onSetPreviewUrl && (
-                    <button
-                      onClick={onSetPreviewUrl}
-                      className="flex items-center gap-2 px-3 py-2 hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
-                      title="Set preview URL"
-                      style={{ pointerEvents: 'auto', cursor: 'pointer' }}
-                    >
-                      <span className="text-xs" style={{ color: 'rgb(var(--text-secondary))' }}>
-                        {previewUrl ? 'Change URL' : 'Set URL'}
-                      </span>
-                    </button>
-                  )}
+              {/* View toggles - Code & Display Mode */}
+              <div className="flex items-center gap-1">
+                {/* Code visibility toggle */}
+                <button
+                  onClick={() => setShowCode(!showCode)}
+                  className="flex items-center gap-1.5 px-2 py-1.5 rounded-md transition-colors"
+                  aria-label={showCode ? 'Hide code blocks' : 'Show code blocks'}
+                  title={showCode ? 'Hide code blocks' : 'Show code blocks'}
+                  style={{
+                    backgroundColor: showCode ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
+                    color: showCode ? '#3b82f6' : 'rgb(var(--text-secondary))',
+                  }}
+                >
+                  <Code2 className="w-3.5 h-3.5" />
+                  <span className="text-xs">{showCode ? 'Code' : 'Code'}</span>
+                </button>
 
-                  {/* Layout Mode Toggle Buttons */}
-                  <div className="flex items-center gap-1 rounded-lg p-1" style={{ backgroundColor: 'rgba(255, 255, 255, 0.05)' }}>
-                    <button
-                      onClick={() => onLayoutModeChange('chat-only')}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded transition-colors ${
-                        layoutMode === 'chat-only'
-                          ? 'shadow-sm'
-                          : ''
-                      }`}
-                      style={{
-                        backgroundColor: layoutMode === 'chat-only' ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
-                        color: 'rgb(var(--text-secondary))'
-                      }}
-                      title="Chat only"
-                    >
-                      <MessageSquare className="w-3.5 h-3.5" />
-                      <span>Chat</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        onLayoutModeChange('split-screen');
-                        if (!previewUrl && onDetectPreviewUrl) onDetectPreviewUrl();
-                      }}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded transition-colors ${
-                        layoutMode === 'split-screen'
-                          ? 'shadow-sm'
-                          : ''
-                      }`}
-                      style={{
-                        backgroundColor: layoutMode === 'split-screen' ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
-                        color: 'rgb(var(--text-secondary))'
-                      }}
-                      title="Split screen with preview"
-                    >
-                      <Monitor className="w-3.5 h-3.5" />
-                      <span>Split</span>
-                    </button>
-                  </div>
-                </>
-              )}
-
-              {/* Compact/Full toggle - hidden in split-screen for space */}
-              {layoutMode !== 'split-screen' && (
+                {/* Display mode toggle */}
                 <button
                   onClick={() => setDisplayMode(displayMode === 'full' ? 'compact' : 'full')}
-                  className="flex items-center gap-3 px-3 py-2 hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
-                  aria-label={displayMode === 'full' ? 'Hide verbose output' : 'Show all output'}
-                  title={displayMode === 'full' ? 'Hide verbose output (thinking, WebSearch, tools)' : 'Show all output including thinking and tool use'}
-                  style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+                  className="flex items-center gap-1.5 px-2 py-1.5 rounded-md transition-colors"
+                  aria-label={displayMode === 'full' ? 'Compact mode' : 'Full mode'}
+                  title={displayMode === 'full' ? 'Hide verbose output' : 'Show all output'}
+                  style={{
+                    backgroundColor: displayMode === 'full' ? 'rgba(139, 92, 246, 0.15)' : 'transparent',
+                    color: displayMode === 'full' ? '#8b5cf6' : 'rgb(var(--text-secondary))',
+                  }}
                 >
-                  <span className="text-sm" style={{ color: 'rgb(var(--text-secondary))' }}>
-                    {displayMode === 'compact' ? 'compact' : 'full'}
-                  </span>
-                  {displayMode === 'compact' ? (
-                    <EyeOff className="w-4 h-4" style={{ color: 'rgb(var(--text-secondary))' }} />
+                  {displayMode === 'full' ? (
+                    <Eye className="w-3.5 h-3.5" />
                   ) : (
-                    <Eye className="w-4 h-4" style={{ color: 'rgb(var(--text-secondary))' }} />
+                    <EyeOff className="w-3.5 h-3.5" />
                   )}
+                  <span className="text-xs">{displayMode === 'full' ? 'Full' : 'Compact'}</span>
                 </button>
+              </div>
+
+              {/* Separator */}
+              {onLayoutModeChange && (
+                <div style={{ width: '1px', height: '20px', backgroundColor: 'rgba(255,255,255,0.1)', margin: '0 6px' }} />
               )}
 
-              {/* Global code visibility toggle - icon-only in split-screen */}
-              <button
-                onClick={() => setShowCode(!showCode)}
-                className="flex items-center gap-3 px-3 py-2 hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
-                aria-label={showCode ? 'Hide code blocks' : 'Show code blocks'}
-                title={showCode ? 'Hide all code blocks' : 'Show all code blocks'}
-                style={{
-                  pointerEvents: 'auto',
-                  cursor: 'pointer',
-                  padding: layoutMode === 'split-screen' ? '0.375rem 0.5rem' : undefined,
-                }}
-              >
-                {layoutMode !== 'split-screen' && (
-                  <span className="text-sm" style={{ color: 'rgb(var(--text-secondary))' }}>
-                    {showCode ? 'code' : 'no code'}
-                  </span>
-                )}
-                {showCode ? (
-                  <Code2 className="w-4 h-4" style={{ color: 'rgb(var(--text-secondary))' }} />
-                ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="w-4 h-4" style={{ color: 'rgb(var(--text-secondary))' }}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="m17.25 6.75-10.5 10.5M6.75 6.75l10.5 10.5" />
-                  </svg>
-                )}
-              </button>
+              {/* Layout Mode Toggle - Click anywhere to toggle */}
+              {onLayoutModeChange && (
+                <button
+                  onClick={() => {
+                    const newMode = layoutMode === 'chat-only' ? 'split-screen' : 'chat-only';
+                    onLayoutModeChange(newMode);
+                    if (newMode === 'split-screen' && !previewUrl && onDetectPreviewUrl) {
+                      onDetectPreviewUrl();
+                    }
+                  }}
+                  className="flex items-center rounded-lg p-0.5 transition-all hover:bg-white/5"
+                  style={{ backgroundColor: 'rgba(255, 255, 255, 0.03)' }}
+                  title={layoutMode === 'chat-only' ? 'Switch to Splitview' : 'Switch to Chat only'}
+                >
+                  {/* Chat option */}
+                  <div
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-all"
+                    style={{
+                      backgroundColor: layoutMode === 'chat-only' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                      color: layoutMode === 'chat-only' ? '#3b82f6' : 'rgb(var(--text-secondary))',
+                      boxShadow: layoutMode === 'chat-only' ? '0 1px 2px rgba(0,0,0,0.2)' : 'none',
+                    }}
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    <span>Chat</span>
+                  </div>
+                  {/* Splitview option */}
+                  <div
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-all"
+                    style={{
+                      backgroundColor: layoutMode === 'split-screen' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                      color: layoutMode === 'split-screen' ? '#3b82f6' : 'rgb(var(--text-secondary))',
+                      boxShadow: layoutMode === 'split-screen' ? '0 1px 2px rgba(0,0,0,0.2)' : 'none',
+                    }}
+                  >
+                    <Monitor className="w-3.5 h-3.5" />
+                    <span>Splitview</span>
+                  </div>
+                </button>
+              )}
 
               {/* Radio Player - hidden in split-screen mode */}
               {layoutMode !== 'split-screen' && <RadioPlayer />}

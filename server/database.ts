@@ -39,6 +39,11 @@ export interface Session {
   context_input_tokens?: number;
   context_window?: number;
   context_percentage?: number;
+  // Progress tracking for intelligent resume
+  progress_summary?: string; // JSON: { filesRead: string[], filesWritten: string[], currentTask: string }
+  last_activity?: string; // Last activity type: 'reading', 'writing', 'analyzing', 'idle'
+  resume_hint?: string; // Short text hint for model handoff
+  last_model?: string; // Last model used in this session
 }
 
 export interface SessionMessage {
@@ -47,6 +52,19 @@ export interface SessionMessage {
   type: 'user' | 'assistant';
   content: string;
   timestamp: string;
+}
+
+export interface PaginationOptions {
+  limit?: number;
+  offset?: number;
+  cursor?: string; // updated_at cursor for cursor-based pagination
+}
+
+export interface PaginatedResult<T> {
+  data: T[];
+  total: number;
+  hasMore: boolean;
+  nextCursor?: string;
 }
 
 class SessionDatabase {
@@ -135,192 +153,69 @@ class SessionDatabase {
       ON messages(session_id)
     `);
 
-    // Migration: Add working_directory column if it doesn't exist
-    this.migrateWorkingDirectory();
-
-    // Migration: Add permission_mode column if it doesn't exist
-    this.migratePermissionMode();
-
-    // Migration: Add mode column if it doesn't exist
-    this.migrateMode();
-
-    // Migration: Add sdk_session_id column if it doesn't exist
-    this.migrateSdkSessionId();
-
-    // Migration: Add context usage columns if they don't exist
-    this.migrateContextUsage();
+    // Unified migration: Check all columns in single PRAGMA query
+    this.runUnifiedMigrations();
   }
 
-  private migrateWorkingDirectory() {
+  /**
+   * Unified migration method - performs ONE PRAGMA query and all necessary migrations
+   * This replaces 5 separate migration methods that each queried PRAGMA table_info
+   */
+  private runUnifiedMigrations() {
     try {
-      // Check if working_directory column exists
-      const columns = this.db.query<{ name: string }, []>(
-        "PRAGMA table_info(sessions)"
-      ).all();
-
-      const hasWorkingDirectory = columns.some(col => col.name === 'working_directory');
-
-      if (!hasWorkingDirectory) {
-        console.log('📦 Migrating database: Adding working_directory column');
-
-        // Add the column
-        this.db.run(`
-          ALTER TABLE sessions
-          ADD COLUMN working_directory TEXT NOT NULL DEFAULT ''
-        `);
-
-        // Update existing sessions with default directory
-        const defaultDir = getDefaultWorkingDirectory();
-        console.log('📦 Setting default working directory for existing sessions:', defaultDir);
-
-        this.db.run(
-          "UPDATE sessions SET working_directory = ? WHERE working_directory = ''",
-          [defaultDir]
-        );
-
-        console.log('✅ Database migration completed successfully');
-      } else {
-        console.log('✅ working_directory column already exists');
-      }
-    } catch (error) {
-      console.error('❌ Database migration failed:', error);
-      throw error;
-    }
-  }
-
-  private migratePermissionMode() {
-    try {
-      // Check if permission_mode column exists
-      const columns = this.db.query<{ name: string }, []>(
-        "PRAGMA table_info(sessions)"
-      ).all();
-
-      const hasPermissionMode = columns.some(col => col.name === 'permission_mode');
-
-      if (!hasPermissionMode) {
-        console.log('📦 Migrating database: Adding permission_mode column');
-
-        // Add the column with default value
-        this.db.run(`
-          ALTER TABLE sessions
-          ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'bypassPermissions'
-        `);
-
-        console.log('✅ permission_mode column added successfully');
-      } else {
-        console.log('✅ permission_mode column already exists');
-      }
-    } catch (error) {
-      console.error('❌ Database migration failed:', error);
-      throw error;
-    }
-  }
-
-  private migrateMode() {
-    try {
-      // Check if mode column exists
-      const columns = this.db.query<{ name: string }, []>(
-        "PRAGMA table_info(sessions)"
-      ).all();
-
-      const hasMode = columns.some(col => col.name === 'mode');
-
-      if (!hasMode) {
-        console.log('📦 Migrating database: Adding mode column');
-
-        // Add the column with default value
-        this.db.run(`
-          ALTER TABLE sessions
-          ADD COLUMN mode TEXT NOT NULL DEFAULT 'general'
-        `);
-
-        console.log('✅ mode column added successfully');
-      } else {
-        console.log('✅ mode column already exists');
-      }
-    } catch (error) {
-      console.error('❌ Database migration failed:', error);
-      throw error;
-    }
-  }
-
-  private migrateSdkSessionId() {
-    try {
-      // Check if sdk_session_id column exists
-      const columns = this.db.query<{ name: string }, []>(
-        "PRAGMA table_info(sessions)"
-      ).all();
-
-      const hasSdkSessionId = columns.some(col => col.name === 'sdk_session_id');
-
-      if (!hasSdkSessionId) {
-        console.log('📦 Migrating database: Adding sdk_session_id column');
-
-        // Add the column (nullable, as it's only set after first message)
-        this.db.run(`
-          ALTER TABLE sessions
-          ADD COLUMN sdk_session_id TEXT
-        `);
-
-        console.log('✅ sdk_session_id column added successfully');
-      } else {
-        console.log('✅ sdk_session_id column already exists');
-      }
-    } catch (error) {
-      console.error('❌ Database migration failed:', error);
-      throw error;
-    }
-  }
-
-  private migrateContextUsage() {
-    try {
-      // Check if context usage columns exist
+      // Single PRAGMA query to get all column info
       const columns = this.db.query<{ name: string; type: string }, []>(
         "PRAGMA table_info(sessions)"
       ).all();
 
+      const columnNames = new Set(columns.map(col => col.name));
+      const migrationsNeeded: string[] = [];
+
+      // Check which migrations are needed
+      const requiredColumns = [
+        { name: 'working_directory', sql: `ALTER TABLE sessions ADD COLUMN working_directory TEXT NOT NULL DEFAULT ''`, postAction: 'updateWorkingDirectory' },
+        { name: 'permission_mode', sql: `ALTER TABLE sessions ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'bypassPermissions'` },
+        { name: 'mode', sql: `ALTER TABLE sessions ADD COLUMN mode TEXT NOT NULL DEFAULT 'general'` },
+        { name: 'sdk_session_id', sql: `ALTER TABLE sessions ADD COLUMN sdk_session_id TEXT` },
+        { name: 'context_input_tokens', sql: `ALTER TABLE sessions ADD COLUMN context_input_tokens INTEGER` },
+        { name: 'context_window', sql: `ALTER TABLE sessions ADD COLUMN context_window INTEGER` },
+        { name: 'context_percentage', sql: `ALTER TABLE sessions ADD COLUMN context_percentage REAL` },
+        // Progress tracking for intelligent resume
+        { name: 'progress_summary', sql: `ALTER TABLE sessions ADD COLUMN progress_summary TEXT` },
+        { name: 'last_activity', sql: `ALTER TABLE sessions ADD COLUMN last_activity TEXT` },
+        { name: 'resume_hint', sql: `ALTER TABLE sessions ADD COLUMN resume_hint TEXT` },
+        { name: 'last_model', sql: `ALTER TABLE sessions ADD COLUMN last_model TEXT` },
+      ];
+
+      // Perform migrations
+      for (const col of requiredColumns) {
+        if (!columnNames.has(col.name)) {
+          migrationsNeeded.push(col.name);
+          console.log(`📦 Migrating database: Adding ${col.name} column`);
+          this.db.run(col.sql);
+
+          // Special post-action for working_directory
+          if (col.postAction === 'updateWorkingDirectory') {
+            const defaultDir = getDefaultWorkingDirectory();
+            console.log('📦 Setting default working directory for existing sessions:', defaultDir);
+            this.db.run(
+              "UPDATE sessions SET working_directory = ? WHERE working_directory = ''",
+              [defaultDir]
+            );
+          }
+        }
+      }
+
+      // Check context_percentage type fix (rare edge case)
       const contextPercentageCol = columns.find(col => col.name === 'context_percentage');
-      const hasContextInputTokens = columns.some(col => col.name === 'context_input_tokens');
-      const hasContextWindow = columns.some(col => col.name === 'context_window');
-
-      // Fix context_percentage if it's INTEGER instead of REAL
       if (contextPercentageCol && contextPercentageCol.type === 'INTEGER') {
-        console.log('📦 Migrating database: Fixing context_percentage column type (INTEGER → REAL)');
-
-        // SQLite doesn't support ALTER COLUMN, so we need to recreate
-        // For now, just update the values to be compatible (this is a new feature so data loss is minimal)
-        // The column will work with decimals even as INTEGER in SQLite
         console.log('⚠️  context_percentage is INTEGER but will work with decimals in SQLite');
       }
 
-      if (!hasContextInputTokens || !hasContextWindow || !contextPercentageCol) {
-        console.log('📦 Migrating database: Adding context usage columns');
-
-        // Add the columns (nullable, as they're only set after first message)
-        if (!hasContextInputTokens) {
-          this.db.run(`
-            ALTER TABLE sessions
-            ADD COLUMN context_input_tokens INTEGER
-          `);
-        }
-
-        if (!hasContextWindow) {
-          this.db.run(`
-            ALTER TABLE sessions
-            ADD COLUMN context_window INTEGER
-          `);
-        }
-
-        if (!contextPercentageCol) {
-          this.db.run(`
-            ALTER TABLE sessions
-            ADD COLUMN context_percentage REAL
-          `);
-        }
-
-        console.log('✅ Context usage columns added successfully');
+      if (migrationsNeeded.length > 0) {
+        console.log(`✅ Database migration completed: ${migrationsNeeded.join(', ')}`);
       } else {
-        console.log('✅ Context usage columns already exist');
+        console.log('✅ Database schema up to date');
       }
     } catch (error) {
       console.error('❌ Database migration failed:', error);
@@ -409,6 +304,10 @@ class SessionDatabase {
           s.context_input_tokens,
           s.context_window,
           s.context_percentage,
+          s.progress_summary,
+          s.last_activity,
+          s.resume_hint,
+          s.last_model,
           COUNT(m.id) as message_count
         FROM sessions s
         LEFT JOIN messages m ON s.id = m.session_id
@@ -435,6 +334,110 @@ class SessionDatabase {
     }
 
     return { sessions, recreatedDirectories };
+  }
+
+  /**
+   * Get sessions with pagination support
+   * Supports both offset-based and cursor-based pagination
+   */
+  getSessionsPaginated(options: PaginationOptions = {}): PaginatedResult<Session> {
+    const { limit = 20, offset = 0, cursor } = options;
+
+    // Get total count
+    const countResult = this.db.query<{ count: number }, []>(
+      'SELECT COUNT(*) as count FROM sessions'
+    ).get();
+    const total = countResult?.count ?? 0;
+
+    // Build query based on pagination type
+    let sessions: Session[];
+
+    if (cursor) {
+      // Cursor-based pagination (more efficient for large datasets)
+      sessions = this.db
+        .query<Session, [string, number]>(
+          `SELECT
+            s.id,
+            s.title,
+            s.created_at,
+            s.updated_at,
+            s.working_directory,
+            s.permission_mode,
+            s.mode,
+            s.sdk_session_id,
+            s.context_input_tokens,
+            s.context_window,
+            s.context_percentage,
+            s.progress_summary,
+            s.last_activity,
+            s.resume_hint,
+            s.last_model,
+            COUNT(m.id) as message_count
+          FROM sessions s
+          LEFT JOIN messages m ON s.id = m.session_id
+          WHERE s.updated_at < ?
+          GROUP BY s.id
+          ORDER BY s.updated_at DESC
+          LIMIT ?`
+        )
+        .all(cursor, limit + 1); // Fetch one extra to check if there's more
+    } else {
+      // Offset-based pagination
+      sessions = this.db
+        .query<Session, [number, number]>(
+          `SELECT
+            s.id,
+            s.title,
+            s.created_at,
+            s.updated_at,
+            s.working_directory,
+            s.permission_mode,
+            s.mode,
+            s.sdk_session_id,
+            s.context_input_tokens,
+            s.context_window,
+            s.context_percentage,
+            s.progress_summary,
+            s.last_activity,
+            s.resume_hint,
+            s.last_model,
+            COUNT(m.id) as message_count
+          FROM sessions s
+          LEFT JOIN messages m ON s.id = m.session_id
+          GROUP BY s.id
+          ORDER BY s.updated_at DESC
+          LIMIT ? OFFSET ?`
+        )
+        .all(limit + 1, offset); // Fetch one extra to check if there's more
+    }
+
+    // Determine if there are more results
+    const hasMore = sessions.length > limit;
+    if (hasMore) {
+      sessions = sessions.slice(0, limit);
+    }
+
+    // Get next cursor from last item
+    const nextCursor = hasMore && sessions.length > 0
+      ? sessions[sessions.length - 1].updated_at
+      : undefined;
+
+    return {
+      data: sessions,
+      total,
+      hasMore,
+      nextCursor,
+    };
+  }
+
+  /**
+   * Get session count (efficient single query)
+   */
+  getSessionCount(): number {
+    const result = this.db.query<{ count: number }, []>(
+      'SELECT COUNT(*) as count FROM sessions'
+    ).get();
+    return result?.count ?? 0;
   }
 
   // Import existing folders from the agent-girl directory that aren't in the database
@@ -518,6 +521,10 @@ class SessionDatabase {
           s.context_input_tokens,
           s.context_window,
           s.context_percentage,
+          s.progress_summary,
+          s.last_activity,
+          s.resume_hint,
+          s.last_model,
           COUNT(m.id) as message_count
         FROM sessions s
         LEFT JOIN messages m ON s.id = m.session_id
@@ -639,6 +646,118 @@ class SessionDatabase {
       console.error('❌ Failed to update context usage:', error);
       return false;
     }
+  }
+
+  /**
+   * Update progress tracking for intelligent model handoff and resume
+   * @param sessionId - Session to update
+   * @param progress - Progress data including files read/written, current task, and resume hint
+   */
+  updateProgress(sessionId: string, progress: {
+    filesRead?: string[];
+    filesWritten?: string[];
+    currentTask?: string;
+    lastActivity?: 'reading' | 'writing' | 'analyzing' | 'idle';
+    resumeHint?: string;
+    model?: string;
+  }): boolean {
+    try {
+      const session = this.getSession(sessionId);
+      if (!session) {
+        console.warn('⚠️  No session found for progress update');
+        return false;
+      }
+
+      // Merge with existing progress summary
+      let existingSummary: { filesRead: string[]; filesWritten: string[]; currentTask: string } = {
+        filesRead: [],
+        filesWritten: [],
+        currentTask: '',
+      };
+
+      if (session.progress_summary) {
+        try {
+          existingSummary = JSON.parse(session.progress_summary);
+        } catch {
+          // Keep defaults if parse fails
+        }
+      }
+
+      // Update fields
+      if (progress.filesRead) {
+        existingSummary.filesRead = [...new Set([...existingSummary.filesRead, ...progress.filesRead])];
+      }
+      if (progress.filesWritten) {
+        existingSummary.filesWritten = [...new Set([...existingSummary.filesWritten, ...progress.filesWritten])];
+      }
+      if (progress.currentTask) {
+        existingSummary.currentTask = progress.currentTask;
+      }
+
+      const result = this.db.run(
+        `UPDATE sessions SET
+          progress_summary = ?,
+          last_activity = COALESCE(?, last_activity),
+          resume_hint = COALESCE(?, resume_hint),
+          last_model = COALESCE(?, last_model),
+          updated_at = ?
+        WHERE id = ?`,
+        [
+          JSON.stringify(existingSummary),
+          progress.lastActivity || null,
+          progress.resumeHint || null,
+          progress.model || null,
+          new Date().toISOString(),
+          sessionId,
+        ]
+      );
+
+      return result.changes > 0;
+    } catch (error) {
+      console.error('❌ Failed to update progress:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Generate context summary for model handoff
+   * Returns a concise summary suitable for prepending to the next prompt
+   */
+  getContextSummary(sessionId: string): string | null {
+    const session = this.getSession(sessionId);
+    if (!session) return null;
+
+    const parts: string[] = [];
+
+    // Parse progress summary
+    if (session.progress_summary) {
+      try {
+        const progress = JSON.parse(session.progress_summary);
+        if (progress.filesRead?.length > 0) {
+          parts.push(`Dateien gelesen: ${progress.filesRead.slice(-5).join(', ')}${progress.filesRead.length > 5 ? ` (+${progress.filesRead.length - 5} weitere)` : ''}`);
+        }
+        if (progress.filesWritten?.length > 0) {
+          parts.push(`Dateien bearbeitet: ${progress.filesWritten.join(', ')}`);
+        }
+        if (progress.currentTask) {
+          parts.push(`Aktuelle Aufgabe: ${progress.currentTask}`);
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+
+    if (session.resume_hint) {
+      parts.push(`Fortschritt: ${session.resume_hint}`);
+    }
+
+    if (session.last_model) {
+      parts.push(`Vorheriges Model: ${session.last_model}`);
+    }
+
+    if (parts.length === 0) return null;
+
+    return `[Kontext-Übergabe]\n${parts.join('\n')}`;
   }
 
   deleteSession(sessionId: string): boolean {

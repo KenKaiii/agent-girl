@@ -41,7 +41,7 @@ const MODE_CONFIGS: Record<string, ModeConfig> = {
   },
   'intense-research': {
     id: 'intense-research',
-    name: 'Intense Research',
+    name: 'Research',
     description: '5 agents, multi-angle deep research',
   },
   'spark': {

@@ -52,6 +52,8 @@ import { handleDirectoryRoutes } from "./routes/directory";
 import { handleUserConfigRoutes } from "./routes/userConfig";
 import { handleCommandRoutes } from "./routes/commands";
 import { handleWebSocketMessage } from "./websocket/messageHandlers";
+import { handleHealthCheck, handleLivenessProbe, handleReadinessProbe, updateWsStats } from "./routes/health";
+import { logger } from "./utils/logger";
 import type { ServerWebSocket, Server as ServerType } from "bun";
 
 // Initialize startup configuration (loads env vars, sets up PostCSS)
@@ -116,8 +118,10 @@ const server = Bun.serve({
       if (ws.data?.type === 'hot-reload') {
         hotReloadClients.delete(ws);
       } else if (ws.data?.type === 'chat' && ws.data?.sessionId) {
-        console.log(`🔌 WebSocket disconnected: session ${ws.data.sessionId.substring(0, 8)}`);
+        logger.debug('WebSocket disconnected', { sessionId: ws.data.sessionId.substring(0, 8) });
       }
+      // Update health check stats (count remaining connections)
+      updateWsStats(hotReloadClients.size);
     }
   },
 
@@ -139,6 +143,17 @@ const server = Bun.serve({
         return new Response('WebSocket upgrade failed', { status: 400 });
       }
       return;
+    }
+
+    // Health check endpoints
+    if (url.pathname === '/health') {
+      return handleHealthCheck(req);
+    }
+    if (url.pathname === '/health/live' || url.pathname === '/livez') {
+      return handleLivenessProbe();
+    }
+    if (url.pathname === '/health/ready' || url.pathname === '/readyz') {
+      return handleReadinessProbe();
     }
 
     // Try session routes
