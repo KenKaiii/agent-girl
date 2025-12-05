@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ChatContainer, type AIEditRequest } from '../chat/ChatContainer';
+import { ChatContainer, type AIEditRequest, type AIProgressState } from '../chat/ChatContainer';
 import {
   ElementSelector,
   ModeSelector,
@@ -35,6 +35,8 @@ import {
   Database,
   Laptop,
   ChevronDown,
+  Loader2,
+  Zap,
 } from 'lucide-react';
 
 // Extended device types with real device presets
@@ -108,6 +110,12 @@ export function SplitScreenLayout() {
 
   // AI Edit handler from ChatContainer
   const aiEditHandlerRef = useRef<((request: AIEditRequest) => void) | null>(null);
+
+  // AI progress state for showing tool usage in preview header
+  const [aiProgress, setAIProgress] = useState<AIProgressState>({
+    isActive: false,
+    status: 'idle',
+  });
 
   // Refs for drag handling - use refs for immediate access without re-renders
   const containerRef = useRef<HTMLDivElement>(null);
@@ -537,6 +545,7 @@ export function SplitScreenLayout() {
           onAIEditRequestHandler={(handler) => {
             aiEditHandlerRef.current = handler;
           }}
+          onAIProgressChange={setAIProgress}
         />
       </div>
 
@@ -760,6 +769,27 @@ export function SplitScreenLayout() {
               >
                 <Database size={14} />
               </button>
+
+              {/* AI Progress Indicator */}
+              {aiProgress.isActive && (
+                <div
+                  className="flex items-center gap-1.5 px-2 py-1 rounded-md ml-1"
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(236, 72, 153, 0.15), rgba(139, 92, 246, 0.15))',
+                    border: '1px solid rgba(236, 72, 153, 0.3)',
+                  }}
+                >
+                  <Loader2 size={12} className="animate-spin" style={{ color: '#ec4899' }} />
+                  <span className="text-xs font-medium" style={{ color: '#f9a8d4' }}>
+                    {aiProgress.currentTool || 'Processing...'}
+                  </span>
+                  {aiProgress.currentFile && (
+                    <span className="text-xs font-mono truncate max-w-[120px]" style={{ color: '#a78bfa' }}>
+                      {aiProgress.currentFile.split('/').pop()}
+                    </span>
+                  )}
+                </div>
+              )}
 
               {/* Divider */}
               <div className="w-px h-4 bg-white/10 mx-1" />

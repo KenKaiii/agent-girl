@@ -84,6 +84,14 @@ export interface AIEditRequest {
   };
 }
 
+// AI progress state for preview integration
+export interface AIProgressState {
+  isActive: boolean;
+  currentTool?: string;
+  currentFile?: string;
+  status: 'idle' | 'thinking' | 'tool_use' | 'completed' | 'error';
+}
+
 interface ChatContainerProps {
   layoutMode?: 'chat-only' | 'split-screen';
   onLayoutModeChange?: (mode: 'chat-only' | 'split-screen') => void;
@@ -91,6 +99,7 @@ interface ChatContainerProps {
   onSetPreviewUrl?: () => void;
   onDetectPreviewUrl?: () => void;
   onAIEditRequestHandler?: (handler: (request: AIEditRequest) => void) => void;
+  onAIProgressChange?: (progress: AIProgressState) => void;
 }
 
 export function ChatContainer({
@@ -99,7 +108,8 @@ export function ChatContainer({
   previewUrl,
   onSetPreviewUrl: _onSetPreviewUrl,
   onDetectPreviewUrl,
-  onAIEditRequestHandler
+  onAIEditRequestHandler,
+  onAIProgressChange
 }: ChatContainerProps = {}) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState(() => {
@@ -1108,6 +1118,17 @@ export function ChatContainer({
         // Handle tool use messages
         const toolUseMsg = message as { type: 'tool_use'; toolId: string; toolName: string; toolInput: Record<string, unknown> };
 
+        // Report AI progress to preview panel
+        if (onAIProgressChange) {
+          const filePath = (toolUseMsg.toolInput.file_path as string) || (toolUseMsg.toolInput.path as string);
+          onAIProgressChange({
+            isActive: true,
+            currentTool: toolUseMsg.toolName,
+            currentFile: filePath,
+            status: 'tool_use',
+          });
+        }
+
         // Use flushSync to prevent React batching from causing tools to be lost
         // When multiple tool_use messages arrive rapidly, React batches setState calls
         // causing all but the last update to be overwritten. flushSync forces synchronous updates.
@@ -1224,6 +1245,13 @@ export function ChatContainer({
           console.log(`[Message Cache] Cleared cache for session ${currentSessionId} (stream completed)`);
           // Clear live token count when response completes
           setLiveTokenCount(0);
+          // Reset AI progress for preview panel
+          if (onAIProgressChange) {
+            onAIProgressChange({
+              isActive: false,
+              status: 'completed',
+            });
+          }
         }
       } else if (message.type === 'timeout_warning') {
         // Handle timeout warning (60s elapsed)
@@ -1244,6 +1272,13 @@ export function ChatContainer({
         if (currentSessionId) setSessionLoading(currentSessionId, false);
         // Clear live token count on error
         setLiveTokenCount(0);
+        // Reset AI progress for preview panel with error status
+        if (onAIProgressChange) {
+          onAIProgressChange({
+            isActive: false,
+            status: 'error',
+          });
+        }
 
         // Get error type and message
         const errorType = 'errorType' in message ? (message.errorType as string) : undefined;
