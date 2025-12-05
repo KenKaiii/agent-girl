@@ -40,7 +40,7 @@ import { WorkingDirectoryContext } from '../../hooks/useWorkingDirectory';
 import { useSessionAPI, type Session } from '../../hooks/useSessionAPI';
 import { useResponsive } from '../../hooks/useResponsive';
 import { Menu, Edit3, ChevronLeft, ChevronRight, History, ExternalLink, Eye, EyeOff, Code2, Monitor, MessageSquare, Search, X, ChevronUp, ChevronDown } from 'lucide-react';
-import type { Message } from '../message/types';
+import type { Message, SystemMessage, PreviewActionMetadata, PreviewElement } from '../message/types';
 import { toast } from '../../utils/toast';
 import { showError } from '../../utils/errorMessages';
 import type { BackgroundProcess } from '../process/BackgroundProcessMonitor';
@@ -1747,6 +1747,54 @@ export function ChatContainer({
 
   // Handle AI edit request from preview element selection
   const handleAIEditRequest = useCallback(async (request: AIEditRequest) => {
+    // First, add a preview action system message to show context in chat
+    const previewElements: PreviewElement[] = request.elements.map(el => ({
+      id: el.id,
+      tagName: el.tagName,
+      selector: el.selector,
+      textContent: el.textContent,
+      className: el.className,
+      elementId: el.elementId,
+      path: el.path,
+      styles: el.styles ? {
+        color: el.styles.color,
+        backgroundColor: el.styles.backgroundColor,
+        fontSize: el.styles.fontSize,
+      } : undefined,
+    }));
+
+    const previewMetadata: PreviewActionMetadata = {
+      type: 'preview',
+      action: 'ai_request',
+      previewUrl: request.previewUrl,
+      elements: previewElements,
+      fileContext: request.fileContext ? {
+        framework: request.fileContext.framework || 'unknown',
+        routePattern: request.fileContext.routePattern,
+        possibleFiles: request.fileContext.possibleFiles,
+        componentHints: request.fileContext.componentHints,
+      } : undefined,
+      viewport: request.viewport ? {
+        device: request.viewport.device,
+        width: request.viewport.width,
+        height: request.viewport.height,
+      } : undefined,
+      screenshot: request.screenshot,
+      userRequest: request.prompt,
+    };
+
+    // Add preview action message to chat
+    const previewMessage: SystemMessage = {
+      id: `preview-${Date.now()}`,
+      type: 'system',
+      content: `Preview AI Edit: ${request.prompt}`,
+      timestamp: new Date().toISOString(),
+      metadata: previewMetadata,
+    };
+
+    // Add the preview action message to messages first
+    setMessages(prev => [...prev, previewMessage]);
+
     // Build the edit prompt with full context
     const elementDetails = request.elements.map(el =>
       `  - **Element ${el.id}**: \`<${el.tagName}>\` (${el.selector})${el.textContent ? ` - "${el.textContent.slice(0, 50)}${el.textContent.length > 50 ? '...' : ''}"` : ''}`

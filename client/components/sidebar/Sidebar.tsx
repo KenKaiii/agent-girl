@@ -18,11 +18,59 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Menu, Edit3, Search, Trash2, Edit, FolderOpen, Copy, Code2, Download, Upload, MessageSquare, FileText, BarChart3 } from 'lucide-react';
 import { toast } from '../../utils/toast';
 import { DeleteConfirmationModal } from '../ui/DeleteConfirmationModal';
 import { ChatListSkeleton, SearchResultsSkeleton, LoadingSpinner } from '../ui/Skeleton';
+
+// Resize constants
+const DEFAULT_WIDTH = 360;
+const MIN_WIDTH = 280;
+const MAX_WIDTH = 600;
+
+// Custom event for same-tab sidebar width changes
+const SIDEBAR_WIDTH_EVENT = 'sidebar-width-change';
+
+// Dispatch width change event (call this when width changes)
+export function dispatchSidebarWidthChange(width: number): void {
+  window.dispatchEvent(new CustomEvent(SIDEBAR_WIDTH_EVENT, { detail: width }));
+}
+
+// Export hook for getting current sidebar width - optimized to use events instead of polling
+export function useSidebarWidth(
+  isOpen: boolean,
+  storageKey = 'agent-girl-sidebar-width'
+): number {
+  const [width, setWidth] = useState(() => {
+    const saved = localStorage.getItem(storageKey);
+    return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
+  });
+
+  useEffect(() => {
+    const handleStorage = () => {
+      const saved = localStorage.getItem(storageKey);
+      if (saved) setWidth(parseInt(saved, 10));
+    };
+
+    // Listen for custom event (same-tab changes)
+    const handleCustomEvent = (e: Event) => {
+      const customEvent = e as CustomEvent<number>;
+      setWidth(customEvent.detail);
+    };
+
+    // Listen for storage changes (cross-tab sync)
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener(SIDEBAR_WIDTH_EVENT, handleCustomEvent);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener(SIDEBAR_WIDTH_EVENT, handleCustomEvent);
+    };
+  }, [storageKey]);
+
+  return isOpen ? width : 0;
+}
 
 // Message search result type
 interface MessageSearchResult {
@@ -82,8 +130,16 @@ interface SidebarProps {
   canPreviousChat?: boolean;
   canNextChat?: boolean;
   canBackToRecent?: boolean;
+  layoutMode?: 'chat-only' | 'split-screen';
+  // Infinite scroll props
+  hasMoreChats?: boolean;
+  isLoadingMore?: boolean;
+  onLoadMore?: () => void;
+  totalChats?: number;
 }
 
+// Note: No memo() - chats array and handlers change every render anyway,
+// so memo would just add comparison overhead without preventing re-renders
 export function Sidebar({
   isOpen,
   onToggle,
@@ -104,11 +160,20 @@ export function Sidebar({
   canPreviousChat = false,
   canNextChat = false,
   canBackToRecent = false,
+  layoutMode = 'chat-only',
+  // Infinite scroll
+  hasMoreChats = false,
+  isLoadingMore = false,
+  onLoadMore,
+  totalChats = 0,
 }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [isAllChatsExpanded, setIsAllChatsExpanded] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
+
+  // Ref for infinite scroll sentinel
+  const loadMoreRef = useRef<HTMLDivElement>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState<{ isOpen: boolean; chatId: string; chatName: string }>({
     isOpen: false,
     chatId: '',
@@ -118,6 +183,77 @@ export function Sidebar({
   const [isSearching, setIsSearching] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Resize state
+  const [width, setWidth] = useState(() => {
+    const saved = localStorage.getItem('agent-girl-sidebar-width');
+    return saved ? Math.min(Math.max(parseInt(saved, 10), MIN_WIDTH), MAX_WIDTH) : DEFAULT_WIDTH;
+  });
+  const [isDragging, setIsDragging] = useState(false);
+  const isDraggingRef = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Persist width to localStorage
+  useEffect(() => {
+    localStorage.setItem('agent-girl-sidebar-width', String(width));
+    dispatchSidebarWidthChange(width);
+  }, [width]);
+
+  // Handle drag events
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDraggingRef.current) return;
+      e.preventDefault();
+      const newWidth = e.clientX;
+      const clampedWidth = Math.min(Math.max(newWidth, MIN_WIDTH), MAX_WIDTH);
+      setWidth(clampedWidth);
+    };
+
+    const handleMouseUp = () => {
+      if (isDraggingRef.current) {
+        isDraggingRef.current = false;
+        setIsDragging(false);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
+
+  // Infinite scroll - IntersectionObserver
+  useEffect(() => {
+    if (!loadMoreRef.current || !onLoadMore || !hasMoreChats || isLoadingMore) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMoreChats && !isLoadingMore) {
+          onLoadMore();
+        }
+      },
+      { threshold: 0.1, rootMargin: '100px' }
+    );
+
+    observer.observe(loadMoreRef.current);
+    return () => observer.disconnect();
+  }, [hasMoreChats, isLoadingMore, onLoadMore]);
+
+  const handleDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingRef.current = true;
+    setIsDragging(true);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, []);
+
+  const handleDoubleClick = useCallback(() => {
+    setWidth(DEFAULT_WIDTH);
+  }, []);
 
   // Debounced message search
   const searchMessages = useCallback(async (query: string) => {
@@ -162,91 +298,60 @@ export function Sidebar({
     };
   }, [searchQuery, searchMessages]);
 
-  // Group chats by date with precise grouping
-  const groupChatsByDate = (chats: Chat[]) => {
+  // Group chats by date - memoized via useCallback to avoid recreation
+  const groupChatsByDate = useCallback((chatList: Chat[]) => {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-    // Create ordered groups
     const orderedGroups: { label: string; chats: Chat[] }[] = [];
     const groupMap: { [key: string]: Chat[] } = {};
-
-    // Weekday names
     const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-    chats.forEach(chat => {
+    for (const chat of chatList) {
       const chatDate = new Date(chat.timestamp);
       const chatDay = new Date(chatDate.getFullYear(), chatDate.getMonth(), chatDate.getDate());
+      const diffDays = Math.floor((today.getTime() - chatDay.getTime()) / 86400000);
 
-      const diffTime = today.getTime() - chatDay.getTime();
-      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      const groupKey = diffDays === 0 ? 'Today'
+        : diffDays === 1 ? 'Yesterday'
+        : diffDays < 7 ? weekdays[chatDay.getDay()]
+        : diffDays < 14 ? 'Last Week'
+        : diffDays < 30 ? 'This Month'
+        : chatDate.getFullYear() === now.getFullYear() ? months[chatDate.getMonth()]
+        : `${months[chatDate.getMonth()]} ${chatDate.getFullYear()}`;
 
-      let groupKey: string;
+      (groupMap[groupKey] ??= []).push(chat);
+    }
 
-      if (diffDays === 0) {
-        groupKey = 'Today';
-      } else if (diffDays === 1) {
-        groupKey = 'Yesterday';
-      } else if (diffDays < 7) {
-        // Show weekday name for last 7 days
-        groupKey = weekdays[chatDay.getDay()];
-      } else if (diffDays < 14) {
-        groupKey = 'Last Week';
-      } else if (diffDays < 30) {
-        groupKey = 'This Month';
-      } else if (chatDate.getFullYear() === now.getFullYear()) {
-        // Show month name for this year
-        groupKey = months[chatDate.getMonth()];
-      } else {
-        // Show month + year for older
-        groupKey = `${months[chatDate.getMonth()]} ${chatDate.getFullYear()}`;
-      }
-
-      if (!groupMap[groupKey]) {
-        groupMap[groupKey] = [];
-      }
-      groupMap[groupKey].push(chat);
-    });
-
-    // Define group order
-    const groupOrder = [
-      'Today', 'Yesterday',
-      ...weekdays, // Sunday through Saturday
-      'Last Week', 'This Month',
-      ...months, // Jan through Dec
-    ];
-
-    // Add groups in order
-    groupOrder.forEach(key => {
-      if (groupMap[key] && groupMap[key].length > 0) {
+    const groupOrder = ['Today', 'Yesterday', ...weekdays, 'Last Week', 'This Month', ...months];
+    for (const key of groupOrder) {
+      if (groupMap[key]?.length) {
         orderedGroups.push({ label: key, chats: groupMap[key] });
         delete groupMap[key];
       }
-    });
+    }
 
-    // Add remaining groups (older with year) sorted by date
-    const remainingKeys = Object.keys(groupMap).sort((a, b) => {
-      // Sort by most recent first
-      const aDate = groupMap[a][0]?.timestamp || new Date(0);
-      const bDate = groupMap[b][0]?.timestamp || new Date(0);
-      return new Date(bDate).getTime() - new Date(aDate).getTime();
-    });
-
-    remainingKeys.forEach(key => {
-      if (groupMap[key].length > 0) {
-        orderedGroups.push({ label: key, chats: groupMap[key] });
-      }
-    });
+    // Remaining (older with year)
+    Object.keys(groupMap)
+      .sort((a, b) => new Date(groupMap[b][0]?.timestamp || 0).getTime() - new Date(groupMap[a][0]?.timestamp || 0).getTime())
+      .forEach(key => groupMap[key].length && orderedGroups.push({ label: key, chats: groupMap[key] }));
 
     return orderedGroups;
-  };
+  }, []);
 
-  const filteredChats = chats.filter(chat =>
-    chat.title.toLowerCase().includes(searchQuery.toLowerCase())
+  // Memoize filtered chats to avoid recomputing on every render
+  const filteredChats = useMemo(() =>
+    chats.filter(chat =>
+      chat.title.toLowerCase().includes(searchQuery.toLowerCase())
+    ),
+    [chats, searchQuery]
   );
 
-  const groupedChats = groupChatsByDate(filteredChats);
+  // Memoize grouped chats - expensive operation
+  const groupedChats = useMemo(() =>
+    groupChatsByDate(filteredChats),
+    [filteredChats]
+  );
 
   // Type for the grouped chats
   type ChatGroup = { label: string; chats: Chat[] };
@@ -347,78 +452,86 @@ export function Sidebar({
   };
 
   return (
-    <div className={`sidebar ${isOpen ? 'sidebar-open' : 'sidebar-closed'}`}>
-      <div className="sidebar-container">
+    <div
+      ref={containerRef}
+      className={layoutMode === 'split-screen' ? 'relative flex-shrink-0 z-40' : 'fixed inset-y-0 left-0 z-40'}
+      style={{
+        width: isOpen ? `${width}px` : '0px',
+        height: layoutMode === 'split-screen' ? '100%' : undefined,
+        transition: isDragging ? 'none' : 'width 0.2s ease-out',
+        overflow: 'visible', // Allow resize handle to show outside bounds
+      }}
+    >
+      <div className="sidebar" style={{ width: '100%', height: '100%', overflow: 'hidden', background: 'rgb(var(--bg-sidebar, 12 14 16))', position: 'relative' }}>
+        {/* Resize Handle - subtle bar that becomes visible on hover */}
+        {isOpen && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              bottom: 0,
+              right: 0,
+              width: '4px',
+              cursor: 'col-resize',
+              zIndex: 100,
+              background: isDragging ? 'rgba(59, 130, 246, 0.8)' : 'rgba(255, 255, 255, 0.1)',
+              transition: isDragging ? 'none' : 'background 0.15s ease',
+            }}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleDragStart(e);
+            }}
+            onDoubleClick={handleDoubleClick}
+            onMouseEnter={(e) => {
+              if (!isDragging) e.currentTarget.style.background = 'rgba(59, 130, 246, 0.5)';
+            }}
+            onMouseLeave={(e) => {
+              if (!isDragging) e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+            }}
+          />
+        )}
+        <div className="sidebar-container" style={{ width: '100%', minWidth: 0, display: 'flex', flexDirection: 'column', height: '100%' }}>
         {/* Header */}
         <div className="sidebar-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem' }}>
           <div className="sidebar-logo">
             <img src="/client/agent-boy.svg" alt="Agent Girl" className="sidebar-logo-icon" />
           </div>
 
-          {/* Header controls when sidebar is open */}
+          {/* Header controls when sidebar is open - responsive based on width */}
           {isOpen && (
-            <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
-              {/* Navigation buttons */}
-              <button
-                className="header-btn"
-                aria-label="New Chat"
-                title="New chat"
-                onClick={onNewChat}
-                style={{ padding: '0.5rem', cursor: 'pointer' }}
-              >
-                <Edit3 size={18} opacity={0.8} />
-              </button>
-
-              <button
-                className="header-btn"
-                aria-label="New Chat in New Tab"
-                title="Open new chat in new tab"
-                onClick={onNewChatTab}
-                style={{ padding: '0.5rem', cursor: 'pointer' }}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M15 3h6v6" />
-                  <path d="M10 14 21 3" />
-                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                </svg>
-              </button>
-
-              {/* Divider */}
-              <div style={{ width: '1px', height: '20px', backgroundColor: 'rgba(255, 255, 255, 0.15)', margin: '0px 4px' }} />
-
-              {/* Chat navigation */}
+            <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center', flexWrap: 'nowrap', overflow: 'hidden' }}>
+              {/* Essential navigation - always visible (prev, next, back to recent) */}
               <button
                 className="header-btn"
                 aria-label="Previous Chat"
                 title="Previous chat"
                 onClick={onPreviousChat}
                 disabled={!canPreviousChat}
-                style={{ padding: '0.5rem', cursor: 'pointer', opacity: canPreviousChat ? 1 : 0.3 }}
+                style={{ padding: '0.5rem', cursor: 'pointer', opacity: canPreviousChat ? 1 : 0.3, flexShrink: 0 }}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="m15 18-6-6 6-6" />
                 </svg>
               </button>
-
               <button
                 className="header-btn"
                 aria-label="Next Chat"
                 title="Next chat"
                 onClick={onNextChat}
-                style={{ padding: '0.5rem', cursor: 'pointer', opacity: canNextChat ? 1 : 0.3 }}
+                style={{ padding: '0.5rem', cursor: 'pointer', opacity: canNextChat ? 1 : 0.3, flexShrink: 0 }}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="m9 18 6-6-6-6" />
                 </svg>
               </button>
-
               <button
                 className="header-btn"
                 aria-label="Back to Recent"
                 title="Back to recent chat"
                 onClick={onBackToRecent}
                 disabled={!canBackToRecent}
-                style={{ padding: '0.5rem', cursor: 'pointer', opacity: canBackToRecent ? 1 : 0.3 }}
+                style={{ padding: '0.5rem', cursor: 'pointer', opacity: canBackToRecent ? 1 : 0.3, flexShrink: 0 }}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
@@ -427,38 +540,71 @@ export function Sidebar({
                 </svg>
               </button>
 
-              {/* Divider */}
-              <div style={{ width: '1px', height: '20px', backgroundColor: 'rgba(255, 255, 255, 0.15)', margin: '0px 4px' }} />
+              {/* Secondary buttons - show when wider */}
+              {width > 340 && (
+                <>
+                  <div style={{ width: '1px', height: '20px', backgroundColor: 'rgba(255, 255, 255, 0.15)', margin: '0px 4px', flexShrink: 0 }} />
+                  <button
+                    className="header-btn"
+                    aria-label="New Chat"
+                    title="New chat"
+                    onClick={onNewChat}
+                    style={{ padding: '0.5rem', cursor: 'pointer', flexShrink: 0 }}
+                  >
+                    <Edit3 size={18} opacity={0.8} />
+                  </button>
+                </>
+              )}
 
-              {/* Control buttons */}
-              <button
-                className="header-btn"
-                aria-label={showCompact ? 'Show verbose output' : 'Hide verbose output'}
-                title={showCompact ? 'Show verbose output (thinking, WebSearch, tools)' : 'Hide verbose output (thinking, WebSearch, tools)'}
-                onClick={onToggleCompact}
-                style={{ padding: '0.5rem', cursor: 'pointer', fontSize: '0.75rem' }}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-              </button>
-
-              <button
-                className="header-btn"
-                aria-label={showCode ? 'Hide code blocks' : 'Show code blocks'}
-                title={showCode ? 'Hide all code blocks' : 'Show all code blocks'}
-                onClick={onToggleCode}
-                style={{ padding: '0.5rem', cursor: 'pointer' }}
-              >
-                {showCode ? (
-                  <Code2 size={16} />
-                ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" width="16" height="16">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="m17.25 6.75-10.5 10.5M6.75 6.75l10.5 10.5" />
+              {width > 380 && (
+                <button
+                  className="header-btn"
+                  aria-label="New Chat in New Tab"
+                  title="Open new chat in new tab"
+                  onClick={onNewChatTab}
+                  style={{ padding: '0.5rem', cursor: 'pointer', flexShrink: 0 }}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M15 3h6v6" />
+                    <path d="M10 14 21 3" />
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
                   </svg>
-                )}
-              </button>
+                </button>
+              )}
+
+              {/* Extended buttons - only show when wide */}
+              {width > 450 && (
+                <>
+                  <div style={{ width: '1px', height: '20px', backgroundColor: 'rgba(255, 255, 255, 0.15)', margin: '0px 4px', flexShrink: 0 }} />
+                  <button
+                    className="header-btn"
+                    aria-label={showCompact ? 'Show verbose output' : 'Hide verbose output'}
+                    title={showCompact ? 'Show verbose output' : 'Hide verbose output'}
+                    onClick={onToggleCompact}
+                    style={{ padding: '0.5rem', cursor: 'pointer', flexShrink: 0 }}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  </button>
+                  <button
+                    className="header-btn"
+                    aria-label={showCode ? 'Hide code blocks' : 'Show code blocks'}
+                    title={showCode ? 'Hide all code blocks' : 'Show all code blocks'}
+                    onClick={onToggleCode}
+                    style={{ padding: '0.5rem', cursor: 'pointer', flexShrink: 0 }}
+                  >
+                    {showCode ? (
+                      <Code2 size={16} />
+                    ) : (
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" width="16" height="16">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="m17.25 6.75-10.5 10.5M6.75 6.75l10.5 10.5" />
+                      </svg>
+                    )}
+                  </button>
+                </>
+              )}
             </div>
           )}
 
@@ -766,7 +912,7 @@ export function Sidebar({
                                 opacity: 0.7,
                                 marginTop: '2px',
                               }}>
-                                {formatRelativeTime(new Date(chat.timestamp))}
+                                {formatRelativeTime(chat.timestamp)}
                               </div>
                             </button>
                             <div className={`sidebar-chat-menu ${chat.isActive ? '' : 'sidebar-chat-menu-hidden'}`} style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
@@ -1063,12 +1209,55 @@ export function Sidebar({
                   </div>
                 );
               })}
+
+              {/* Infinite scroll sentinel and loading indicator */}
+              {hasMoreChats && (
+                <div
+                  ref={loadMoreRef}
+                  style={{
+                    padding: '1rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                  }}
+                >
+                  {isLoadingMore ? (
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      color: 'rgb(var(--text-secondary))',
+                      fontSize: '0.75rem',
+                    }}>
+                      <div style={{
+                        width: '14px',
+                        height: '14px',
+                        border: '2px solid rgba(255,255,255,0.2)',
+                        borderTopColor: 'rgba(255,255,255,0.6)',
+                        borderRadius: '50%',
+                        animation: 'spin 0.8s linear infinite',
+                      }} />
+                      <span>Loading more...</span>
+                    </div>
+                  ) : (
+                    <div style={{
+                      color: 'rgb(var(--text-secondary))',
+                      fontSize: '0.65rem',
+                      opacity: 0.5,
+                    }}>
+                      {chats.length} of {totalChats} chats
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
+        </div>
       </div>
 
-      {/* Delete Confirmation Modal */}
+
       <DeleteConfirmationModal
         isOpen={deleteConfirmation.isOpen}
         chatName={deleteConfirmation.chatName}

@@ -18,10 +18,9 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, memo, useCallback, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { SyntaxHighlighter, vscDarkPlus } from '../../utils/syntaxHighlighter';
 import { AssistantMessage as AssistantMessageType, ToolUseBlock, TextBlock, TodoItem, LongRunningCommandBlock } from './types';
 import { ThinkingBlock } from './ThinkingBlock';
 import { CodeBlockWithCopy } from './CodeBlockWithCopy';
@@ -31,27 +30,43 @@ import { DiffViewer } from './DiffViewer';
 import { Shield, FileText, FolderOpen, Copy, Trash2, Eye, EyeOff, Code2, ChevronUp } from 'lucide-react';
 import { showError } from '../../utils/errorMessages';
 import { useWorkingDirectory } from '../../hooks/useWorkingDirectory';
-import { CodeVisibilityProvider } from '../../context/CodeVisibilityContext';
+import { CodeVisibilityProvider, useCodeVisibility } from '../../context/CodeVisibilityContext';
 
-// Helper to render text with file path detection
-function TextWithFilePaths({ children }: { children: React.ReactNode }) {
+// Import tool components from ./tools
+import {
+  BashToolComponent,
+  BashOutputToolComponent,
+  KillShellToolComponent,
+  WebToolComponent,
+  ReadToolComponent,
+  GrepToolComponent,
+  GlobToolComponent,
+  TaskToolComponent,
+  McpToolComponent,
+  NotebookEditToolComponent,
+  TodoToolComponent,
+  EditToolComponent,
+} from './tools';
+
+// Regex moved outside component to avoid recreation on each render
+const FILE_PATH_REGEX = /((?:~\/[\w\s./-]+)|(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[A-Za-z]:\\[\w\\\s.-]+)|(?:\.\.?\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[\w_-][\w\s_-]*\.(?:md|txt|json|yml|yaml|sh|py|js|ts|jsx|tsx|css|html|xml|toml|ini|cfg|conf|log|env|gitignore|dockerignore|rs|go|java|c|cpp|h|hpp|rb|php|swift|kt|scala|sql|vue|svelte|command)))/g;
+
+// Helper to convert text with newlines to React nodes - memoized outside component
+const textToNodes = (text: string, keyPrefix: string): React.ReactNode[] => {
+  if (!text.includes('\n')) return [text];
+  return text.split('\n').flatMap((part, i, arr) =>
+    i < arr.length - 1 ? [part, <br key={`${keyPrefix}-br-${i}`} />] : [part]
+  );
+};
+
+// Helper to render text with file path detection - memoized
+const TextWithFilePaths = memo(function TextWithFilePaths({ children }: { children: React.ReactNode }) {
   if (typeof children !== 'string') {
     return <>{children}</>;
   }
 
-  // Helper to convert text with newlines to React nodes
-  const textToNodes = (text: string, keyPrefix: string): React.ReactNode[] => {
-    if (!text.includes('\n')) return [text];
-    return text.split('\n').flatMap((part, i, arr) =>
-      i < arr.length - 1 ? [part, <br key={`${keyPrefix}-br-${i}`} />] : [part]
-    );
-  };
-
-  // Regex to match file paths (Unix absolute, Windows, relative, home dir ~, and standalone filenames with spaces)
-  // Only matches actual files, not just "/" or partial paths
-  // Note: Standalone filenames must start with non-whitespace to avoid capturing leading spaces
-  const pathRegex = /((?:~\/[\w\s./-]+)|(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[A-Za-z]:\\[\w\\\s.-]+)|(?:\.\.?\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[\w_-][\w\s_-]*\.(?:md|txt|json|yml|yaml|sh|py|js|ts|jsx|tsx|css|html|xml|toml|ini|cfg|conf|log|env|gitignore|dockerignore|rs|go|java|c|cpp|h|hpp|rb|php|swift|kt|scala|sql|vue|svelte|command)))/g;
-
+  // Create a new regex instance for this execution (global regex state issue)
+  const pathRegex = new RegExp(FILE_PATH_REGEX.source, 'g');
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
   let match;
@@ -82,13 +97,13 @@ function TextWithFilePaths({ children }: { children: React.ReactNode }) {
   }
 
   return parts.length > 0 ? <>{parts}</> : <>{children}</>;
-}
+});
 
-// File path action buttons component
-function FilePathActions({ filePath }: { filePath: string }) {
+// File path action buttons component - memoized
+const FilePathActions = memo(function FilePathActions({ filePath }: { filePath: string }) {
   const { workingDirectory } = useWorkingDirectory();
 
-  const handleOpenFile = async (e: React.MouseEvent) => {
+  const handleOpenFile = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
     try {
       const response = await fetch('/api/open-file', {
@@ -104,9 +119,9 @@ function FilePathActions({ filePath }: { filePath: string }) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       showError('OPEN_FOLDER', errorMsg);
     }
-  };
+  }, [filePath, workingDirectory]);
 
-  const handleOpenFolder = async (e: React.MouseEvent) => {
+  const handleOpenFolder = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
     try {
       const response = await fetch('/api/open-file-folder', {
@@ -122,9 +137,9 @@ function FilePathActions({ filePath }: { filePath: string }) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       showError('OPEN_FOLDER', errorMsg);
     }
-  };
+  }, [filePath, workingDirectory]);
 
-  const handleCopyPath = async (e: React.MouseEvent) => {
+  const handleCopyPath = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
     try {
       await navigator.clipboard.writeText(filePath);
@@ -132,7 +147,7 @@ function FilePathActions({ filePath }: { filePath: string }) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       showError('OPEN_FOLDER', errorMsg);
     }
-  };
+  }, [filePath]);
 
   return (
     <div className="flex gap-0.5 ml-1 shrink-0">
@@ -159,18 +174,12 @@ function FilePathActions({ filePath }: { filePath: string }) {
       </button>
     </div>
   );
-}
+});
 
-// Inline code with hover file actions
+// Inline code with hover file actions - CSS-only hover, no state
 function InlineCodeWithHoverActions({ children, filePath }: { children: React.ReactNode; filePath: string }) {
-  const [isHovered, setIsHovered] = React.useState(false);
-
   return (
-    <span
-      className="inline-flex items-center gap-0.5 relative group"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-    >
+    <span className="inline-flex items-center gap-0.5 relative group">
       <code className="px-1.5 py-0.5 text-sm font-mono rounded-md cursor-pointer" style={{
         backgroundColor: 'rgba(168, 199, 250, 0.15)',
         color: '#DAEEFF',
@@ -178,10 +187,242 @@ function InlineCodeWithHoverActions({ children, filePath }: { children: React.Re
       }}>
         {children}
       </code>
-      {isHovered && <FilePathActions filePath={filePath} />}
+      <div className="hidden group-hover:flex">
+        <FilePathActions filePath={filePath} />
+      </div>
     </span>
   );
 }
+
+// Code block component that uses context for visibility - memoized to prevent unnecessary re-renders
+const MarkdownCodeBlock = memo(function MarkdownCodeBlock({ className, children }: { className?: string; children?: React.ReactNode }) {
+  const { showCode } = useCodeVisibility();
+  const match = /language-(\w+)/.exec(className || '');
+  const language = match ? match[1] : '';
+  const inline = !className;
+
+  // Render mermaid diagrams
+  if (!inline && language === 'mermaid') {
+    return <MermaidDiagram chart={String(children).replace(/\n$/, '')} />;
+  }
+
+  // For code blocks
+  if (!inline) {
+    // Return null if code visibility is disabled globally
+    if (!showCode) {
+      return null;
+    }
+
+    const codeContent = String(children).replace(/\n$/, '');
+    // Check if this code block contains file paths (tree structure)
+    const hasFilePaths = /(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)[^\s<>"|]*)|(?:[A-Za-z]:\\[^\s<>"|]*)|(?:(?:\.\.?\/)?[\w.-]+\/[\w./-]+)/.test(codeContent);
+
+    // Render with file path detection if paths found and no syntax highlighting needed
+    const isPlainText = !language || language === 'text' || language === 'plaintext' || language === 'txt';
+    if (hasFilePaths && isPlainText) {
+      const lines = codeContent.split('\n');
+      return (
+        <div className="my-4 p-4 rounded-lg font-mono text-sm whitespace-pre-wrap" style={{
+          backgroundColor: 'rgba(0, 0, 0, 0.3)',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+        }}>
+          {lines.map((line, i) => (
+            <div key={i} className="leading-relaxed flex flex-wrap items-center">
+              <TextWithFilePaths>{line}</TextWithFilePaths>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    return (
+      <CodeBlockWithCopy
+        code={codeContent}
+        language={language}
+        customStyle={{
+          margin: '1rem 0',
+          borderRadius: '0.5rem',
+          fontSize: '0.875rem',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+        }}
+      />
+    );
+  }
+
+  // Inline code with file path detection
+  const inlineContent = String(children);
+  const isFilePath = /^(?:~\/[\w\s./-]+)|(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[A-Za-z]:\\[\w\\\s.-]+)|(?:\.\.?\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[\w_-][\w\s_-]*\.(?:md|txt|json|yml|yaml|sh|py|js|ts|jsx|tsx|css|html|xml|toml|ini|cfg|conf|log|env|gitignore|dockerignore|rs|go|java|c|cpp|h|hpp|rb|php|swift|kt|scala|sql|vue|svelte|command))$/.test(inlineContent);
+
+  if (isFilePath) {
+    return <InlineCodeWithHoverActions filePath={inlineContent}>{children}</InlineCodeWithHoverActions>;
+  }
+
+  return (
+    <code className="px-1.5 py-0.5 text-sm font-mono rounded-md" style={{
+      backgroundColor: 'rgba(168, 199, 250, 0.15)',
+      color: '#DAEEFF',
+      border: '1px solid rgba(168, 199, 250, 0.2)'
+    }}>
+      {children}
+    </code>
+  );
+});
+
+// Code block component for plan mode - similar to MarkdownCodeBlock but with plan styling
+function PlanModeCodeBlock({ className, children }: { className?: string; children?: React.ReactNode }) {
+  const match = /language-(\w+)/.exec(className || '');
+  const language = match ? match[1] : '';
+  const inline = !className;
+
+  // Render mermaid diagrams
+  if (!inline && language === 'mermaid') {
+    return <MermaidDiagram chart={String(children).replace(/\n$/, '')} />;
+  }
+
+  if (!inline) {
+    return (
+      <CodeBlockWithCopy
+        code={String(children).replace(/\n$/, '')}
+        language={language}
+        customStyle={{
+          borderRadius: '0.5rem',
+          fontSize: '0.875rem',
+          border: 'none',
+          backgroundColor: 'rgba(168, 199, 250, 0.05)',
+        }}
+        wrapperClassName="plan-code-border"
+      />
+    );
+  }
+
+  // Inline code with file path detection
+  const inlineContent = String(children);
+  const isFilePath = /^(?:~\/[\w\s./-]+)|(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[A-Za-z]:\\[\w\\\s.-]+)|(?:\.\.?\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[\w_-][\w\s_-]*\.(?:md|txt|json|yml|yaml|sh|py|js|ts|jsx|tsx|css|html|xml|toml|ini|cfg|conf|log|env|gitignore|dockerignore|rs|go|java|c|cpp|h|hpp|rb|php|swift|kt|scala|sql|vue|svelte|command))$/.test(inlineContent);
+
+  if (isFilePath) {
+    return <InlineCodeWithHoverActions filePath={inlineContent}>{children}</InlineCodeWithHoverActions>;
+  }
+
+  return (
+    <code className="px-1.5 py-0.5 text-sm font-mono rounded-md" style={{
+      backgroundColor: 'rgba(168, 199, 250, 0.15)',
+      color: '#DAEEFF',
+      border: '1px solid rgba(168, 199, 250, 0.2)'
+    }}>
+      {children}
+    </code>
+  );
+}
+
+// Static ReactMarkdown components for plan mode - defined ONCE
+const PLAN_MARKDOWN_COMPONENTS = {
+  a: ({ href, children }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
+    <URLBadge href={href || '#'}>{children}</URLBadge>
+  ),
+  code: PlanModeCodeBlock,
+  h1: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <h1 className="text-2xl font-bold mt-6 mb-4 plan-text-gradient" {...props} />
+  ),
+  h2: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <h2 className="text-xl font-bold mt-5 mb-3 plan-text-gradient" {...props} />
+  ),
+  h3: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <h3 className="text-lg font-semibold mt-4 mb-2 plan-text-gradient" {...props} />
+  ),
+  ul: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <ul className="list-disc pl-6 space-y-2" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
+  ),
+  ol: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <ol className="list-decimal pl-6 space-y-2" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
+  ),
+  li: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <li className="leading-relaxed" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
+  ),
+  p: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <p className="mb-4 leading-relaxed" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
+  ),
+  strong: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <strong className="font-bold plan-text-gradient" {...props} />
+  ),
+};
+
+// Static ReactMarkdown components - defined ONCE outside any component
+const MARKDOWN_COMPONENTS = {
+  a: ({ href, children }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
+    <URLBadge href={href || '#'}>{children}</URLBadge>
+  ),
+  code: MarkdownCodeBlock,
+  h1: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <h1 className="text-2xl font-bold mt-6 mb-4" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
+  ),
+  h2: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <h2 className="text-xl font-bold mt-5 mb-3" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
+  ),
+  h3: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <h3 className="text-lg font-semibold mt-4 mb-2" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
+  ),
+  h4: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <h4 className="text-base font-semibold mt-3 mb-2" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
+  ),
+  h5: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <h5 className="text-sm font-semibold mt-3 mb-2" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
+  ),
+  h6: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <h6 className="text-sm font-semibold mt-3 mb-2" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
+  ),
+  ul: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <ul className="list-disc pl-6 space-y-3 marker:text-gray-400" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
+  ),
+  ol: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <ol className="list-decimal pl-6 space-y-3 marker:text-gray-400" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
+  ),
+  li: ({ children, ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <li className="mb-2 leading-relaxed" style={{ color: 'rgb(var(--text-primary))' }} {...props}>
+      {React.Children.map(children, child =>
+        typeof child === 'string' ? <TextWithFilePaths>{child}</TextWithFilePaths> : child
+      )}
+    </li>
+  ),
+  p: ({ children, ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <p className="mb-4 leading-relaxed first:mt-0 last:mb-0" style={{ color: 'rgb(var(--text-primary))' }} {...props}>
+      {React.Children.map(children, child =>
+        typeof child === 'string' ? <TextWithFilePaths>{child}</TextWithFilePaths> : child
+      )}
+    </p>
+  ),
+  blockquote: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <blockquote className="border-l-4 border-gray-500 pl-4 py-2 my-4 italic bg-white/5" style={{ color: 'rgb(var(--text-secondary))' }} {...props} />
+  ),
+  hr: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <hr className="my-6 border-t border-gray-600" {...props} />
+  ),
+  strong: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <strong className="font-bold" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
+  ),
+  em: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <em className="italic" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
+  ),
+  table: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <div className="my-4 overflow-x-auto">
+      <table className="min-w-full border-collapse border border-gray-600" {...props} />
+    </div>
+  ),
+  thead: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <thead className="bg-white/10" {...props} />
+  ),
+  tbody: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <tbody className="divide-y divide-gray-600" {...props} />
+  ),
+  tr: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <tr className="even:bg-white/5" {...props} />
+  ),
+  th: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <th className="px-4 py-2 text-left font-semibold border border-gray-600" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
+  ),
+  td: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <td className="px-4 py-2 border border-gray-600" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
+  ),
+};
 
 interface AssistantMessageProps {
   message: AssistantMessageType;
@@ -193,13 +434,12 @@ function formatTimestamp(timestamp: string): string {
   return new Date(timestamp).toLocaleString();
 }
 
-// Tool icon component based on tool type
+// Tool icon component for fallback display
 function ToolIcon({ toolName }: { toolName: string }) {
   const getIcon = () => {
     // MCP tools (e.g., mcp__web-search-prime__search)
     if (toolName.startsWith('mcp__')) {
       const server = toolName.split('__')[1] || '';
-      // Use globe icon for web-search, generic MCP icon for others
       if (server === 'web-search-prime') {
         return (
           <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -278,938 +518,6 @@ function ToolIcon({ toolName }: { toolName: string }) {
   return <div className="flex items-center">{getIcon()}</div>;
 }
 
-// Bash-specific tool component matching bash.md design
-function BashToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const input = toolUse.input;
-
-  return (
-    <div className="w-full border border-white/10 rounded-xl my-3 overflow-hidden">
-      {/* Header */}
-      <div className="flex justify-between px-4 py-2 w-full text-xs bg-[#0C0E10] border-b border-white/10">
-        <div className="flex overflow-hidden flex-1 gap-2 items-center whitespace-nowrap">
-          {/* Terminal icon */}
-          <svg className="size-4" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="32" height="32" strokeWidth="2">
-            <path d="M282.88 788.48l-35.84-35.84L486.4 512c-42.24-38.4-142.08-130.56-225.28-215.04L243.2 279.04l35.84-35.84 17.92 17.92c107.52 107.52 241.92 230.4 243.2 231.68 5.12 5.12 7.68 11.52 8.96 17.92 0 6.4-2.56 14.08-7.68 19.2L282.88 788.48zM503.04 733.44h281.6v51.2h-281.6v-51.2z" fill="currentColor" />
-          </svg>
-          <span className="text-sm font-medium leading-6">Shell</span>
-          <div className="bg-gray-700 shrink-0 min-h-4 w-[1px] h-4" role="separator" aria-orientation="vertical" />
-          <span className="flex-1 min-w-0 text-xs truncate text-white/60">
-            {input.command as string}
-          </span>
-        </div>
-        <div className="flex gap-1 items-center whitespace-nowrap">
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            data-collapsed={!isExpanded}
-            className="p-1.5 rounded-lg transition-all data-[collapsed=true]:-rotate-180"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="3.5" stroke="currentColor" className="size-3">
-              <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {/* Content */}
-      {isExpanded && (
-        <div className="p-4 bg-black/30 text-sm space-y-2">
-          <div>
-            <span className="text-xs font-semibold text-white/60">Command:</span>
-            <div className="font-mono text-sm mt-1 bg-black/20 px-2 py-1 rounded">
-              <span className="text-[#2ddc44]">$</span>{' '}
-              <span className="text-white">{input.command}</span>
-            </div>
-          </div>
-          {input.description && (
-            <div>
-              <span className="text-xs font-semibold text-white/60">Description:</span>
-              <div className="text-sm mt-1">{input.description as string}</div>
-            </div>
-          )}
-          {input.timeout && (
-            <div>
-              <span className="text-xs font-semibold text-white/60">Timeout:</span>
-              <div className="text-sm mt-1">{input.timeout as number}ms</div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// BashOutput tool component for retrieving output from background shells
-function BashOutputToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const input = toolUse.input;
-
-  return (
-    <div className="w-full border border-white/10 rounded-xl my-3 overflow-hidden">
-      {/* Header */}
-      <div className="flex justify-between px-4 py-2 w-full text-xs bg-[#0C0E10] border-b border-white/10">
-        <div className="flex overflow-hidden flex-1 gap-2 items-center whitespace-nowrap">
-          {/* Terminal icon */}
-          <svg className="size-4" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="32" height="32" strokeWidth="2">
-            <path d="M282.88 788.48l-35.84-35.84L486.4 512c-42.24-38.4-142.08-130.56-225.28-215.04L243.2 279.04l35.84-35.84 17.92 17.92c107.52 107.52 241.92 230.4 243.2 231.68 5.12 5.12 7.68 11.52 8.96 17.92 0 6.4-2.56 14.08-7.68 19.2L282.88 788.48zM503.04 733.44h281.6v51.2h-281.6v-51.2z" fill="currentColor" />
-          </svg>
-          <span className="text-sm font-medium leading-6">Shell Output</span>
-          <div className="bg-gray-700 shrink-0 min-h-4 w-[1px] h-4" role="separator" aria-orientation="vertical" />
-          <span className="flex-1 min-w-0 text-xs truncate text-white/60">
-            {input.bash_id ? `Shell ${input.bash_id}` : 'Retrieve output'}
-          </span>
-        </div>
-        <div className="flex gap-1 items-center whitespace-nowrap">
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            data-collapsed={!isExpanded}
-            className="p-1.5 rounded-lg transition-all data-[collapsed=true]:-rotate-180"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="3.5" stroke="currentColor" className="size-3">
-              <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {/* Content */}
-      {isExpanded && (
-        <div className="p-4 bg-black/30 text-sm space-y-2">
-          <div>
-            <span className="text-xs font-semibold text-white/60">Shell ID:</span>
-            <div className="font-mono text-sm mt-1 bg-black/20 px-2 py-1 rounded">
-              {input.bash_id as string}
-            </div>
-          </div>
-          {input.filter ? (
-            <div>
-              <span className="text-xs font-semibold text-white/60">Filter:</span>
-              <div className="text-sm mt-1 font-mono">{String(input.filter)}</div>
-            </div>
-          ) : null}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// KillShell tool component for terminating background shells
-function KillShellToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const input = toolUse.input;
-
-  return (
-    <div className="w-full border border-white/10 rounded-xl my-3 overflow-hidden">
-      {/* Header */}
-      <div className="flex justify-between px-4 py-2 w-full text-xs bg-[#0C0E10] border-b border-white/10">
-        <div className="flex overflow-hidden flex-1 gap-2 items-center whitespace-nowrap">
-          {/* Terminal icon with X */}
-          <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <rect x="2" y="4" width="20" height="16" rx="2"/>
-            <path d="M8 9l8 8M16 9l-8 8"/>
-          </svg>
-          <span className="text-sm font-medium leading-6">Kill Shell</span>
-          <div className="bg-gray-700 shrink-0 min-h-4 w-[1px] h-4" role="separator" aria-orientation="vertical" />
-          <span className="flex-1 min-w-0 text-xs truncate text-white/60">
-            {input.shell_id ? `Shell ${input.shell_id}` : 'Terminate shell'}
-          </span>
-        </div>
-        <div className="flex gap-1 items-center whitespace-nowrap">
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            data-collapsed={!isExpanded}
-            className="p-1.5 rounded-lg transition-all data-[collapsed=true]:-rotate-180"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="3.5" stroke="currentColor" className="size-3">
-              <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {/* Content */}
-      {isExpanded && (
-        <div className="p-4 bg-black/30 text-sm space-y-2">
-          <div>
-            <span className="text-xs font-semibold text-white/60">Shell ID:</span>
-            <div className="font-mono text-sm mt-1 bg-black/20 px-2 py-1 rounded">
-              {input.shell_id as string}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Web tool component (WebSearch/WebFetch) matching edit-write-update.md design
-function WebToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const input = toolUse.input;
-
-  return (
-    <div className="w-full border border-white/10 rounded-xl my-3 overflow-hidden">
-      {/* Header */}
-      <div className="flex justify-between px-4 py-2 w-full text-xs bg-[#0C0E10] border-b border-white/10">
-        <div className="flex overflow-hidden flex-1 gap-2 items-center whitespace-nowrap">
-          {/* Globe icon */}
-          <svg className="size-4" strokeWidth="1.5" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="12" cy="12" r="10" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round"/>
-            <line x1="2" y1="12" x2="22" y2="12" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-          <span className="text-sm font-medium leading-6">{toolUse.name}</span>
-          <div className="bg-gray-700 shrink-0 min-h-4 w-[1px] h-4" role="separator" aria-orientation="vertical" />
-          <span className="flex-1 min-w-0 text-xs truncate text-white/60">
-            {toolUse.name === 'WebSearch'
-              ? (input.query as string)
-              : (input.url as string)}
-          </span>
-        </div>
-        <div className="flex gap-1 items-center whitespace-nowrap">
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            data-collapsed={!isExpanded}
-            className="p-1.5 rounded-lg transition-all data-[collapsed=true]:-rotate-180"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="3.5" stroke="currentColor" className="size-3">
-              <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {/* Content */}
-      {isExpanded && (
-        <div className="p-4 bg-black/30 text-sm space-y-2">
-          {toolUse.name === 'WebSearch' ? (
-            <>
-              <div>
-                <span className="text-xs font-semibold text-white/60">Query:</span>
-                <div className="text-sm mt-1">{input.query as string}</div>
-              </div>
-              {input.allowed_domains && (input.allowed_domains as string[]).length > 0 && (
-                <div>
-                  <span className="text-xs font-semibold text-white/60">Allowed Domains:</span>
-                  <div className="text-sm mt-1">{(input.allowed_domains as string[]).join(', ')}</div>
-                </div>
-              )}
-              {input.blocked_domains && (input.blocked_domains as string[]).length > 0 && (
-                <div>
-                  <span className="text-xs font-semibold text-white/60">Blocked Domains:</span>
-                  <div className="text-sm mt-1">{(input.blocked_domains as string[]).join(', ')}</div>
-                </div>
-              )}
-            </>
-          ) : (
-            <>
-              <div>
-                <span className="text-xs font-semibold text-white/60">URL:</span>
-                <div className="text-sm mt-1 break-all font-mono">{input.url as string}</div>
-              </div>
-              <div>
-                <span className="text-xs font-semibold text-white/60">Prompt:</span>
-                <div className="text-sm mt-1">{input.prompt as string}</div>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Read tool component
-function ReadToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const input = toolUse.input;
-
-  return (
-    <div className="w-full border border-white/10 rounded-xl my-3 overflow-hidden">
-      {/* Header */}
-      <div className="flex justify-between px-4 py-2 w-full text-xs bg-[#0C0E10] border-b border-white/10">
-        <div className="flex overflow-hidden flex-1 gap-2 items-center whitespace-nowrap">
-          {/* Document icon */}
-          <svg className="size-4" strokeWidth="1.5" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-          <span className="text-sm font-medium leading-6">Read</span>
-          <div className="bg-gray-700 shrink-0 min-h-4 w-[1px] h-4" role="separator" aria-orientation="vertical" />
-          <span className="flex-1 min-w-0 text-xs truncate text-white/60">
-            {input.file_path as string}
-          </span>
-          <FilePathActions filePath={input.file_path as string} />
-        </div>
-        <div className="flex gap-1 items-center whitespace-nowrap">
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            data-collapsed={!isExpanded}
-            className="p-1.5 rounded-lg transition-all data-[collapsed=true]:-rotate-180"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="3.5" stroke="currentColor" className="size-3">
-              <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {/* Content */}
-      {isExpanded && (
-        <div className="p-4 bg-black/30 text-sm space-y-2">
-          <div>
-            <span className="text-xs font-semibold text-white/60">File Path:</span>
-            <div className="text-sm mt-1 font-mono flex items-center gap-2">
-              {input.file_path as string}
-              <FilePathActions filePath={input.file_path as string} />
-            </div>
-          </div>
-          {input.offset && (
-            <div>
-              <span className="text-xs font-semibold text-white/60">Offset:</span>
-              <div className="text-sm mt-1">{input.offset} lines</div>
-            </div>
-          )}
-          {input.limit && (
-            <div>
-              <span className="text-xs font-semibold text-white/60">Limit:</span>
-              <div className="text-sm mt-1">{input.limit} lines</div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Grep tool component
-function GrepToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const input = toolUse.input;
-
-  return (
-    <div className="w-full border border-white/10 rounded-xl my-3 overflow-hidden">
-      {/* Header */}
-      <div className="flex justify-between px-4 py-2 w-full text-xs bg-[#0C0E10] border-b border-white/10">
-        <div className="flex overflow-hidden flex-1 gap-2 items-center whitespace-nowrap">
-          {/* Search icon */}
-          <svg className="size-4" strokeWidth="1.5" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-          <span className="text-sm font-medium leading-6">Grep</span>
-          <div className="bg-gray-700 shrink-0 min-h-4 w-[1px] h-4" role="separator" aria-orientation="vertical" />
-          <span className="flex-1 min-w-0 text-xs truncate text-white/60">
-            {input.pattern as string}
-          </span>
-        </div>
-        <div className="flex gap-1 items-center whitespace-nowrap">
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            data-collapsed={!isExpanded}
-            className="p-1.5 rounded-lg transition-all data-[collapsed=true]:-rotate-180"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="3.5" stroke="currentColor" className="size-3">
-              <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {/* Content */}
-      {isExpanded && (
-        <div className="p-4 bg-black/30 text-sm space-y-2">
-          <div>
-            <span className="text-xs font-semibold text-white/60">Pattern:</span>
-            <div className="text-sm mt-1 font-mono bg-yellow-500/10 px-2 py-1 rounded">{input.pattern as string}</div>
-          </div>
-          {input.path && (
-            <div>
-              <span className="text-xs font-semibold text-white/60">Path:</span>
-              <div className="text-sm mt-1 font-mono">{input.path as string}</div>
-            </div>
-          )}
-          {input.glob && (
-            <div>
-              <span className="text-xs font-semibold text-white/60">Glob:</span>
-              <div className="text-sm mt-1 font-mono">{input.glob as string}</div>
-            </div>
-          )}
-          {input.output_mode && (
-            <div>
-              <span className="text-xs font-semibold text-white/60">Mode:</span>
-              <div className="text-sm mt-1">{input.output_mode as string}</div>
-            </div>
-          )}
-          {(input['-i'] || input['-n'] || input.multiline) && (
-            <div>
-              <span className="text-xs font-semibold text-white/60">Options:</span>
-              <div className="flex gap-2 mt-1">
-                {input['-i'] && <span className="text-xs bg-white/60 dark:bg-black/20 px-2 py-0.5 rounded">case-insensitive</span>}
-                {input['-n'] && <span className="text-xs bg-white/60 dark:bg-black/20 px-2 py-0.5 rounded">line-numbers</span>}
-                {input.multiline && <span className="text-xs bg-white/60 dark:bg-black/20 px-2 py-0.5 rounded">multiline</span>}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Glob tool component
-function GlobToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const input = toolUse.input;
-
-  return (
-    <div className="w-full border border-white/10 rounded-xl my-3 overflow-hidden">
-      {/* Header */}
-      <div className="flex justify-between px-4 py-2 w-full text-xs bg-[#0C0E10] border-b border-white/10">
-        <div className="flex overflow-hidden flex-1 gap-2 items-center whitespace-nowrap">
-          {/* Files icon */}
-          <svg className="size-4" strokeWidth="1.5" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-          <span className="text-sm font-medium leading-6">Glob</span>
-          <div className="bg-gray-700 shrink-0 min-h-4 w-[1px] h-4" role="separator" aria-orientation="vertical" />
-          <span className="flex-1 min-w-0 text-xs truncate text-white/60">
-            {input.pattern as string}
-          </span>
-        </div>
-        <div className="flex gap-1 items-center whitespace-nowrap">
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            data-collapsed={!isExpanded}
-            className="p-1.5 rounded-lg transition-all data-[collapsed=true]:-rotate-180"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="3.5" stroke="currentColor" className="size-3">
-              <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {/* Content */}
-      {isExpanded && (
-        <div className="p-4 bg-black/30 text-sm space-y-2">
-          <div>
-            <span className="text-xs font-semibold text-white/60">Pattern:</span>
-            <div className="text-sm mt-1 font-mono">{input.pattern as string}</div>
-          </div>
-          {input.path && (
-            <div>
-              <span className="text-xs font-semibold text-white/60">Path:</span>
-              <div className="text-sm mt-1 font-mono">{input.path as string}</div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Task tool component
-function TaskToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
-
-  // Defensive data access
-  let input: Record<string, unknown> | undefined, nestedToolsCount: number | undefined, agentName, gradientClass;
-
-  try {
-    input = toolUse.input || {};
-    nestedToolsCount = toolUse.nestedTools?.length || 0;
-
-    // Hash tool ID to randomly pick a gradient (1-10) - each spawn gets unique color
-    const getAgentGradientClass = (toolId: string): string => {
-      try {
-        let hash = 0;
-        for (let i = 0; i < toolId.length; i++) {
-          hash = ((hash << 5) - hash) + toolId.charCodeAt(i);
-          hash = hash & hash; // Convert to 32bit integer
-        }
-        const gradientNum = (Math.abs(hash) % 10) + 1;
-        return `agent-gradient-${gradientNum}`;
-      } catch {
-        return 'agent-gradient-1';
-      }
-    };
-
-    agentName = String(input.subagent_type || 'Unknown Agent');
-    gradientClass = getAgentGradientClass(toolUse.id || 'default');
-  } catch (e) {
-    setError(e as Error);
-  }
-
-  // Error state rendering
-  if (error) {
-    return (
-      <div className="w-full border border-red-500/30 rounded-xl my-3 p-4 bg-red-900/20">
-        <div className="text-sm text-red-400">
-          <strong>Task Tool Error:</strong> {error.message}
-        </div>
-        <details className="mt-2 text-xs">
-          <summary className="cursor-pointer">View Details</summary>
-          <pre className="mt-2 p-2 bg-black/30 rounded overflow-auto max-h-40">
-            {error.stack}
-          </pre>
-        </details>
-      </div>
-    );
-  }
-
-  return (
-    <div className="w-full border border-white/10 rounded-xl my-3 overflow-hidden">
-      {/* Header */}
-      <div className="flex justify-between px-4 py-2 w-full text-xs bg-[#0C0E10] border-b border-white/10">
-        <div className="flex overflow-hidden flex-1 gap-2 items-center whitespace-nowrap">
-          {/* Robot icon */}
-          <svg className="size-4" strokeWidth="1.5" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M9 9.75A.75.75 0 1 1 9 8.25.75.75 0 0 1 9 9.75zM15 9.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5z" fill="currentColor"/>
-            <path d="M12 2.25a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0V3a.75.75 0 0 1 .75-.75zM7.5 6h9A2.25 2.25 0 0 1 18.75 8.25v7.5A2.25 2.25 0 0 1 16.5 18h-9a2.25 2.25 0 0 1-2.25-2.25v-7.5A2.25 2.25 0 0 1 7.5 6zM6 19.5h12M8.25 19.5v1.5a.75.75 0 0 0 .75.75h6a.75.75 0 0 0 .75-.75v-1.5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M9 12.75h6a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v-1.5a.75.75 0 0 1 .75-.75z" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-          <span className={`text-sm leading-6 ${gradientClass}`}>{agentName}</span>
-          <div className="bg-gray-700 shrink-0 min-h-4 w-[1px] h-4" role="separator" aria-orientation="vertical" />
-          <span className="flex-1 min-w-0 text-xs truncate text-white/60">
-            {nestedToolsCount !== undefined && nestedToolsCount > 0 ? `Used ${nestedToolsCount} tool${nestedToolsCount !== 1 ? 's' : ''}` : 'Running...'}
-          </span>
-        </div>
-        <div className="flex gap-1 items-center whitespace-nowrap">
-          <button
-            onClick={() => {
-              try {
-                setIsExpanded(!isExpanded);
-              } catch (e) {
-                setError(e as Error);
-              }
-            }}
-            data-collapsed={!isExpanded}
-            className="p-1.5 rounded-lg transition-all data-[collapsed=true]:-rotate-180"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="3.5" stroke="currentColor" className="size-3">
-              <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {/* Content */}
-      {isExpanded && (
-        <div className="p-4 bg-black/30 text-sm space-y-3">
-          {(() => {
-            try {
-              return (
-                <>
-                  {input?.subagent_type && (
-                    <div>
-                      <span className="text-xs font-semibold text-white/60">Agent Type:</span>
-                      <div className="text-sm mt-1">{String(input.subagent_type)}</div>
-                    </div>
-                  )}
-                  {input?.description && (
-                    <div>
-                      <span className="text-xs font-semibold text-white/60">Task Description:</span>
-                      <div className="text-sm mt-1">{String(input.description)}</div>
-                    </div>
-                  )}
-                  {input?.prompt && (
-                    <div>
-                      <span className="text-xs font-semibold text-white/60">Task Prompt:</span>
-                      <div className="text-sm mt-1 max-h-32 overflow-y-auto bg-white/60 dark:bg-black/20 p-2 rounded whitespace-pre-wrap break-words">
-                        {String(input.prompt).substring(0, 5000)}
-                        {String(input.prompt).length > 5000 && (
-                          <span className="text-xs text-white/40"> (truncated)</span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Nested tools from spawned agent */}
-                  {nestedToolsCount !== undefined && nestedToolsCount > 0 && (
-                    <div>
-                      <span className="text-xs font-semibold text-white/60">Tools Used ({nestedToolsCount}):</span>
-                      <div className="mt-2 space-y-2">
-                        {toolUse.nestedTools?.map((nestedTool, index) => {
-                          try {
-                            return <NestedToolDisplay key={nestedTool.id || index} toolUse={nestedTool} />;
-                          } catch (e) {
-                            return (
-                              <div key={index} className="text-xs text-red-500 p-2 bg-red-900/20 rounded">
-                                Error rendering tool: {(e as Error).message}
-                              </div>
-                            );
-                          }
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </>
-              );
-            } catch (e) {
-              return (
-                <div className="text-sm text-red-400">
-                  Error rendering content: {(e as Error).message}
-                </div>
-              );
-            }
-          })()}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Nested tool display (simplified version for tools within Task)
-function NestedToolDisplay({ toolUse }: { toolUse: ToolUseBlock }) {
-  try {
-    if (!toolUse || !toolUse.name) {
-      return (
-        <div className="border border-red-500/30 rounded-lg bg-red-900/20 p-2">
-          <div className="text-xs text-red-400">
-            Invalid tool data
-          </div>
-        </div>
-      );
-    }
-
-    return (
-      <div className="border border-black/5 dark:border-white/5 rounded-lg bg-white/5 p-2">
-        <div className="flex items-center gap-2">
-          <ToolIcon toolName={toolUse.name} />
-          <span className="text-xs font-medium">{toolUse.name}</span>
-          <span className="text-xs text-white/40">
-            {getToolSummary(toolUse)}
-          </span>
-        </div>
-      </div>
-    );
-  } catch (e) {
-    return (
-      <div className="border border-red-500/30 rounded-lg bg-red-900/20 p-2">
-        <div className="text-xs text-red-400">
-          Error: {(e as Error).message}
-        </div>
-      </div>
-    );
-  }
-}
-
-// Get a one-line summary of a tool's usage
-function getToolSummary(toolUse: ToolUseBlock): string {
-  try {
-    const input = toolUse.input;
-
-    switch (toolUse.name) {
-      case 'Read':
-        return String(input.file_path || '');
-      case 'Write':
-      case 'Edit':
-        return String(input.file_path || '');
-      case 'Bash':
-        return String(input.command || '').substring(0, 50);
-      case 'BashOutput':
-        return `Shell ${input.bash_id || 'output'}`;
-      case 'KillShell':
-        return `Shell ${input.shell_id || 'terminated'}`;
-      case 'Grep':
-        return `"${input.pattern}" in ${input.path || 'project'}`;
-      case 'Glob':
-        return String(input.pattern || '');
-      case 'WebSearch':
-      case 'WebFetch':
-        return String(input.query || input.url || '');
-      case 'Task':
-        return String(input.subagent_type || '');
-      case 'TodoWrite': {
-        // TodoWrite has an array of todos, show count
-        const todos = input.todos as Array<unknown> || [];
-        return `${todos.length} task${todos.length !== 1 ? 's' : ''}`;
-      }
-      case 'NotebookEdit':
-        return String(input.notebook_path || '');
-      default: {
-        // Safely convert any value to string
-        const firstValue = Object.values(input)[0];
-        if (typeof firstValue === 'string') {
-          return firstValue;
-        }
-        if (typeof firstValue === 'number' || typeof firstValue === 'boolean') {
-          return String(firstValue);
-        }
-        if (Array.isArray(firstValue)) {
-          return `${firstValue.length} items`;
-        }
-        if (typeof firstValue === 'object' && firstValue !== null) {
-          return JSON.stringify(firstValue).substring(0, 30);
-        }
-        return '';
-      }
-    }
-  } catch {
-    return '';
-  }
-}
-
-// MCP tool component (for tools like mcp__web-search-prime__search)
-function McpToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const input = toolUse.input;
-
-  // Parse MCP tool name: mcp__server-name__tool-name -> { server: "server-name", tool: "tool-name" }
-  const parseMcpName = (name: string) => {
-    const parts = name.split('__');
-    if (parts.length >= 3 && parts[0] === 'mcp') {
-      return {
-        server: parts[1],
-        tool: parts.slice(2).join('__'),
-      };
-    }
-    return { server: 'unknown', tool: name };
-  };
-
-  const { server, tool } = parseMcpName(toolUse.name);
-
-  // Get display name for tool
-  const getDisplayName = () => {
-    if (server === 'web-search-prime') return 'Web Search';
-    return tool.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-  };
-
-  // Get main parameter to display
-  const getMainParam = () => {
-    if (input.query) return input.query as string;
-    if (input.url) return input.url as string;
-    if (input.search_query) return input.search_query as string;
-    return JSON.stringify(input);
-  };
-
-  return (
-    <div className="w-full border border-white/10 rounded-xl my-3 overflow-hidden">
-      {/* Header */}
-      <div className="flex justify-between px-4 py-2 w-full text-xs bg-[#0C0E10] border-b border-white/10">
-        <div className="flex overflow-hidden flex-1 gap-2 items-center whitespace-nowrap">
-          {/* Globe icon for web search, default icon for others */}
-          {server === 'web-search-prime' ? (
-            <svg className="size-4" strokeWidth="1.5" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round"/>
-              <line x1="2" y1="12" x2="22" y2="12" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          ) : (
-            <svg className="size-4" strokeWidth="1.5" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M13.5 16.875h3.375m0 0h3.375m-3.375 0V13.5m0 3.375v3.375M6 10.5h2.25a2.25 2.25 0 0 0 2.25-2.25V6a2.25 2.25 0 0 0-2.25-2.25H6A2.25 2.25 0 0 0 3.75 6v2.25A2.25 2.25 0 0 0 6 10.5Zm0 9.75h2.25A2.25 2.25 0 0 0 10.5 18v-2.25a2.25 2.25 0 0 0-2.25-2.25H6a2.25 2.25 0 0 0-2.25 2.25V18A2.25 2.25 0 0 0 6 20.25Zm9.75-9.75H18a2.25 2.25 0 0 0 2.25-2.25V6A2.25 2.25 0 0 0 18 3.75h-2.25A2.25 2.25 0 0 0 13.5 6v2.25a2.25 2.25 0 0 0 2.25 2.25Z" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          )}
-          <span className="text-sm font-medium leading-6">{getDisplayName()}</span>
-          <div className="bg-gray-700 shrink-0 min-h-4 w-[1px] h-4" role="separator" aria-orientation="vertical" />
-          <span className="flex-1 min-w-0 text-xs truncate text-white/60">
-            {getMainParam()}
-          </span>
-        </div>
-        <div className="flex gap-1 items-center whitespace-nowrap">
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            data-collapsed={!isExpanded}
-            className="p-1.5 rounded-lg transition-all data-[collapsed=true]:-rotate-180"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="3.5" stroke="currentColor" className="size-3">
-              <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {/* Content */}
-      {isExpanded && (
-        <div className="p-4 bg-black/30 text-sm space-y-2">
-          <div>
-            <span className="text-xs font-semibold text-white/60">MCP Server:</span>
-            <div className="text-sm mt-1">{server}</div>
-          </div>
-          <div>
-            <span className="text-xs font-semibold text-white/60">Tool:</span>
-            <div className="text-sm mt-1">{tool}</div>
-          </div>
-          {Object.entries(input).map(([key, value]) => (
-            <div key={key}>
-              <span className="text-xs font-semibold text-white/60">{key}:</span>
-              <div className="text-sm mt-1 break-all">
-                {typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// NotebookEdit tool component
-function NotebookEditToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const input = toolUse.input;
-
-  return (
-    <div className="w-full border border-white/10 rounded-xl my-3 overflow-hidden">
-      {/* Header */}
-      <div className="flex justify-between px-4 py-2 w-full text-xs bg-[#0C0E10] border-b border-white/10">
-        <div className="flex overflow-hidden flex-1 gap-2 items-center whitespace-nowrap">
-          {/* Notebook icon */}
-          <svg className="size-4" strokeWidth="1.5" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-          <span className="text-sm font-medium leading-6">Notebook Edit</span>
-          <div className="bg-gray-700 shrink-0 min-h-4 w-[1px] h-4" role="separator" aria-orientation="vertical" />
-          <span className="flex-1 min-w-0 text-xs truncate text-white/60">
-            {input.notebook_path as string}
-          </span>
-        </div>
-        <div className="flex gap-1 items-center whitespace-nowrap">
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            data-collapsed={!isExpanded}
-            className="p-1.5 rounded-lg transition-all data-[collapsed=true]:-rotate-180"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="3.5" stroke="currentColor" className="size-3">
-              <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {/* Content */}
-      {isExpanded && (
-        <div className="p-4 bg-black/30 text-sm space-y-2">
-          <div>
-            <span className="text-xs font-semibold text-white/60">Notebook Path:</span>
-            <div className="text-sm mt-1 font-mono">{input.notebook_path as string}</div>
-          </div>
-          {input.cell_id && (
-            <div>
-              <span className="text-xs font-semibold text-white/60">Cell ID:</span>
-              <div className="text-sm mt-1 font-mono">{input.cell_id as string}</div>
-            </div>
-          )}
-          <div>
-            <span className="text-xs font-semibold text-white/60">Cell Type:</span>
-            <div className="text-sm mt-1">{(input.cell_type as string) || 'default'}</div>
-          </div>
-          <div>
-            <span className="text-xs font-semibold text-white/60">Edit Mode:</span>
-            <div className="text-sm mt-1">{(input.edit_mode as string) || 'replace'}</div>
-          </div>
-          {input.new_source ? (
-            <div>
-              <span className="text-xs font-semibold text-white/60">New Source:</span>
-              <div className="text-sm mt-1 max-h-32 overflow-y-auto bg-black/20 p-2 rounded font-mono whitespace-pre-wrap">
-                {String(input.new_source).substring(0, 500)}
-                {(() => {
-                  const sourceStr = String(input.new_source);
-                  return sourceStr.length > 500 ? (
-                    <span className="text-xs text-white/40"> (truncated)</span>
-                  ) : null;
-                })()}
-              </div>
-            </div>
-          ) : null}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// TodoWrite tool component matching other tool designs
-function TodoToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const input = toolUse.input;
-  const todos = input.todos as TodoItem[] || [];
-
-  // Count todos by status
-  const completedCount = todos.filter(t => t.status === 'completed').length;
-  const inProgressCount = todos.filter(t => t.status === 'in_progress').length;
-  const pendingCount = todos.filter(t => t.status === 'pending').length;
-
-  return (
-    <div className="w-full border border-white/10 rounded-xl my-3 overflow-hidden">
-      {/* Header */}
-      <div className="flex justify-between px-4 py-2 w-full text-xs bg-[#0C0E10] border-b border-white/10">
-        <div className="flex overflow-hidden flex-1 gap-2 items-center whitespace-nowrap">
-          {/* Todo list icon */}
-          <svg className="size-4" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" width="32" height="32" strokeWidth="1.5">
-            <path d="M266.304 104.544l-105.408 105.92-41.408-41.6a31.904 31.904 0 0 0-54.496 13.888c-2.88 11.424 0.672 23.552 9.28 31.552l64 64.32a31.904 31.904 0 0 0 45.216 0l128-128.64a32.256 32.256 0 0 0-0.864-44.576 31.904 31.904 0 0 0-44.352-0.864h0.032zM176 384a112 112 0 1 1 0 224 112 112 0 0 1 0-224z m9.376 64.8a48.064 48.064 0 1 0 24.416 81.216 48.064 48.064 0 0 0-24.416-81.216zM928.064 160H416a32 32 0 0 0 0 64h512.064a32 32 0 0 0 0-64zM928.064 480H416a32 32 0 0 0 0 64h512.064a32 32 0 0 0 0-64zM176 720a112 112 0 1 1 0 224 112 112 0 0 1 0-224z m9.376 64.8a48.064 48.064 0 1 0 24.416 81.216 48.064 48.064 0 0 0-24.416-81.216zM928.064 800H416a32 32 0 0 0 0 64h512.064a32 32 0 0 0 0-64z" fill="currentColor" stroke="currentColor"/>
-          </svg>
-          <span className="text-sm font-medium leading-6">Task List</span>
-          <div className="bg-gray-700 shrink-0 min-h-4 w-[1px] h-4" role="separator" aria-orientation="vertical" />
-          <span className="flex-1 min-w-0 text-xs truncate text-white/60">
-            {completedCount}/{todos.length} completed
-            {inProgressCount > 0 && ` · ${inProgressCount} in progress`}
-            {pendingCount > 0 && ` · ${pendingCount} pending`}
-          </span>
-        </div>
-        <div className="flex gap-1 items-center whitespace-nowrap">
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            data-collapsed={!isExpanded}
-            className="p-1.5 rounded-lg transition-all data-[collapsed=true]:-rotate-180"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="3.5" stroke="currentColor" className="size-3">
-              <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {/* Content */}
-      {isExpanded && (
-        <div className="p-4 bg-black/30 text-sm">
-          <div className="space-y-1">
-            {todos.map((todo: TodoItem, i: number) => (
-              <div key={i} className="flex gap-2 items-center py-1.5 px-2 rounded hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
-                {/* Status indicator */}
-                <div className="flex items-center justify-center size-5 shrink-0">
-                  {todo.status === 'completed' ? (
-                    // Checkmark for completed
-                    <svg className="size-4 text-green-500" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  ) : todo.status === 'in_progress' ? (
-                    // Spinner for in progress
-                    <svg className="size-4 text-blue-500 animate-spin" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                  ) : (
-                    // Empty circle for pending
-                    <svg className="size-4 text-black/30 dark:text-white/30" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
-                      <circle cx="12" cy="12" r="9" />
-                    </svg>
-                  )}
-                </div>
-
-                {/* Task text */}
-                <div className="flex-1 min-w-0">
-                  <span className="text-xs text-white/40 mr-1">{i + 1}.</span>
-                  <span
-                    className={`${
-                      todo.status === 'completed'
-                        ? 'text-white/40 line-through'
-                        : todo.status === 'in_progress'
-                        ? 'font-medium text-blue-600 dark:text-blue-400'
-                        : 'text-black/70 dark:text-white/70'
-                    }`}
-                  >
-                    {todo.status === 'in_progress' ? todo.activeForm : todo.content}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ExitPlanMode tool component with blue theme and markdown rendering
 function ExitPlanModeComponent({ toolUse }: { toolUse: ToolUseBlock }) {
   const [isExpanded, setIsExpanded] = useState(true); // Expanded by default
@@ -1251,144 +559,14 @@ function ExitPlanModeComponent({ toolUse }: { toolUse: ToolUseBlock }) {
           <div className="prose prose-base max-w-none prose-invert">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
-              components={{
-                a: ({ href, children }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
-                  <URLBadge href={href || '#'}>
-                    {children}
-                  </URLBadge>
-                ),
-                code: ({ className, children }: React.HTMLAttributes<HTMLElement> & { className?: string; children?: React.ReactNode }) => {
-                  const match = /language-(\w+)/.exec(className || '');
-                  const language = match ? match[1] : '';
-                  const inline = !className;
-
-                  // Render mermaid diagrams
-                  if (!inline && language === 'mermaid') {
-                    return <MermaidDiagram chart={String(children).replace(/\n$/, '')} />;
-                  }
-
-                  if (!inline) {
-                    return (
-                      <CodeBlockWithCopy
-                        code={String(children).replace(/\n$/, '')}
-                        language={language}
-                        customStyle={{
-                          borderRadius: '0.5rem',
-                          fontSize: '0.875rem',
-                          border: 'none',
-                          backgroundColor: 'rgba(168, 199, 250, 0.05)',
-                        }}
-                        wrapperClassName="plan-code-border"
-                      />
-                    );
-                  }
-
-                  // Inline code with file path detection
-                  const inlineContent = String(children);
-                  const isFilePath = /^(?:~\/[\w\s./-]+)|(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[A-Za-z]:\\[\w\\\s.-]+)|(?:\.\.?\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[\w_-][\w\s_-]*\.(?:md|txt|json|yml|yaml|sh|py|js|ts|jsx|tsx|css|html|xml|toml|ini|cfg|conf|log|env|gitignore|dockerignore|rs|go|java|c|cpp|h|hpp|rb|php|swift|kt|scala|sql|vue|svelte|command))$/.test(inlineContent);
-
-                  if (isFilePath) {
-                    return <InlineCodeWithHoverActions filePath={inlineContent}>{children}</InlineCodeWithHoverActions>;
-                  }
-
-                  return (
-                    <code className="px-1.5 py-0.5 text-sm font-mono rounded-md" style={{
-                      backgroundColor: 'rgba(168, 199, 250, 0.15)',
-                      color: '#DAEEFF',
-                      border: '1px solid rgba(168, 199, 250, 0.2)'
-                    }}>
-                      {children}
-                    </code>
-                  );
-                },
-                h1: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-                  <h1 className="text-2xl font-bold mt-6 mb-4 plan-text-gradient" {...props} />
-                ),
-                h2: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-                  <h2 className="text-xl font-bold mt-5 mb-3 plan-text-gradient" {...props} />
-                ),
-                h3: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-                  <h3 className="text-lg font-semibold mt-4 mb-2 plan-text-gradient" {...props} />
-                ),
-                ul: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-                  <ul className="list-disc pl-6 space-y-2" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
-                ),
-                ol: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-                  <ol className="list-decimal pl-6 space-y-2" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
-                ),
-                li: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-                  <li className="leading-relaxed" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
-                ),
-                p: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-                  <p className="mb-4 leading-relaxed" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
-                ),
-                strong: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-                  <strong className="font-bold plan-text-gradient" {...props} />
-                ),
-              }}
+              components={PLAN_MARKDOWN_COMPONENTS}
             >
-              {input.plan as string || 'No plan provided'}
+              {String(input.plan || 'No plan provided')}
             </ReactMarkdown>
           </div>
         </div>
       )}
     </div>
-  );
-}
-
-// Edit/Write tool component with enhanced DiffViewer (bolt.new style)
-function EditToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
-  const input = toolUse.input;
-
-  // Detect language from file extension
-  const getLanguageFromPath = (filePath: string): string => {
-    const ext = filePath.split('.').pop()?.toLowerCase();
-    const languageMap: Record<string, string> = {
-      'ts': 'typescript',
-      'tsx': 'tsx',
-      'js': 'javascript',
-      'jsx': 'jsx',
-      'py': 'python',
-      'rb': 'ruby',
-      'go': 'go',
-      'rs': 'rust',
-      'java': 'java',
-      'c': 'c',
-      'cpp': 'cpp',
-      'css': 'css',
-      'scss': 'scss',
-      'html': 'html',
-      'json': 'json',
-      'yaml': 'yaml',
-      'yml': 'yaml',
-      'md': 'markdown',
-      'sh': 'bash',
-      'sql': 'sql',
-    };
-    return languageMap[ext || ''] || 'text';
-  };
-
-  const filePath = (input.file_path as string) || '';
-  const language = getLanguageFromPath(filePath);
-
-  // Get old/new content based on tool type
-  const oldContent = toolUse.name === 'Edit' ? (input.old_string as string) : null;
-  const newContent = toolUse.name === 'Write'
-    ? (input.content as string) || ''
-    : (input.new_string as string) || '';
-
-  // Try to extract start line from context if available
-  const startLine = (input.start_line as number) || 1;
-
-  return (
-    <DiffViewer
-      filePath={filePath}
-      oldContent={oldContent}
-      newContent={newContent}
-      language={language}
-      startLine={startLine}
-      maxHeight={300}
-    />
   );
 }
 
@@ -1491,7 +669,7 @@ function ToolUseComponent({ toolUse }: { toolUse: ToolUseBlock }) {
         );
     }
   };
-  
+
   return (
     <div className="w-full">
       <div className="flex flex-col flex-1 bg-[#0C0E10]">
@@ -1622,7 +800,7 @@ function LongRunningCommandComponent({ command }: { command: LongRunningCommandB
   );
 }
 
-function TextComponent({ text, showCode = true }: { text: TextBlock; showCode?: boolean }) {
+function TextComponent({ text }: { text: TextBlock }) {
   // Check if this is a context cleared message
   const isContextCleared = text.text.includes('--- Context cleared');
   // Check for both manual and auto-compact messages
@@ -1672,168 +850,6 @@ function TextComponent({ text, showCode = true }: { text: TextBlock; showCode?: 
     );
   }
 
-  // Memoize components to prevent recreating on every render
-  const components = useMemo(() => ({
-            // Customize link rendering with URL badges
-            a: ({ href, children }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
-              <URLBadge href={href || '#'}>
-                {children}
-              </URLBadge>
-            ),
-            // Customize code rendering
-            code: ({ className, children }: React.HTMLAttributes<HTMLElement> & { className?: string; children?: React.ReactNode }) => {
-              const match = /language-(\w+)/.exec(className || '');
-              const language = match ? match[1] : '';
-              const inline = !className;
-
-              // Render mermaid diagrams
-              if (!inline && language === 'mermaid') {
-                return <MermaidDiagram chart={String(children).replace(/\n$/, '')} />;
-              }
-
-              // For code blocks, check if they contain file paths
-              if (!inline) {
-                // Return null if code visibility is disabled globally
-                if (!showCode) {
-                  return null;
-                }
-
-                const codeContent = String(children).replace(/\n$/, '');
-                // Check if this code block contains file paths (tree structure)
-                const hasFilePaths = /(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)[^\s<>"|]*)|(?:[A-Za-z]:\\[^\s<>"|]*)|(?:(?:\.\.?\/)?[\w.-]+\/[\w./-]+)/.test(codeContent);
-
-                // Render with file path detection if paths found and no syntax highlighting needed
-                const isPlainText = !language || language === 'text' || language === 'plaintext' || language === 'txt';
-                if (hasFilePaths && isPlainText) {
-                  // Render as plain text with file path detection
-                  const lines = codeContent.split('\n');
-                  return (
-                    <div className="my-4 p-4 rounded-lg font-mono text-sm whitespace-pre-wrap" style={{
-                      backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-                    }}>
-                      {lines.map((line, i) => (
-                        <div key={i} className="leading-relaxed flex flex-wrap items-center">
-                          <TextWithFilePaths>{line}</TextWithFilePaths>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                }
-
-                return (
-                  <CodeBlockWithCopy
-                    code={codeContent}
-                    language={language}
-                    customStyle={{
-                      margin: '1rem 0',
-                      borderRadius: '0.5rem',
-                      fontSize: '0.875rem',
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-                    }}
-                  />
-                );
-              }
-
-              // Inline code with file path detection
-              const inlineContent = String(children);
-              // Only match actual files, not just "/" or partial paths
-              const isFilePath = /^(?:~\/[\w\s./-]+)|(?:\/(?:Users|home|var|tmp|etc|opt|usr|mnt|media|Documents|Desktop|Downloads)\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[A-Za-z]:\\[\w\\\s.-]+)|(?:\.\.?\/[\w\s.-]+(?:\/[\w\s.-]+)*)|(?:[\w_-][\w\s_-]*\.(?:md|txt|json|yml|yaml|sh|py|js|ts|jsx|tsx|css|html|xml|toml|ini|cfg|conf|log|env|gitignore|dockerignore|rs|go|java|c|cpp|h|hpp|rb|php|swift|kt|scala|sql|vue|svelte|command))$/.test(inlineContent);
-
-              if (isFilePath) {
-                return <InlineCodeWithHoverActions filePath={inlineContent}>{children}</InlineCodeWithHoverActions>;
-              }
-
-              return (
-                <code className="px-1.5 py-0.5 text-sm font-mono rounded-md" style={{
-                  backgroundColor: 'rgba(168, 199, 250, 0.15)',
-                  color: '#DAEEFF',
-                  border: '1px solid rgba(168, 199, 250, 0.2)'
-                }}>
-                  {children}
-                </code>
-              );
-            },
-            // Customize heading rendering
-            h1: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-              <h1 className="text-2xl font-bold mt-6 mb-4" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
-            ),
-            h2: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-              <h2 className="text-xl font-bold mt-5 mb-3" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
-            ),
-            h3: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-              <h3 className="text-lg font-semibold mt-4 mb-2" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
-            ),
-            h4: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-              <h4 className="text-base font-semibold mt-3 mb-2" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
-            ),
-            h5: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-              <h5 className="text-sm font-semibold mt-3 mb-2" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
-            ),
-            h6: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-              <h6 className="text-sm font-semibold mt-3 mb-2" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
-            ),
-            // Customize list rendering
-            ul: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-              <ul className="list-disc pl-6 space-y-3 marker:text-gray-400" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
-            ),
-            ol: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-              <ol className="list-decimal pl-6 space-y-3 marker:text-gray-400" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
-            ),
-            li: ({ children, ...props }: React.HTMLAttributes<HTMLElement>) => (
-              <li className="mb-2 leading-relaxed" style={{ color: 'rgb(var(--text-primary))' }} {...props}>
-                {React.Children.map(children, child =>
-                  typeof child === 'string' ? <TextWithFilePaths>{child}</TextWithFilePaths> : child
-                )}
-              </li>
-            ),
-            // Customize paragraph spacing with file path detection
-            p: ({ children, ...props }: React.HTMLAttributes<HTMLElement>) => (
-              <p className="mb-4 leading-relaxed first:mt-0 last:mb-0" style={{ color: 'rgb(var(--text-primary))' }} {...props}>
-                {React.Children.map(children, child =>
-                  typeof child === 'string' ? <TextWithFilePaths>{child}</TextWithFilePaths> : child
-                )}
-              </p>
-            ),
-            // Customize blockquote
-            blockquote: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-              <blockquote className="border-l-4 border-gray-500 pl-4 py-2 my-4 italic bg-white/5" style={{ color: 'rgb(var(--text-secondary))' }} {...props} />
-            ),
-            // Customize horizontal rule
-            hr: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-              <hr className="my-6 border-t border-gray-600" {...props} />
-            ),
-            // Customize strong/bold
-            strong: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-              <strong className="font-bold" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
-            ),
-            // Customize emphasis/italic
-            em: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-              <em className="italic" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
-            ),
-            // Customize table
-            table: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-              <div className="my-4 overflow-x-auto">
-                <table className="min-w-full border-collapse border border-gray-600" {...props} />
-              </div>
-            ),
-            thead: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-              <thead className="bg-white/10" {...props} />
-            ),
-            tbody: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-              <tbody className="divide-y divide-gray-600" {...props} />
-            ),
-            tr: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-              <tr className="even:bg-white/5" {...props} />
-            ),
-            th: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-              <th className="px-4 py-2 text-left font-semibold border border-gray-600" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
-            ),
-            td: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-              <td className="px-4 py-2 border border-gray-600" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
-            ),
-          }) , [showCode]); // Update when showCode changes
-
   // Check if this is the compacting loading message
   const isCompactingMessage = text.text === 'Compacting conversation...';
 
@@ -1849,7 +865,7 @@ function TextComponent({ text, showCode = true }: { text: TextBlock; showCode?: 
         <div className="prose prose-base max-w-none prose-invert">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
-            components={components}
+            components={MARKDOWN_COMPONENTS}
           >
             {text.text}
           </ReactMarkdown>
@@ -1864,7 +880,7 @@ interface AssistantMessageContainerProps {
   onRemove?: (messageId: string) => void;
 }
 
-export function AssistantMessage(props: AssistantMessageContainerProps & AssistantMessageProps) {
+export const AssistantMessage = memo(function AssistantMessage(props: AssistantMessageContainerProps & AssistantMessageProps) {
   const { message, onRemove, displayMode = 'full', showCode = true } = props;
   const [showMetadata, setShowMetadata] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -1928,7 +944,7 @@ export function AssistantMessage(props: AssistantMessageContainerProps & Assista
                 <div className="space-y-4 mt-2">
                   {message.content.map((block, index) => {
                     if (block.type === 'text') {
-                      return <TextComponent key={index} text={block} showCode={showCode} />;
+                      return <TextComponent key={index} text={block} />;
                     }
                     return null;
                   })}
@@ -1944,7 +960,7 @@ export function AssistantMessage(props: AssistantMessageContainerProps & Assista
                     }
 
                     if (block.type === 'text') {
-                      return <TextComponent key={index} text={block} showCode={showCode} />;
+                      return <TextComponent key={index} text={block} />;
                     } else if (block.type === 'tool_use') {
                       return <ToolUseComponent key={index} toolUse={block} />;
                     } else if (block.type === 'thinking') {
@@ -2046,4 +1062,4 @@ export function AssistantMessage(props: AssistantMessageContainerProps & Assista
       </div>
     </CodeVisibilityProvider>
   );
-}
+});

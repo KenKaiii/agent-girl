@@ -1,16 +1,49 @@
 /**
  * Commands API Routes
  * Handles loading slash commands from .claude/commands directory
+ *
+ * Performance: In-memory caching with TTL and file watcher invalidation
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { watch, type FSWatcher } from 'fs';
 import { sessionDb } from "../database";
 
 interface SlashCommand {
   name: string;
   description: string;
   argumentHint: string;
+}
+
+// Cache configuration
+const CACHE_TTL_MS = 60_000; // 1 minute TTL
+
+interface CacheEntry {
+  commands: SlashCommand[];
+  timestamp: number;
+  watcher?: FSWatcher;
+}
+
+// In-memory cache: workingDir -> cached commands
+const commandsCache = new Map<string, CacheEntry>();
+
+/**
+ * Invalidate cache for a specific directory
+ */
+function invalidateCache(workingDir: string): void {
+  const entry = commandsCache.get(workingDir);
+  if (entry?.watcher) {
+    entry.watcher.close();
+  }
+  commandsCache.delete(workingDir);
+}
+
+/**
+ * Check if cache entry is still valid
+ */
+function isCacheValid(entry: CacheEntry): boolean {
+  return Date.now() - entry.timestamp < CACHE_TTL_MS;
 }
 
 /**
@@ -50,19 +83,9 @@ function parseFrontmatter(content: string): { description: string; argumentHint:
 }
 
 /**
- * Load commands from session's .claude/commands directory
+ * Load commands from disk (internal helper)
  */
-async function loadSessionCommands(workingDir: string, mode: string): Promise<SlashCommand[]> {
-  const commandsDir = path.join(workingDir, '.claude', 'commands');
-
-  // If commands don't exist yet (old session), set them up now
-  if (!fs.existsSync(commandsDir)) {
-    console.log(`📋 Commands not found, setting up for: ${workingDir.split('/').pop()}`);
-    // Dynamic import to avoid circular dependency
-    const commandSetup = await import('../commandSetup');
-    commandSetup.setupSessionCommands(workingDir, mode);
-  }
-
+function loadCommandsFromDisk(commandsDir: string): SlashCommand[] {
   const commands: SlashCommand[] = [];
   const files = fs.readdirSync(commandsDir);
 
@@ -79,6 +102,50 @@ async function loadSessionCommands(workingDir: string, mode: string): Promise<Sl
       });
     }
   }
+
+  return commands;
+}
+
+/**
+ * Load commands from session's .claude/commands directory
+ * Uses in-memory cache with file watcher invalidation
+ */
+async function loadSessionCommands(workingDir: string, mode: string): Promise<SlashCommand[]> {
+  // Check cache first
+  const cached = commandsCache.get(workingDir);
+  if (cached && isCacheValid(cached)) {
+    return cached.commands;
+  }
+
+  const commandsDir = path.join(workingDir, '.claude', 'commands');
+
+  // If commands don't exist yet (old session), set them up now
+  if (!fs.existsSync(commandsDir)) {
+    console.log(`📋 Commands not found, setting up for: ${workingDir.split('/').pop()}`);
+    // Dynamic import to avoid circular dependency
+    const commandSetup = await import('../commandSetup');
+    commandSetup.setupSessionCommands(workingDir, mode);
+  }
+
+  // Load from disk
+  const commands = loadCommandsFromDisk(commandsDir);
+
+  // Set up file watcher for cache invalidation
+  let watcher: FSWatcher | undefined;
+  try {
+    watcher = watch(commandsDir, { persistent: false }, () => {
+      invalidateCache(workingDir);
+    });
+  } catch {
+    // Watcher setup failed - cache will use TTL only
+  }
+
+  // Store in cache
+  commandsCache.set(workingDir, {
+    commands,
+    timestamp: Date.now(),
+    watcher,
+  });
 
   return commands;
 }
@@ -109,7 +176,11 @@ export async function handleCommandRoutes(
     const commands = [...BUILT_IN_COMMANDS, ...customCommands];
 
     return new Response(JSON.stringify({ commands }), {
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        // Cache for 30 seconds - commands don't change often
+        'Cache-Control': 'private, max-age=30',
+      },
     });
   }
 

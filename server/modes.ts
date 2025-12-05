@@ -49,6 +49,16 @@ const MODE_CONFIGS: Record<string, ModeConfig> = {
     name: 'Spark',
     description: 'Interactive brainstorming with research',
   },
+  'build': {
+    id: 'build',
+    name: 'Build',
+    description: 'Website builder with Smart Sections & niche optimization',
+  },
+  'unified': {
+    id: 'unified',
+    name: 'Unified',
+    description: 'All-in-one mode with full capabilities',
+  },
 };
 
 const modePromptCache = new Map<string, string>();

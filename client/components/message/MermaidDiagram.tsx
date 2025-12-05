@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useRef } from 'react';
+import React, { useLayoutEffect, useRef, memo } from 'react';
 import mermaid from 'mermaid';
 
 // Initialize mermaid once
@@ -27,7 +27,7 @@ interface MermaidDiagramProps {
   chart: string;
 }
 
-export function MermaidDiagram({ chart }: MermaidDiagramProps) {
+export const MermaidDiagram = memo(function MermaidDiagram({ chart }: MermaidDiagramProps) {
   const ref = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
@@ -59,4 +59,4 @@ export function MermaidDiagram({ chart }: MermaidDiagramProps) {
       className="my-3 p-4 border border-white/10 rounded-lg bg-black/20 overflow-x-auto"
     />
   );
-}
+});

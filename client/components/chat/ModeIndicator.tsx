@@ -18,7 +18,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, memo, useCallback } from 'react';
 import { MessageCircle, Code, Target, Zap, ChevronDown } from 'lucide-react';
 
 interface ModeIndicatorProps {
@@ -68,7 +68,7 @@ const MODES_ARRAY: Array<'general' | 'coder' | 'intense-research' | 'spark' | 'u
   // Note: 'unified' is intentionally not shown in selector - it's an internal mode
 ];
 
-export function ModeIndicator({ mode, onWidthChange, onModeChange }: ModeIndicatorProps) {
+export const ModeIndicator = memo(function ModeIndicator({ mode, onWidthChange, onModeChange }: ModeIndicatorProps) {
   const config = MODE_CONFIGS[mode];
   const Icon = config.icon;
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -81,12 +81,12 @@ export function ModeIndicator({ mode, onWidthChange, onModeChange }: ModeIndicat
     }
   }, [mode, onWidthChange]);
 
-  const handleModeSelect = (selectedMode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified') => {
+  const handleModeSelect = useCallback((selectedMode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified') => {
     setIsOpen(false);
     if (onModeChange && selectedMode !== mode) {
       onModeChange(selectedMode);
     }
-  };
+  }, [mode, onModeChange]);
 
   return (
     <div className="relative select-none" style={{ zIndex: 100 }}>
@@ -178,4 +178,4 @@ export function ModeIndicator({ mode, onWidthChange, onModeChange }: ModeIndicat
       </div>
     </div>
   );
-}
+});

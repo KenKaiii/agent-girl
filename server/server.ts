@@ -43,7 +43,7 @@ if (oauthFlag) {
   process.exit(exitCode);
 }
 
-import { watch } from "fs";
+// fs.watch removed - was causing high CPU usage
 import { getDefaultWorkingDirectory, ensureDirectory } from "./directoryUtils";
 import { handleStaticFile } from "./staticFileServer";
 import { initializeStartup, checkNodeAvailability } from "./startup";
@@ -105,7 +105,7 @@ const hotReloadClients = new Set<HotReloadClient>();
 //     }
 //   });
 // }
-void watch; // Suppress unused import warning
+// Hot reload disabled - fs.watch was causing high CPU usage in Bun
 
 const server = Bun.serve({
   port: 3001,

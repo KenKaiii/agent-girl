@@ -47,6 +47,7 @@ export interface StartupConfig {
   isStandalone: boolean;
   binaryDir: string;
   debugLog: (message: string) => void;
+  // PostCSS modules (null in standalone mode, lazy-loaded in dev)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   postcss: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

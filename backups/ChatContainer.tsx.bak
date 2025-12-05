@@ -1,0 +1,2363 @@
+/**
+ * Agent Girl - Modern chat interface for Claude Agent SDK
+ * Copyright (C) 2025 KenKai
+ *
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { flushSync } from 'react-dom';
+import { MessageList } from './MessageList';
+import { ChatInput } from './ChatInput';
+import { NewChatWelcome } from './NewChatWelcome';
+import { Sidebar, useSidebarWidth } from '../sidebar/Sidebar';
+import { ModelSelector } from '../header/ModelSelector';
+import { WorkingDirectoryDisplay } from '../header/WorkingDirectoryDisplay';
+import { AboutButton } from '../header/AboutButton';
+import { RadioPlayer } from '../header/RadioPlayer';
+import { PlanApprovalModal } from '../plan/PlanApprovalModal';
+import { QuestionModal, type Question } from '../question/QuestionModal';
+import { BuildWizard } from '../build-wizard/BuildWizard';
+import { ScrollButton } from './ScrollButton';
+import { WorkingDirectoryPanel } from './WorkingDirectoryPanel';
+import { CommandQueueDisplay } from '../queue/CommandQueueDisplay';
+import { KeyboardShortcuts } from '../ui/KeyboardShortcuts';
+import { useWebSocket } from '../../hooks/useWebSocket';
+import { WorkingDirectoryContext } from '../../hooks/useWorkingDirectory';
+import { useSessionAPI, type Session } from '../../hooks/useSessionAPI';
+import { useResponsive } from '../../hooks/useResponsive';
+import { Menu, Edit3, ChevronLeft, ChevronRight, History, ExternalLink, Eye, EyeOff, Code2, Monitor, MessageSquare, Search, X, ChevronUp, ChevronDown } from 'lucide-react';
+import type { Message } from '../message/types';
+import { toast } from '../../utils/toast';
+import { showError } from '../../utils/errorMessages';
+import type { BackgroundProcess } from '../process/BackgroundProcessMonitor';
+import type { SlashCommand } from '../../hooks/useWebSocket';
+import { useMessageQueue } from '../../hooks/useMessageQueue';
+
+// AI Edit request from preview element selection
+export interface AIEditRequest {
+  prompt: string;
+  elements: Array<{
+    id: number;
+    tagName: string;
+    selector: string;
+    className?: string;
+    elementId?: string;
+    textContent?: string;
+    path?: string;
+    bounds?: { x: number; y: number; width: number; height: number };
+    styles?: {
+      color: string;
+      backgroundColor: string;
+      fontSize: string;
+      fontFamily: string;
+    };
+  }>;
+  previewUrl: string;
+  screenshot?: string; // base64 data URL
+  localData?: Record<string, string>;
+  // Enhanced file path context for finding source files
+  fileContext?: {
+    framework: string | null;
+    possibleFiles: string[];
+    componentHints: string[];
+    routePattern: string;
+  };
+  // Viewport info for responsive context
+  viewport?: {
+    width: number;
+    height: number;
+    device: string;
+  };
+}
+
+interface ChatContainerProps {
+  layoutMode?: 'chat-only' | 'split-screen';
+  onLayoutModeChange?: (mode: 'chat-only' | 'split-screen') => void;
+  previewUrl?: string | null;
+  onSetPreviewUrl?: () => void;
+  onDetectPreviewUrl?: () => void;
+  onAIEditRequestHandler?: (handler: (request: AIEditRequest) => void) => void;
+}
+
+export function ChatContainer({
+  layoutMode = 'chat-only',
+  onLayoutModeChange,
+  previewUrl,
+  onSetPreviewUrl: _onSetPreviewUrl,
+  onDetectPreviewUrl,
+  onAIEditRequestHandler
+}: ChatContainerProps = {}) {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [inputValue, setInputValue] = useState(() => {
+    // Restore draft text from localStorage on mount
+    const saved = localStorage.getItem('agent-girl-draft-text');
+    return saved || '';
+  });
+  const [loadingSessions, setLoadingSessions] = useState<Set<string>>(new Set());
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
+    // Restore sidebar state from localStorage
+    const saved = localStorage.getItem('agent-girl-sidebar-open');
+    return saved === 'true';
+  });
+
+  // Navigation history for "back to recent" feature
+  const [navigationHistory, setNavigationHistory] = useState<string[]>([]);
+  const navigationHistoryRef = useRef<string[]>([]);
+
+  // Ref for scroll container in MessageList
+  const scrollContainerRef = useRef<HTMLDivElement>(null) as React.RefObject<HTMLDivElement>;
+
+  // Session management
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [_isLoadingSessions, setIsLoadingSessions] = useState(true);
+  const [currentSessionMode, setCurrentSessionMode] = useState<'general' | 'coder' | 'intense-research' | 'spark' | 'unified'>('general');
+
+  // Slash commands available for current session
+  const [availableCommands, setAvailableCommands] = useState<SlashCommand[]>([]);
+
+  // Commands cache by working directory (commands are dir-specific)
+  const commandsCache = useRef<Map<string, SlashCommand[]>>(new Map());
+
+  // Lazy load commands using requestIdleCallback
+  const loadCommandsLazy = useCallback((sessionId: string, workingDirectory?: string) => {
+    // Check cache first
+    if (workingDirectory && commandsCache.current.has(workingDirectory)) {
+      setAvailableCommands(commandsCache.current.get(workingDirectory)!);
+      return;
+    }
+
+    // Use requestIdleCallback to defer loading
+    const loadCommands = async () => {
+      try {
+        const commandsRes = await fetch(`/api/sessions/${sessionId}/commands`);
+        if (commandsRes.ok) {
+          const commandsData = await commandsRes.json();
+          const commands = commandsData.commands || [];
+          setAvailableCommands(commands);
+          // Cache by working directory
+          if (workingDirectory) {
+            commandsCache.current.set(workingDirectory, commands);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load slash commands:', error);
+      }
+    };
+
+    if ('requestIdleCallback' in window) {
+      (window as typeof window & { requestIdleCallback: (cb: IdleRequestCallback, opts?: IdleRequestOptions) => number })
+        .requestIdleCallback(() => loadCommands(), { timeout: 2000 });
+    } else {
+      setTimeout(loadCommands, 100);
+    }
+  }, []);
+
+  // Queue management (currently unused - hidden UI)
+  useMessageQueue();
+
+  // Display mode for compact/full message rendering
+  const [displayMode, setDisplayMode] = useState<'full' | 'compact'>('full');
+
+  // Global code visibility toggle
+  const [showCode, setShowCode] = useState(true);
+
+  // Live token count during streaming (for loading indicator)
+  const [liveTokenCount, setLiveTokenCount] = useState(0);
+
+  // Context usage tracking (per-session)
+  const [contextUsage, setContextUsage] = useState<Map<string, {
+    inputTokens: number;
+    contextWindow: number;
+    contextPercentage: number;
+  }>>(new Map());
+
+  // Message cache to preserve streaming state across session switches
+  const messageCache = useRef<Map<string, Message[]>>(new Map());
+
+  // Initialization guard to prevent re-running init effect after handleNewChat
+  const hasInitialized = useRef(false);
+
+  // Persist sidebar state to localStorage
+  useEffect(() => {
+    localStorage.setItem('agent-girl-sidebar-open', String(isSidebarOpen));
+  }, [isSidebarOpen]);
+
+  // Persist draft text to localStorage with debouncing
+  // OPTIMIZED: Debounce localStorage writes to avoid blocking on every keystroke
+  const draftTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    // Clear any pending write
+    if (draftTimeoutRef.current) {
+      clearTimeout(draftTimeoutRef.current);
+    }
+
+    // Debounce the localStorage write by 500ms
+    draftTimeoutRef.current = setTimeout(() => {
+      if (inputValue) {
+        localStorage.setItem('agent-girl-draft-text', inputValue);
+      } else {
+        localStorage.removeItem('agent-girl-draft-text');
+      }
+    }, 500);
+
+    return () => {
+      if (draftTimeoutRef.current) {
+        clearTimeout(draftTimeoutRef.current);
+      }
+    };
+  }, [inputValue]);
+
+  // Automatically cache messages as they update during streaming
+  // IMPORTANT: Only depend on messages, NOT currentSessionId
+  // (otherwise it fires when session changes with old messages)
+  useEffect(() => {
+    if (currentSessionId && messages.length > 0) {
+      messageCache.current.set(currentSessionId, messages);
+    }
+  }, [messages]);
+
+  // Model selection
+  const [selectedModel, setSelectedModel] = useState<string>(() => {
+    return localStorage.getItem('agent-boy-model') || 'sonnet';
+  });
+
+  // Permission mode (simplified to just plan mode on/off)
+  const [isPlanMode, setIsPlanMode] = useState<boolean>(false);
+
+  // Plan approval
+  const [pendingPlan, setPendingPlan] = useState<string | null>(null);
+
+  // Question modal state
+  const [pendingQuestion, setPendingQuestion] = useState<{
+    toolId: string;
+    questions: Question[];
+  } | null>(null);
+
+  // Background processes (per-session)
+  const [backgroundProcesses, setBackgroundProcesses] = useState<Map<string, BackgroundProcess[]>>(new Map());
+
+  // Track active long-running command by bashId for updates
+  const activeLongRunningCommandRef = useRef<string | null>(null);
+
+  // Build wizard state
+  const [isBuildWizardOpen, setIsBuildWizardOpen] = useState(false);
+
+  // Command queue state
+  const [commandQueue, setCommandQueue] = useState<Array<{ id: string; content: string; status: 'pending' | 'running' | 'completed' }>>(
+    []
+  );
+
+  // Keyboard shortcuts modal state
+  const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
+
+  // In-chat search state
+  const [showSearchBar, setShowSearchBar] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchMatches, setSearchMatches] = useState<number[]>([]);
+  const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
+
+  // Working directory panel state
+  const [isWorkingDirPanelCollapsed, setIsWorkingDirPanelCollapsed] = useState(true);
+
+  const sessionAPI = useSessionAPI();
+
+  // Responsive hooks
+  const { isMobile, isTablet } = useResponsive();
+  const sidebarWidth = useSidebarWidth(isSidebarOpen);
+
+  // Per-session loading state helpers
+  const isSessionLoading = (sessionId: string | null): boolean => {
+    return sessionId ? loadingSessions.has(sessionId) : false;
+  };
+
+  const setSessionLoading = (sessionId: string, loading: boolean) => {
+    setLoadingSessions(prev => {
+      const next = new Set(prev);
+      if (loading) {
+        next.add(sessionId);
+      } else {
+        next.delete(sessionId);
+      }
+      return next;
+    });
+  };
+
+  // Check if ANY session is loading (global loading state for input disabling)
+  const isAnySessionLoading = loadingSessions.size > 0;
+  const isLoading = isAnySessionLoading;
+
+  // Check if CURRENT session is loading (for typing indicator)
+  const isCurrentSessionLoading = currentSessionId ? loadingSessions.has(currentSessionId) : false;
+
+  // Compute sidebar chats - NO useMemo because loadingSessions changes frequently
+  // and useMemo overhead outweighs benefits when dependencies change often
+  const sidebarChats = sessions.map(session => {
+    const folderName = session.working_directory?.split('/').filter(Boolean).pop() || session.title;
+    return {
+      id: session.id,
+      title: folderName,
+      timestamp: new Date(session.updated_at),
+      isActive: session.id === currentSessionId,
+      isLoading: loadingSessions.has(session.id),
+      workingDirectory: session.working_directory,
+    };
+  });
+
+  // Simple handlers - no useCallback needed for simple setters
+  const handleSidebarToggle = () => setIsSidebarOpen(prev => !prev);
+  const handleToggleCompact = () => setDisplayMode(prev => prev === 'compact' ? 'full' : 'compact');
+  const handleToggleCode = () => setShowCode(prev => !prev);
+  const handleNewChatTab = () => window.open(window.location.origin, '_blank');
+
+  const handleSidebarPreviousChat = () => {
+    if (navigationHistoryRef.current.length > 0) {
+      const previousId = navigationHistoryRef.current.pop();
+      if (previousId) handleSessionSelect(previousId);
+    }
+  };
+
+  const handleSidebarBackToRecent = () => {
+    if (navigationHistoryRef.current.length > 0) {
+      navigationHistoryRef.current = [];
+      if (sessions.length > 0) handleSessionSelect(sessions[0].id);
+    }
+  };
+
+  // Save model selection to localStorage
+  // Supports mid-chat model switching with context handoff
+  const handleModelChange = (modelId: string) => {
+    const previousModel = selectedModel;
+    setSelectedModel(modelId);
+    localStorage.setItem('agent-boy-model', modelId);
+
+    // If switching mid-chat, notify user and prepare context handoff
+    if (messages.length > 0 && previousModel !== modelId) {
+      const modelNames: Record<string, string> = {
+        'opus': 'Claude Opus 4.5',
+        'sonnet': 'Claude Sonnet 4.5',
+        'haiku': 'Claude Haiku 4.5',
+        'glm-4.6': 'GLM 4.6',
+        'kimi-k2-thinking': 'Kimi K2 Thinking',
+        'kimi-k2-thinking-turbo': 'Kimi K2 Turbo',
+      };
+      const newModelName = modelNames[modelId] || modelId;
+      toast.info(`Model gewechselt zu ${newModelName}. Der nächste Prompt erhält einen Kontext-Überblick.`);
+    }
+  };
+
+  // Load sessions on mount and restore from URL
+  useEffect(() => {
+    // Only initialize once - prevent re-running after handleNewChat
+    if (hasInitialized.current) return;
+    hasInitialized.current = true;
+
+    const initializeApp = async () => {
+      setIsLoadingSessions(true);
+      const loadedSessions = await sessionAPI.fetchSessions();
+      setSessions(loadedSessions);
+
+      // Initialize context usage from loaded sessions
+      const newContextUsage = new Map<string, {
+        inputTokens: number;
+        contextWindow: number;
+        contextPercentage: number;
+      }>();
+
+      loadedSessions.forEach(session => {
+        if (session.context_input_tokens && session.context_window && session.context_percentage !== undefined) {
+          newContextUsage.set(session.id, {
+            inputTokens: session.context_input_tokens,
+            contextWindow: session.context_window,
+            contextPercentage: session.context_percentage,
+          });
+        }
+      });
+
+      setContextUsage(newContextUsage);
+      setIsLoadingSessions(false);
+
+      // Restore session from URL hash (#session-id-here or #uuid-here)
+      let hashSessionId = window.location.hash.slice(1); // Remove '#'
+
+      // Support both formats: "session-uuid" and plain "uuid"
+      if (hashSessionId.startsWith('session-')) {
+        hashSessionId = hashSessionId.slice(8); // Remove 'session-' prefix
+      }
+
+      if (hashSessionId) {
+        console.log(`📍 Restoring session from URL: ${hashSessionId}`);
+
+        // Load session details
+        const session = loadedSessions.find(s => s.id === hashSessionId);
+        if (session) {
+          setCurrentSessionId(hashSessionId);
+          setIsPlanMode(session.permission_mode === 'plan');
+          setCurrentSessionMode(session.mode);
+
+          // Load slash commands lazily (deferred to avoid blocking)
+          loadCommandsLazy(hashSessionId, session.working_directory);
+
+          // Load messages from database
+          const sessionMessages = await sessionAPI.fetchSessionMessages(hashSessionId);
+
+          // Convert session messages to Message format
+          const convertedMessages = sessionMessages.map(msg => {
+            if (msg.type === 'user') {
+              return {
+                id: msg.id,
+                type: 'user' as const,
+                content: msg.content,
+                timestamp: msg.timestamp,
+              };
+            } else {
+              let content;
+              try {
+                const parsed = JSON.parse(msg.content);
+                if (Array.isArray(parsed)) {
+                  content = parsed;
+                } else {
+                  content = [{ type: 'text' as const, text: msg.content }];
+                }
+              } catch {
+                content = [{ type: 'text' as const, text: msg.content }];
+              }
+
+              return {
+                id: msg.id,
+                type: 'assistant' as const,
+                content,
+                timestamp: msg.timestamp,
+              };
+            }
+          });
+
+          setMessages(convertedMessages);
+          messageCache.current.set(hashSessionId, convertedMessages);
+          console.log(`✅ Restored ${convertedMessages.length} messages from session`);
+        }
+      }
+    };
+
+    initializeApp();
+  }, [sessionAPI, loadCommandsLazy]);
+
+  // Keyboard shortcuts handler
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Check if Meta (Cmd on Mac) is pressed
+      const isMeta = e.metaKey || e.ctrlKey;
+
+      // ⌘ / - Show keyboard shortcuts
+      if (isMeta && e.key === '/') {
+        e.preventDefault();
+        setShowKeyboardShortcuts(true);
+      }
+
+      // ⌘ K - New chat
+      if (isMeta && e.key === 'k') {
+        e.preventDefault();
+        handleNewChat();
+      }
+
+      // ⌘ T - New chat tab (alias for new chat)
+      if (isMeta && e.key === 't') {
+        e.preventDefault();
+        handleNewChat();
+      }
+
+      // ⌘ ← (Left arrow) - Navigate history (placeholder)
+      if (isMeta && e.key === 'ArrowLeft') {
+        e.preventDefault();
+        // Navigate to previous session if available
+        if (navigationHistory.length > 1) {
+          const prevSessionId = navigationHistory[navigationHistory.length - 2];
+          if (prevSessionId) setCurrentSessionId(prevSessionId);
+        }
+      }
+
+      // ⌘ → (Right arrow) - Navigate forward (placeholder)
+      if (isMeta && e.key === 'ArrowRight') {
+        e.preventDefault();
+        // Navigate to next session - would need additional state tracking
+      }
+
+      // ⌘ H - Go to home (clear current session)
+      if (isMeta && e.key === 'h') {
+        e.preventDefault();
+        setCurrentSessionId(null);
+      }
+
+      // ⌘ E - Toggle code visibility
+      if (isMeta && e.key === 'e') {
+        e.preventDefault();
+        setShowCode(!showCode);
+      }
+
+      // ⌘ Shift M - Toggle compact/full view
+      if (isMeta && e.shiftKey && e.key === 'M') {
+        e.preventDefault();
+        setDisplayMode(displayMode === 'full' ? 'compact' : 'full');
+      }
+
+      // ⌘ O - Open file
+      if (isMeta && e.key === 'o') {
+        e.preventDefault();
+        // This would be handled by a file dialog - placeholder for future
+      }
+
+      // ⌘ Shift O - Open chat folder
+      if (isMeta && e.shiftKey && e.key === 'O') {
+        e.preventDefault();
+        // This would open chat folder - placeholder for future
+      }
+
+      // ⌘ F - Search in chat
+      if (isMeta && e.key === 'f') {
+        e.preventDefault();
+        setShowSearchBar(prev => !prev);
+        if (!showSearchBar) {
+          setSearchQuery('');
+          setSearchMatches([]);
+          setCurrentMatchIndex(0);
+        }
+      }
+
+      // Escape - Close search bar
+      if (e.key === 'Escape' && showSearchBar) {
+        e.preventDefault();
+        setShowSearchBar(false);
+        setSearchQuery('');
+        setSearchMatches([]);
+      }
+
+      // ⌘ B - Toggle sidebar
+      if (isMeta && e.key === 'b') {
+        e.preventDefault();
+        setIsSidebarOpen(prev => !prev);
+      }
+
+      // ⌘ [ - Navigate to previous chat
+      if (isMeta && e.key === '[') {
+        e.preventDefault();
+        handlePrevChat();
+      }
+
+      // ⌘ ] - Navigate to next chat
+      if (isMeta && e.key === ']') {
+        e.preventDefault();
+        handleNextChat();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showCode, displayMode, navigationHistory, showSearchBar, isSidebarOpen]);
+
+  const loadSessions = async (): Promise<Session[]> => {
+    setIsLoadingSessions(true);
+    const loadedSessions = await sessionAPI.fetchSessions();
+    setSessions(loadedSessions);
+
+    // Initialize context usage from loaded sessions
+    const newContextUsage = new Map<string, {
+      inputTokens: number;
+      contextWindow: number;
+      contextPercentage: number;
+    }>();
+
+    loadedSessions.forEach(session => {
+      if (session.context_input_tokens && session.context_window && session.context_percentage !== undefined) {
+        newContextUsage.set(session.id, {
+          inputTokens: session.context_input_tokens,
+          contextWindow: session.context_window,
+          contextPercentage: session.context_percentage,
+        });
+      }
+    });
+
+    setContextUsage(newContextUsage);
+    setIsLoadingSessions(false);
+    return loadedSessions;
+  };
+
+  // Handle session switching
+  const handleSessionSelect = async (sessionId: string) => {
+    // IMPORTANT: Cache current session's messages BEFORE switching
+    if (currentSessionId && messages.length > 0) {
+      messageCache.current.set(currentSessionId, messages);
+      console.log(`[Message Cache] Cached ${messages.length} messages for session ${currentSessionId}`);
+    }
+
+    // Track navigation history for "back to recent" feature
+    if (currentSessionId && currentSessionId !== sessionId) {
+      setNavigationHistory(prev => {
+        const newHistory = prev.filter(id => id !== currentSessionId);
+        newHistory.push(currentSessionId);
+        // Keep only last 10 entries
+        if (newHistory.length > 10) newHistory.shift();
+        navigationHistoryRef.current = newHistory;
+        return newHistory;
+      });
+    }
+
+    setCurrentSessionId(sessionId);
+    // Update URL to include session ID for persistence on refresh
+    window.location.hash = sessionId;
+
+    // Load session details to get permission mode and mode
+    const sessions = await sessionAPI.fetchSessions();
+    const session = sessions.find(s => s.id === sessionId);
+    if (session) {
+      setIsPlanMode(session.permission_mode === 'plan');
+      setCurrentSessionMode(session.mode);
+      console.log('🎭 Session mode loaded:', session.mode, 'for session:', sessionId);
+    }
+
+    // Load slash commands lazily (uses cache if same working directory)
+    loadCommandsLazy(sessionId, session?.working_directory);
+
+    // Check cache first before loading from database
+    const cachedMessages = messageCache.current.get(sessionId);
+    if (cachedMessages) {
+      console.log(`[Message Cache] Restored ${cachedMessages.length} cached messages for session ${sessionId}`);
+      setMessages(cachedMessages);
+      return;
+    }
+
+    // Load messages from database
+    const sessionMessages = await sessionAPI.fetchSessionMessages(sessionId);
+
+    // Convert session messages to Message format
+    const convertedMessages: Message[] = sessionMessages.map(msg => {
+      if (msg.type === 'user') {
+        return {
+          id: msg.id,
+          type: 'user' as const,
+          content: msg.content,
+          timestamp: msg.timestamp,
+        };
+      } else {
+        // For assistant messages, try to parse content as JSON
+        let content;
+        try {
+          // Try parsing as JSON (new format with full content blocks)
+          const parsed = JSON.parse(msg.content);
+          if (Array.isArray(parsed)) {
+            content = parsed;
+          } else {
+            // If not an array, wrap as text block
+            content = [{ type: 'text' as const, text: msg.content }];
+          }
+        } catch {
+          // If parse fails, treat as plain text (legacy format)
+          content = [{ type: 'text' as const, text: msg.content }];
+        }
+
+        return {
+          id: msg.id,
+          type: 'assistant' as const,
+          content,
+          timestamp: msg.timestamp,
+        };
+      }
+    });
+
+    setMessages(convertedMessages);
+  };
+
+  // Handle new chat creation
+  const handleNewChat = async () => {
+    // Track current session in history before clearing
+    if (currentSessionId) {
+      setNavigationHistory(prev => {
+        const newHistory = prev.filter(id => id !== currentSessionId);
+        newHistory.push(currentSessionId);
+        if (newHistory.length > 10) newHistory.shift();
+        navigationHistoryRef.current = newHistory;
+        return newHistory;
+      });
+    }
+
+    // Use flushSync to ensure state updates happen immediately, preventing UI flicker
+    flushSync(() => {
+      setCurrentSessionId(null);
+      setCurrentSessionMode('general');
+      setMessages([]);
+      setInputValue('');
+      setAvailableCommands([]);
+      setLiveTokenCount(0);
+    });
+    // Clear URL hash to prevent loading old session
+    window.location.hash = '';
+    // Session will be created in handleSubmit when user sends first message
+  };
+
+  // Navigate to previous chat in the list
+  const handlePrevChat = () => {
+    if (sessions.length === 0) return;
+    const currentIndex = sessions.findIndex(s => s.id === currentSessionId);
+    if (currentIndex > 0) {
+      handleSessionSelect(sessions[currentIndex - 1].id);
+    } else if (currentIndex === -1 && sessions.length > 0) {
+      // If no current session, go to first
+      handleSessionSelect(sessions[0].id);
+    }
+  };
+
+  // Navigate to next chat in the list
+  const handleNextChat = () => {
+    if (sessions.length === 0) return;
+    const currentIndex = sessions.findIndex(s => s.id === currentSessionId);
+    if (currentIndex >= 0 && currentIndex < sessions.length - 1) {
+      handleSessionSelect(sessions[currentIndex + 1].id);
+    } else if (currentIndex === -1 && sessions.length > 0) {
+      // If no current session, go to first
+      handleSessionSelect(sessions[0].id);
+    }
+  };
+
+  // Navigate back to the most recently viewed chat
+  const handleBackToRecent = () => {
+    const history = navigationHistoryRef.current;
+    if (history.length > 0) {
+      const lastSessionId = history[history.length - 1];
+      // Remove from history
+      setNavigationHistory(prev => {
+        const newHistory = prev.slice(0, -1);
+        navigationHistoryRef.current = newHistory;
+        return newHistory;
+      });
+      handleSessionSelect(lastSessionId);
+    }
+  };
+
+  // Handle chat deletion
+  const handleChatDelete = async (chatId: string) => {
+    const success = await sessionAPI.deleteSession(chatId);
+
+    if (success) {
+      // If deleting current session, clear messages and session
+      if (chatId === currentSessionId) {
+        setCurrentSessionId(null);
+        setCurrentSessionMode('general');
+        setMessages([]);
+      }
+      await loadSessions(); // Reload sessions to reflect deletion
+    }
+    // Error already shown by sessionAPI
+  };
+
+  // Handle chat rename
+  const handleChatRename = async (chatId: string, newFolderName: string) => {
+    const result = await sessionAPI.renameSession(chatId, newFolderName);
+
+    if (result.success) {
+      await loadSessions();
+    } else {
+      // Show error to user
+      toast.error('Error', {
+        description: result.error || 'Failed to rename folder'
+      });
+    }
+  };
+
+  // Handle working directory change
+  const handleChangeDirectory = async (sessionId: string, newDirectory: string) => {
+    const result = await sessionAPI.updateWorkingDirectory(sessionId, newDirectory);
+
+    if (result.success) {
+      await loadSessions();
+
+      // Invalidate cache for old directory and load commands for new one
+      commandsCache.current.delete(newDirectory);
+      loadCommandsLazy(sessionId, newDirectory);
+
+      toast.success('Directory changed', {
+        description: 'Context reset - conversation starts fresh'
+      });
+    } else {
+      toast.error('Error', {
+        description: result.error || 'Failed to change working directory'
+      });
+    }
+  };
+
+  // Handle plan mode toggle
+  const handleTogglePlanMode = async () => {
+    const newPlanMode = !isPlanMode;
+    const mode = newPlanMode ? 'plan' : 'bypassPermissions';
+
+    // Always update local state
+    setIsPlanMode(newPlanMode);
+
+    // If session exists, update it in the database
+    if (currentSessionId) {
+      const result = await sessionAPI.updatePermissionMode(currentSessionId, mode);
+
+      // If query is active, send WebSocket message to switch mode mid-stream
+      if (result.success && isSessionLoading(currentSessionId)) {
+        sendMessage({
+          type: 'set_permission_mode',
+          sessionId: currentSessionId,
+          mode
+        });
+      }
+    }
+    // If no session exists yet, the mode will be applied when session is created
+  };
+
+  // Handle session mode change (general, coder, intense-research, spark, unified)
+  const handleModeChange = async (newMode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified') => {
+    // Always update local state immediately
+    setCurrentSessionMode(newMode);
+    console.log('🎭 Mode changed to:', newMode);
+
+    // Also update the session in the sessions list immediately to prevent it from reverting
+    setSessions(prev => prev.map(s =>
+      s.id === currentSessionId ? { ...s, mode: newMode } : s
+    ));
+
+    // If session exists, update it in the database
+    if (currentSessionId) {
+      const result = await sessionAPI.updateSessionMode(currentSessionId, newMode);
+
+      if (result.success) {
+        console.log('✅ Session mode updated in database:', newMode);
+        // If query is active, send WebSocket message to switch mode mid-stream
+        if (isSessionLoading(currentSessionId)) {
+          sendMessage({
+            type: 'set_mode',
+            sessionId: currentSessionId,
+            mode: newMode
+          });
+        }
+      } else {
+        console.error('❌ Failed to update session mode:', result.error);
+      }
+    }
+  };
+
+  // Handle plan approval
+  const handleApprovePlan = () => {
+    if (!currentSessionId) return;
+
+    // Send approval to server to switch mode
+    sendMessage({
+      type: 'approve_plan',
+      sessionId: currentSessionId
+    });
+
+    // Close modal
+    setPendingPlan(null);
+
+    // Immediately send continuation message to start execution
+    if (currentSessionId) setSessionLoading(currentSessionId, true);
+
+    // Add a user message indicating approval
+    const approvalMessage: Message = {
+      id: Date.now().toString(),
+      type: 'user',
+      content: 'Approved. Please proceed with the plan.',
+      timestamp: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, approvalMessage]);
+
+    // Send the continuation message to trigger execution
+    setTimeout(() => {
+      sendMessage({
+        type: 'chat',
+        content: 'Approved. Please proceed with the plan.',
+        sessionId: currentSessionId,
+        model: selectedModel,
+      });
+    }, 100); // Small delay to ensure mode is switched
+  };
+
+  // Handle plan rejection
+  const handleRejectPlan = () => {
+    setPendingPlan(null);
+    if (currentSessionId) setSessionLoading(currentSessionId, false);
+  };
+
+  // Handle question submission
+  const handleQuestionSubmit = (toolId: string, answers: Record<string, string>) => {
+    if (!currentSessionId) return;
+
+    // Send answers back to server
+    sendMessage({
+      type: 'answer_question',
+      toolId,
+      answers,
+      sessionId: currentSessionId,
+    });
+
+    // Add user message showing their answers
+    const answerText = Object.entries(answers)
+      .map(([header, answer]) => `**${header}:** ${answer}`)
+      .join('\n');
+
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      type: 'user',
+      content: answerText,
+      timestamp: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, userMessage]);
+
+    // Clear modal
+    setPendingQuestion(null);
+  };
+
+  // Handle question cancel - send cancellation to server
+  const handleQuestionCancel = (toolId: string) => {
+    if (currentSessionId) {
+      // Notify server to cancel the pending question
+      sendMessage({
+        type: 'cancel_question',
+        toolId,
+        sessionId: currentSessionId,
+      });
+      setSessionLoading(currentSessionId, false);
+    }
+    setPendingQuestion(null);
+  };
+
+  const { isConnected, sendMessage, stopGeneration } = useWebSocket({
+    // Use dynamic URL based on current window location (works on any port)
+    url: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`,
+    onMessage: (message) => {
+      // Session isolation: Ignore messages from other sessions
+      if (message.sessionId && message.sessionId !== currentSessionId) {
+        console.log(`[Session Filter] Ignoring message from session ${message.sessionId} (current: ${currentSessionId})`);
+
+        // Allow certain message types through for background session updates
+        if (message.type === 'context_usage') {
+          // Process context_usage for any session
+          const usageMsg = message as {
+            type: 'context_usage';
+            inputTokens: number;
+            outputTokens: number;
+            contextWindow: number;
+            contextPercentage: number;
+            sessionId?: string;
+          };
+
+          const targetSessionId = usageMsg.sessionId || currentSessionId;
+          if (targetSessionId) {
+            setContextUsage(prev => {
+              const newMap = new Map(prev);
+              newMap.set(targetSessionId, {
+                inputTokens: usageMsg.inputTokens,
+                contextWindow: usageMsg.contextWindow,
+                contextPercentage: usageMsg.contextPercentage,
+              });
+              return newMap;
+            });
+
+            console.log(`📊 Context usage updated for session ${targetSessionId.substring(0, 8)}: ${usageMsg.contextPercentage}%`);
+          }
+          return;
+        }
+
+        // Clear loading state for filtered session if it's a completion message
+        if ((message.type === 'result' || message.type === 'error') && message.sessionId) {
+          setSessionLoading(message.sessionId, false);
+        }
+        return;
+      }
+
+      // Handle incoming WebSocket messages
+      if (message.type === 'assistant_message' && 'content' in message) {
+        const assistantContent = message.content as string;
+        setMessages((prev) => {
+          const lastMessage = prev[prev.length - 1];
+
+          // Reset token count on first assistant message (start of new response)
+          if (!lastMessage || lastMessage.type !== 'assistant') {
+            setLiveTokenCount(0);
+          }
+
+          // If last message is from assistant, append to the last text block
+          if (lastMessage && lastMessage.type === 'assistant') {
+            const content = Array.isArray(lastMessage.content) ? lastMessage.content : [];
+            const lastBlock = content[content.length - 1];
+
+            // If last block is text, append to it for smooth streaming
+            if (lastBlock && lastBlock.type === 'text') {
+              const updatedContent = [
+                ...content.slice(0, -1),
+                { type: 'text' as const, text: lastBlock.text + assistantContent }
+              ];
+              const updatedMessage = {
+                ...lastMessage,
+                content: updatedContent
+              };
+              return [...prev.slice(0, -1), updatedMessage];
+            } else {
+              // Otherwise add new text block
+              const updatedMessage = {
+                ...lastMessage,
+                content: [...content, { type: 'text' as const, text: assistantContent }]
+              };
+              return [...prev.slice(0, -1), updatedMessage];
+            }
+          }
+
+          // Otherwise create new assistant message
+          return [
+            ...prev,
+            {
+              id: Date.now().toString(),
+              type: 'assistant' as const,
+              content: [{ type: 'text' as const, text: assistantContent }],
+              timestamp: new Date().toISOString(),
+            },
+          ];
+        });
+      } else if (message.type === 'thinking_start') {
+        console.log('💭 Thinking block started');
+        // Create a new thinking block when thinking starts
+        setMessages((prev) => {
+          const lastMessage = prev[prev.length - 1];
+
+          if (lastMessage && lastMessage.type === 'assistant') {
+            const content = Array.isArray(lastMessage.content) ? lastMessage.content : [];
+            const updatedMessage = {
+              ...lastMessage,
+              content: [...content, { type: 'thinking' as const, thinking: '' }]
+            };
+            return [...prev.slice(0, -1), updatedMessage];
+          }
+
+          // Create new assistant message with thinking block
+          return [
+            ...prev,
+            {
+              id: Date.now().toString(),
+              type: 'assistant' as const,
+              content: [{ type: 'thinking' as const, thinking: '' }],
+              timestamp: new Date().toISOString(),
+            },
+          ];
+        });
+      } else if (message.type === 'thinking_delta' && 'content' in message) {
+        const thinkingContent = message.content as string;
+        console.log('💭 Thinking delta:', thinkingContent.slice(0, 50) + (thinkingContent.length > 50 ? '...' : ''));
+
+        setMessages((prev) => {
+          const lastMessage = prev[prev.length - 1];
+
+          if (lastMessage && lastMessage.type === 'assistant') {
+            const content = Array.isArray(lastMessage.content) ? lastMessage.content : [];
+            const lastBlock = content[content.length - 1];
+
+            // If last block is thinking, append to it
+            if (lastBlock && lastBlock.type === 'thinking') {
+              const updatedContent = [
+                ...content.slice(0, -1),
+                { type: 'thinking' as const, thinking: lastBlock.thinking + thinkingContent }
+              ];
+              const updatedMessage = {
+                ...lastMessage,
+                content: updatedContent
+              };
+              return [...prev.slice(0, -1), updatedMessage];
+            }
+          }
+
+          return prev; // No update if not in a thinking block
+        });
+      } else if (message.type === 'tool_use' && 'toolId' in message && 'toolName' in message && 'toolInput' in message) {
+        // Handle tool use messages
+        const toolUseMsg = message as { type: 'tool_use'; toolId: string; toolName: string; toolInput: Record<string, unknown> };
+
+        // Use flushSync to prevent React batching from causing tools to be lost
+        // When multiple tool_use messages arrive rapidly, React batches setState calls
+        // causing all but the last update to be overwritten. flushSync forces synchronous updates.
+        flushSync(() => {
+          setMessages((prev) => {
+          const lastMessage = prev[prev.length - 1];
+
+          const toolUseBlock = {
+            type: 'tool_use' as const,
+            id: toolUseMsg.toolId,
+            name: toolUseMsg.toolName,
+            input: toolUseMsg.toolInput,
+            // Initialize nestedTools array for Task tools
+            ...(toolUseMsg.toolName === 'Task' ? { nestedTools: [] } : {}),
+          };
+
+          // If last message is assistant, check for Task tool nesting
+          if (lastMessage && lastMessage.type === 'assistant') {
+            const content = Array.isArray(lastMessage.content) ? lastMessage.content : [];
+
+            // Check for duplicate tool_use blocks (prevents race condition issues)
+            const isDuplicate = content.some(block =>
+              block.type === 'tool_use' && block.id === toolUseMsg.toolId
+            );
+
+            if (isDuplicate) {
+              return prev; // Skip duplicate
+            }
+
+            // Find all active Task tools (Tasks without a text block after them)
+            const activeTaskIndices: number[] = [];
+            let foundTextBlockAfterLastTask = false;
+
+            for (let i = content.length - 1; i >= 0; i--) {
+              const block = content[i];
+              if (block.type === 'text') {
+                foundTextBlockAfterLastTask = true;
+              }
+              if (block.type === 'tool_use' && block.name === 'Task') {
+                if (!foundTextBlockAfterLastTask) {
+                  activeTaskIndices.unshift(i); // Add to beginning to maintain order
+                } else {
+                  break; // Stop looking once we hit a text block context boundary
+                }
+              }
+            }
+
+            // If this is a Task tool OR we found no active Tasks to nest under, add normally
+            if (toolUseMsg.toolName === 'Task' || activeTaskIndices.length === 0) {
+              const updatedMessage = {
+                ...lastMessage,
+                content: [...content, toolUseBlock]
+              };
+              return [...prev.slice(0, -1), updatedMessage];
+            }
+
+            // Distribute tools across active Tasks using round-robin
+            // Use total nested tool count as a counter for distribution
+            const totalNestedTools = activeTaskIndices.reduce((sum, idx) => {
+              const block = content[idx];
+              return sum + (block.type === 'tool_use' ? (block.nestedTools?.length || 0) : 0);
+            }, 0);
+
+            const targetTaskIndex = activeTaskIndices[totalNestedTools % activeTaskIndices.length];
+
+            // Nest this tool under the selected Task
+            const updatedContent = content.map((block, index) => {
+              if (index === targetTaskIndex && block.type === 'tool_use') {
+                // Check for duplicate in nested tools as well
+                const isNestedDuplicate = (block.nestedTools || []).some(
+                  nested => nested.id === toolUseMsg.toolId
+                );
+
+                if (isNestedDuplicate) {
+                  return block; // Don't add duplicate
+                }
+
+                return {
+                  ...block,
+                  nestedTools: [...(block.nestedTools || []), toolUseBlock]
+                };
+              }
+              return block;
+            });
+
+            const updatedMessage = {
+              ...lastMessage,
+              content: updatedContent
+            };
+            return [...prev.slice(0, -1), updatedMessage];
+          }
+
+          // Otherwise create new assistant message with tool
+          return [
+            ...prev,
+            {
+              id: Date.now().toString(),
+              type: 'assistant' as const,
+              content: [toolUseBlock],
+              timestamp: new Date().toISOString(),
+            },
+          ];
+          });
+        });
+      } else if (message.type === 'token_update' && 'outputTokens' in message) {
+        // Update live token count during streaming
+        const tokenUpdate = message as { type: 'token_update'; outputTokens: number };
+        setLiveTokenCount(tokenUpdate.outputTokens);
+      } else if (message.type === 'result') {
+        if (currentSessionId) {
+          setSessionLoading(currentSessionId, false);
+          // Clear message cache for this session since messages are now saved to DB
+          messageCache.current.delete(currentSessionId);
+          console.log(`[Message Cache] Cleared cache for session ${currentSessionId} (stream completed)`);
+          // Clear live token count when response completes
+          setLiveTokenCount(0);
+        }
+      } else if (message.type === 'timeout_warning') {
+        // Handle timeout warning (60s elapsed)
+        const warningMsg = message as { type: 'timeout_warning'; message: string; elapsedSeconds: number };
+        toast.warning('Still thinking...', {
+          description: warningMsg.message || 'The AI is taking longer than usual',
+          duration: 5000,
+        });
+      } else if (message.type === 'retry_attempt') {
+        // Handle retry attempt notification
+        const retryMsg = message as { type: 'retry_attempt'; attempt: number; maxAttempts: number; message: string; errorType: string };
+        toast.info(`Retrying (${retryMsg.attempt}/${retryMsg.maxAttempts})`, {
+          description: retryMsg.message || `Attempting to recover from ${retryMsg.errorType}...`,
+          duration: 3000,
+        });
+      } else if (message.type === 'error') {
+        // Handle error messages from server
+        if (currentSessionId) setSessionLoading(currentSessionId, false);
+        // Clear live token count on error
+        setLiveTokenCount(0);
+
+        // Get error type and message
+        const errorType = 'errorType' in message ? (message.errorType as string) : undefined;
+        const errorMsg = 'message' in message ? message.message : ('error' in message ? message.error : undefined);
+        const errorMessage = errorMsg || 'An error occurred';
+
+        // Map error type to user-friendly error code
+        const errorCodeMap: Record<string, string> = {
+          'timeout_error': 'API_TIMEOUT',
+          'rate_limit_error': 'API_RATE_LIMIT',
+          'overloaded_error': 'API_OVERLOADED',
+          'authentication_error': 'API_AUTHENTICATION',
+          'permission_error': 'API_PERMISSION',
+          'invalid_request_error': 'API_INVALID_REQUEST',
+          'request_too_large': 'API_REQUEST_TOO_LARGE',
+          'network_error': 'API_NETWORK',
+        };
+
+        // Show appropriate toast notification
+        if (errorType && errorCodeMap[errorType]) {
+          const errorCode = errorCodeMap[errorType] as keyof typeof import('../../utils/errorMessages').ErrorMessages;
+          showError(errorCode, errorMessage);
+        } else {
+          toast.error('Error', {
+            description: errorMessage
+          });
+        }
+
+        // Display error as assistant message
+        const errorIcon = errorType === 'timeout_error' ? '⏱️' :
+                         errorType === 'rate_limit_error' ? '🚦' :
+                         errorType === 'authentication_error' ? '🔑' :
+                         errorType === 'network_error' ? '🌐' : '❌';
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now().toString(),
+            type: 'assistant' as const,
+            content: [{
+              type: 'text' as const,
+              text: `${errorIcon} Error: ${errorMessage}`
+            }],
+            timestamp: new Date().toISOString(),
+          },
+        ]);
+      } else if (message.type === 'user_message') {
+        // Echo back user message if needed
+      } else if (message.type === 'exit_plan_mode') {
+        // Handle plan mode exit - show approval modal and auto-deactivate plan mode
+        const planText = 'plan' in message ? message.plan : undefined;
+        setPendingPlan(planText || 'No plan provided');
+        setIsPlanMode(false); // Auto-deactivate plan mode when ExitPlanMode is triggered
+      } else if (message.type === 'session_title_updated' && 'newTitle' in message) {
+        // Handle session title update from server
+        console.log(`📝 Session title updated to: ${message.newTitle}`);
+        // Reload sessions to reflect the title change in sidebar
+        loadSessions();
+      } else if (message.type === 'mode_changed' && 'mode' in message) {
+        // Handle session mode change confirmation from server
+        const newMode = message.mode as 'general' | 'coder' | 'intense-research' | 'spark';
+        console.log(`✅ Mode changed confirmed: ${newMode}`);
+        // Update local state to match confirmed mode
+        setCurrentSessionMode(newMode);
+        // Update sessions list to reflect the mode change
+        setSessions(prev => prev.map(s =>
+          s.id === currentSessionId ? { ...s, mode: newMode } : s
+        ));
+      } else if (message.type === 'permission_mode_changed') {
+        // Handle permission mode change confirmation
+        const mode = 'mode' in message ? message.mode : undefined;
+        setIsPlanMode(mode === 'plan');
+      } else if (message.type === 'background_process_started' && 'bashId' in message && 'command' in message && 'description' in message) {
+        // Handle background process started
+        const sessionId = message.sessionId || currentSessionId;
+        if (sessionId) {
+          setBackgroundProcesses(prev => {
+            const newMap = new Map(prev);
+            const processes = newMap.get(sessionId) || [];
+            newMap.set(sessionId, [...processes, {
+              bashId: message.bashId as string,
+              command: message.command as string,
+              description: message.description as string,
+              startedAt: Date.now()
+            }]);
+            return newMap;
+          });
+        }
+      } else if (message.type === 'background_process_killed' && 'bashId' in message) {
+        // Handle background process killed confirmation
+        const sessionId = message.sessionId || currentSessionId;
+        if (sessionId) {
+          setBackgroundProcesses(prev => {
+            const newMap = new Map(prev);
+            const processes = newMap.get(sessionId) || [];
+            newMap.set(sessionId, processes.filter(p => p.bashId !== message.bashId));
+            return newMap;
+          });
+        }
+      } else if (message.type === 'background_process_exited' && 'bashId' in message && 'exitCode' in message) {
+        // Handle background process that exited on its own
+        const sessionId = message.sessionId || currentSessionId;
+        if (sessionId) {
+          console.log(`Background process exited: ${message.bashId}, exitCode: ${message.exitCode}`);
+          setBackgroundProcesses(prev => {
+            const newMap = new Map(prev);
+            const processes = newMap.get(sessionId) || [];
+            newMap.set(sessionId, processes.filter(p => p.bashId !== message.bashId));
+            return newMap;
+          });
+        }
+      } else if (message.type === 'long_running_command_started' && 'bashId' in message && 'command' in message && 'commandType' in message) {
+        // Handle long-running command started - add as message block
+        const longRunningMsg = message as {
+          type: 'long_running_command_started';
+          bashId: string;
+          command: string;
+          commandType: 'install' | 'build' | 'test';
+          description?: string;
+          startedAt: number;
+        };
+
+        activeLongRunningCommandRef.current = longRunningMsg.bashId;
+
+        // Add a new assistant message with the long-running command block
+        setMessages(prev => [
+          ...prev,
+          {
+            id: `msg-${Date.now()}`,
+            type: 'assistant' as const,
+            timestamp: new Date().toISOString(),
+            content: [{
+              type: 'long_running_command' as const,
+              bashId: longRunningMsg.bashId,
+              command: longRunningMsg.command,
+              commandType: longRunningMsg.commandType,
+              output: '',
+              status: 'running' as const,
+              startedAt: longRunningMsg.startedAt,
+            }],
+          },
+        ]);
+      } else if (message.type === 'command_output_chunk' && 'bashId' in message && 'output' in message) {
+        // Handle streaming output from long-running command - update message block
+        const outputMsg = message as { type: 'command_output_chunk'; bashId: string; output: string };
+
+        setMessages(prev => {
+          const lastMessage = prev[prev.length - 1];
+          if (lastMessage?.type === 'assistant' && lastMessage.content.length > 0) {
+            const lastBlock = lastMessage.content[lastMessage.content.length - 1];
+            if (lastBlock.type === 'long_running_command' && lastBlock.bashId === outputMsg.bashId) {
+              // Update the output of the last long-running command block
+              return [
+                ...prev.slice(0, -1),
+                {
+                  ...lastMessage,
+                  content: [
+                    ...lastMessage.content.slice(0, -1),
+                    {
+                      ...lastBlock,
+                      output: lastBlock.output + outputMsg.output,
+                    },
+                  ],
+                },
+              ];
+            }
+          }
+          return prev;
+        });
+      } else if (message.type === 'long_running_command_completed' && 'bashId' in message) {
+        // Handle long-running command completion - update message block status
+        const completedMsg = message as { type: 'long_running_command_completed'; bashId: string; exitCode: number };
+
+        setMessages(prev => {
+          const lastMessage = prev[prev.length - 1];
+          if (lastMessage?.type === 'assistant' && lastMessage.content.length > 0) {
+            const lastBlock = lastMessage.content[lastMessage.content.length - 1];
+            if (lastBlock.type === 'long_running_command' && lastBlock.bashId === completedMsg.bashId) {
+              toast.success('Command completed', {
+                description: 'Installation finished successfully',
+                duration: 3000,
+              });
+
+              activeLongRunningCommandRef.current = null;
+
+              // Update status to completed
+              return [
+                ...prev.slice(0, -1),
+                {
+                  ...lastMessage,
+                  content: [
+                    ...lastMessage.content.slice(0, -1),
+                    {
+                      ...lastBlock,
+                      status: 'completed' as const,
+                    },
+                  ],
+                },
+              ];
+            }
+          }
+          return prev;
+        });
+      } else if (message.type === 'long_running_command_failed' && 'bashId' in message && 'error' in message) {
+        // Handle long-running command failure - update message block status
+        const failedMsg = message as { type: 'long_running_command_failed'; bashId: string; error: string };
+
+        setMessages(prev => {
+          const lastMessage = prev[prev.length - 1];
+          if (lastMessage?.type === 'assistant' && lastMessage.content.length > 0) {
+            const lastBlock = lastMessage.content[lastMessage.content.length - 1];
+            if (lastBlock.type === 'long_running_command' && lastBlock.bashId === failedMsg.bashId) {
+              toast.error('Command failed', {
+                description: failedMsg.error,
+                duration: 5000,
+              });
+
+              activeLongRunningCommandRef.current = null;
+
+              // Update status to failed
+              return [
+                ...prev.slice(0, -1),
+                {
+                  ...lastMessage,
+                  content: [
+                    ...lastMessage.content.slice(0, -1),
+                    {
+                      ...lastBlock,
+                      status: 'failed' as const,
+                      output: lastBlock.output + '\n\nError: ' + failedMsg.error,
+                    },
+                  ],
+                },
+              ];
+            }
+          }
+          return prev;
+        });
+      } else if (message.type === 'slash_commands_available' && 'commands' in message) {
+        // SDK supportedCommands() returns built-in commands only, not custom .md files
+        // We ignore this and use REST API instead
+      } else if (message.type === 'compact_start' && 'trigger' in message && 'preTokens' in message) {
+        // Handle auto-compact notification
+        const compactMsg = message as { type: 'compact_start'; trigger: 'auto' | 'manual'; preTokens: number };
+        if (compactMsg.trigger === 'auto') {
+          const tokenCount = compactMsg.preTokens.toLocaleString();
+          toast.info('Auto-compacting conversation...', {
+            description: `Context reached limit (${tokenCount} tokens). Summarizing history...`,
+            duration: 10000, // Show for 10 seconds (compaction takes time)
+          });
+        }
+      } else if (message.type === 'compact_loading') {
+        // Handle /compact loading state - add temporary loading message with shimmer effect
+        const targetSessionId = message.sessionId || currentSessionId;
+        if (targetSessionId === currentSessionId) {
+          const loadingMessage: Message = {
+            id: 'compact-loading',
+            type: 'assistant',
+            content: [{ type: 'text', text: 'Compacting conversation...' }],
+            timestamp: new Date().toISOString(),
+          };
+          setMessages((prev) => [...prev, loadingMessage]);
+        }
+      } else if (message.type === 'compact_complete' && 'preTokens' in message) {
+        // Handle /compact completion - remove loading message and add final divider
+        const targetSessionId = message.sessionId || currentSessionId;
+        if (targetSessionId === currentSessionId) {
+          const compactMsg = message as { type: 'compact_complete'; preTokens: number };
+          const tokenCount = compactMsg.preTokens.toLocaleString();
+
+          // Remove loading message
+          setMessages((prev) => prev.filter(m => m.id !== 'compact-loading'));
+
+          // Add final divider message
+          const dividerMessage: Message = {
+            id: Date.now().toString(),
+            type: 'assistant',
+            content: [{ type: 'text', text: `--- History compacted. Previous messages were summarized to reduce token usage (${tokenCount} tokens before compact) ---` }],
+            timestamp: new Date().toISOString(),
+          };
+          setMessages((prev) => [...prev, dividerMessage]);
+        }
+      } else if (message.type === 'context_usage' && 'inputTokens' in message && 'contextWindow' in message && 'contextPercentage' in message) {
+        // Handle context usage update (for current session)
+        const usageMsg = message as {
+          type: 'context_usage';
+          inputTokens: number;
+          outputTokens: number;
+          contextWindow: number;
+          contextPercentage: number;
+          sessionId?: string;
+        };
+
+        const targetSessionId = usageMsg.sessionId || currentSessionId;
+        if (targetSessionId) {
+          setContextUsage(prev => {
+            const newMap = new Map(prev);
+            newMap.set(targetSessionId, {
+              inputTokens: usageMsg.inputTokens,
+              contextWindow: usageMsg.contextWindow,
+              contextPercentage: usageMsg.contextPercentage,
+            });
+            return newMap;
+          });
+
+          console.log(`📊 Context usage updated for session ${targetSessionId.substring(0, 8)}: ${usageMsg.contextPercentage}%`);
+        }
+      } else if (message.type === 'ask_user_question' && 'toolId' in message && 'questions' in message) {
+        // Handle AskUserQuestion tool - show modal to get user's answers
+        const questionMsg = message as {
+          type: 'ask_user_question';
+          toolId: string;
+          questions: Question[];
+          sessionId?: string;
+        };
+        console.log('❓ Received question from Claude:', questionMsg.questions);
+        setPendingQuestion({
+          toolId: questionMsg.toolId,
+          questions: questionMsg.questions,
+        });
+      } else if (message.type === 'question_answered') {
+        // Clear the question modal when answer is confirmed
+        setPendingQuestion(null);
+      } else if (message.type === 'keepalive') {
+        // Keepalive messages are sent every 30s to prevent WebSocket idle timeout
+        // during long-running operations. No action needed - just acknowledge receipt.
+        // Optionally log for debugging (commented out to reduce noise)
+        // console.log(`💓 Keepalive received (${message.elapsedSeconds}s elapsed)`);
+      }
+    },
+  });
+
+  // Handle killing a background process
+  const handleKillProcess = (bashId: string) => {
+    if (!currentSessionId) return;
+
+    sendMessage({
+      type: 'kill_background_process',
+      bashId
+    });
+
+    // Optimistically remove from UI
+    setBackgroundProcesses(prev => {
+      const newMap = new Map(prev);
+      const processes = newMap.get(currentSessionId) || [];
+      newMap.set(currentSessionId, processes.filter(p => p.bashId !== bashId));
+      return newMap;
+    });
+  };
+
+  const handleSubmit = async (files?: import('../message/types').FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified', messageOverride?: string) => {
+    const messageText = messageOverride || inputValue;
+    if (!messageText.trim()) return;
+
+    if (!isConnected) return;
+
+    // Show toast if another chat is in progress
+    if (isLoading) {
+      toast.info('Another chat is in progress. Wait for it to complete first.');
+      return;
+    }
+
+    try {
+      // Create new session if none exists
+      let sessionId = currentSessionId;
+      if (!sessionId) {
+        const newSession = await sessionAPI.createSession(undefined, mode || 'general');
+        if (!newSession) {
+          // Error already shown by sessionAPI
+          return;
+        }
+
+        sessionId = newSession.id;
+
+        // Store mode immediately for UI display
+        setCurrentSessionMode(newSession.mode);
+        console.log('🎭 Session created with mode:', newSession.mode, '(requested:', mode, ')');
+
+        // Load slash commands lazily for new session
+        loadCommandsLazy(sessionId, newSession.working_directory);
+
+        // Apply current permission mode to new session
+        const permissionMode = isPlanMode ? 'plan' : 'bypassPermissions';
+        await sessionAPI.updatePermissionMode(sessionId, permissionMode);
+
+        // Update state and load sessions
+        setCurrentSessionId(sessionId);
+        await loadSessions();
+      }
+
+      const userMessage: Message = {
+        id: Date.now().toString(),
+        type: 'user',
+        content: messageText,
+        timestamp: new Date().toISOString(),
+        attachments: files,
+      };
+
+      setMessages((prev) => [...prev, userMessage]);
+      setSessionLoading(sessionId, true);
+
+      // Build content: if there are image files, send as array of blocks
+      // Otherwise, send as plain string (existing behavior)
+      let messageContent: string | Array<Record<string, unknown>> = messageText;
+
+      if (files && files.length > 0) {
+        // Convert to content blocks format (text + images)
+        const contentBlocks: Array<Record<string, unknown>> = [];
+
+        // Add text block if there's input
+        if (messageText.trim()) {
+          contentBlocks.push({
+            type: 'text',
+            text: messageText
+          });
+        }
+
+        // Add image and file blocks from attachments
+        for (const file of files) {
+          if (file.preview && file.type.startsWith('image/')) {
+            // Extract base64 data from data URL for images
+            const base64Match = file.preview.match(/^data:([^;]+);base64,(.+)$/);
+            if (base64Match) {
+              contentBlocks.push({
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: base64Match[1],
+                  data: base64Match[2]
+                }
+              });
+            }
+          } else if (file.preview) {
+            // Non-image file (document, PDF, etc.)
+            contentBlocks.push({
+              type: 'document',
+              name: file.name,
+              data: file.preview  // Contains base64 data URL
+            });
+          }
+        }
+
+        messageContent = contentBlocks;
+      }
+
+      // Detect user's timezone
+      const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+      // Use local sessionId variable (guaranteed to be set)
+      sendMessage({
+        type: 'chat',
+        content: messageContent,
+        sessionId: sessionId,
+        model: selectedModel,
+        timezone: userTimezone,
+      });
+
+      setInputValue('');
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      showError('SEND_MESSAGE', errorMsg);
+      if (currentSessionId) setSessionLoading(currentSessionId, false);
+    }
+  };
+
+  const handleStop = () => {
+    if (currentSessionId) {
+      stopGeneration(currentSessionId);
+      setSessionLoading(currentSessionId, false);
+    }
+  };
+
+  // Handle message removal
+  const handleRemoveMessage = (messageId: string) => {
+    setMessages((prev) => prev.filter(msg => msg.id !== messageId));
+  };
+
+  // Build wizard handlers
+  const handleOpenBuildWizard = () => {
+    setIsBuildWizardOpen(true);
+  };
+
+  const handleCloseBuildWizard = () => {
+    setIsBuildWizardOpen(false);
+  };
+
+  const handleBuildComplete = (prompt: string) => {
+    // Close wizard
+    setIsBuildWizardOpen(false);
+
+    // Clear current session to force creation of new session with Coder mode
+    setCurrentSessionId(null);
+    setCurrentSessionMode('coder');
+    setMessages([]);
+
+    // Auto-submit immediately with prompt override (no need to wait for state)
+    setTimeout(() => {
+      handleSubmit(undefined, 'coder', prompt);
+    }, 100);
+  };
+
+  // Handle AI edit request from preview element selection
+  const handleAIEditRequest = useCallback(async (request: AIEditRequest) => {
+    // Build the edit prompt with full context
+    const elementDetails = request.elements.map(el =>
+      `  - **Element ${el.id}**: \`<${el.tagName}>\` (${el.selector})${el.textContent ? ` - "${el.textContent.slice(0, 50)}${el.textContent.length > 50 ? '...' : ''}"` : ''}`
+    ).join('\n');
+
+    let fullPrompt = `🎯 **Preview Edit Request**\n\n`;
+    fullPrompt += `**Target URL:** ${request.previewUrl}\n\n`;
+
+    // Add file path context for AI to find the right files
+    if (request.fileContext) {
+      fullPrompt += `**📁 File Detection:**\n`;
+      if (request.fileContext.framework) {
+        fullPrompt += `  - Framework: ${request.fileContext.framework}\n`;
+        fullPrompt += `  - Routing: ${request.fileContext.routePattern}\n`;
+      }
+      if (request.fileContext.possibleFiles.length > 0) {
+        fullPrompt += `  - Likely source files:\n`;
+        request.fileContext.possibleFiles.slice(0, 5).forEach(file => {
+          fullPrompt += `    • \`${file}\`\n`;
+        });
+      }
+      if (request.fileContext.componentHints.length > 0) {
+        fullPrompt += `  - Component locations: ${request.fileContext.componentHints.join(', ')}\n`;
+      }
+      fullPrompt += '\n';
+    }
+
+    // Add viewport context
+    if (request.viewport) {
+      fullPrompt += `**📱 Viewport:** ${request.viewport.device} (${request.viewport.width}×${request.viewport.height}px)\n\n`;
+    }
+
+    fullPrompt += `**Selected Elements (${request.elements.length}):**\n${elementDetails}\n\n`;
+
+    // Add detailed element info for each selected element
+    if (request.elements.length > 0) {
+      fullPrompt += `**Element Details:**\n`;
+      request.elements.forEach(el => {
+        fullPrompt += `  **${el.id}. \`<${el.tagName}>\`**\n`;
+        fullPrompt += `    - Selector: \`${el.selector}\`\n`;
+        if (el.className) fullPrompt += `    - Class: \`${el.className}\`\n`;
+        if (el.elementId) fullPrompt += `    - ID: \`${el.elementId}\`\n`;
+        if (el.path) fullPrompt += `    - Path: \`${el.path}\`\n`;
+        if (el.textContent) fullPrompt += `    - Text: "${el.textContent.slice(0, 100)}${el.textContent.length > 100 ? '...' : ''}"\n`;
+        if (el.styles) {
+          fullPrompt += `    - Styles: color=${el.styles.color}, bg=${el.styles.backgroundColor}, font=${el.styles.fontSize}\n`;
+        }
+      });
+      fullPrompt += '\n';
+    }
+
+    if (request.localData && Object.keys(request.localData).length > 0) {
+      fullPrompt += `**Local Data to Use:**\n`;
+      Object.entries(request.localData).forEach(([key, value]) => {
+        fullPrompt += `  - ${key}: ${value}\n`;
+      });
+      fullPrompt += '\n';
+    }
+
+    fullPrompt += `**User Request:** ${request.prompt}\n\n`;
+    fullPrompt += `Please use the file detection hints above to find and edit the correct source files. Start by reading the suggested files to verify they match the preview content, then make the requested changes.`;
+
+    // If screenshot is available, include it as an image attachment
+    const files: import('../message/types').FileAttachment[] = [];
+    if (request.screenshot) {
+      files.push({
+        id: `screenshot-${Date.now()}`,
+        name: 'screenshot.png',
+        type: 'image/png',
+        size: request.screenshot.length,
+        preview: request.screenshot,
+      });
+    }
+
+    // Submit to chat
+    setInputValue(fullPrompt);
+
+    // Small delay to ensure state is set, then submit
+    setTimeout(() => {
+      handleSubmit(files.length > 0 ? files : undefined, 'coder', fullPrompt);
+    }, 50);
+  }, [handleSubmit]);
+
+  // Register the AI edit handler with the parent
+  useEffect(() => {
+    if (onAIEditRequestHandler) {
+      onAIEditRequestHandler(handleAIEditRequest);
+    }
+  }, [onAIEditRequestHandler, handleAIEditRequest]);
+
+  return (
+    <div className={`flex h-screen ${layoutMode === 'split-screen' ? 'relative' : ''}`} style={{ overflow: 'visible' }}>
+      {/* Sidebar with integrated resize functionality */}
+      <Sidebar
+        isOpen={isSidebarOpen}
+        onToggle={handleSidebarToggle}
+        layoutMode={layoutMode}
+        chats={sidebarChats}
+        onNewChat={handleNewChat}
+        onChatSelect={handleSessionSelect}
+        onChatDelete={handleChatDelete}
+        onChatRename={handleChatRename}
+        showCompact={displayMode === 'compact'}
+        onToggleCompact={handleToggleCompact}
+        showCode={showCode}
+        onToggleCode={handleToggleCode}
+        onNewChatTab={handleNewChatTab}
+        onPreviousChat={handleSidebarPreviousChat}
+        onNextChat={handleNextChat}
+        onBackToRecent={handleSidebarBackToRecent}
+        canPreviousChat={navigationHistoryRef.current.length > 0}
+        canNextChat={false}
+        canBackToRecent={navigationHistoryRef.current.length > 0}
+      />
+
+      {/* Main Chat Area - responsive margin based on sidebar width */}
+      <div
+        className="flex flex-col flex-1 h-screen min-h-0 overflow-hidden"
+        style={{
+          marginLeft: isMobile || layoutMode === 'split-screen' ? 0 : `${sidebarWidth}px`,
+          transition: 'margin-left 0.2s ease-in-out',
+        }}
+      >
+        {/* Header - Always visible - Compact in split-screen mode */}
+        <nav
+          className="header"
+          style={{
+            height: layoutMode === 'split-screen' ? '48px' : '56px',
+            minHeight: layoutMode === 'split-screen' ? '48px' : '56px',
+            backgroundColor: '#141618',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+            display: 'flex',
+            alignItems: 'center',
+            width: '100%',
+            flexShrink: 0,
+            position: 'relative',
+            zIndex: 50,
+          }}
+        >
+          <div className="header-content">
+            <div className="header-inner" style={{ padding: layoutMode === 'split-screen' ? '0 0.75rem' : undefined }}>
+              {/* Left side */}
+              <div className="header-left">
+                {/* Mobile: Always show hamburger menu */}
+                {isMobile && (
+                  <button
+                    className="header-btn"
+                    aria-label="Open Sidebar"
+                    onClick={() => setIsSidebarOpen(true)}
+                    style={{
+                      background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(139, 92, 246, 0.15))',
+                      border: '1px solid rgba(59, 130, 246, 0.3)',
+                    }}
+                  >
+                    <Menu />
+                  </button>
+                )}
+
+                {/* Desktop: Show controls when sidebar is closed */}
+                {!isSidebarOpen && !isMobile && (
+                  <>
+                    {/* Sidebar toggle */}
+                    <button className="header-btn" aria-label="Toggle Sidebar" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
+                      <Menu />
+                    </button>
+
+                    {/* New chat */}
+                    <button className="header-btn" aria-label="New Chat" onClick={handleNewChat}>
+                      <Edit3 />
+                    </button>
+
+                    {/* New chat in new tab */}
+                    <button
+                      className="header-btn"
+                      aria-label="New Chat in New Tab"
+                      onClick={() => window.open(window.location.origin, '_blank')}
+                      title="Open new chat in new tab"
+                    >
+                      <ExternalLink size={18} />
+                    </button>
+
+                    {/* Separator */}
+                    <div style={{ width: '1px', height: '20px', backgroundColor: 'rgba(255,255,255,0.15)', margin: '0 4px' }} />
+
+                    {/* Previous chat */}
+                    <button
+                      className="header-btn"
+                      aria-label="Previous Chat"
+                      onClick={handlePrevChat}
+                      disabled={sessions.length === 0 || sessions.findIndex(s => s.id === currentSessionId) <= 0}
+                      title="Previous chat"
+                      style={{ opacity: sessions.length === 0 || sessions.findIndex(s => s.id === currentSessionId) <= 0 ? 0.3 : 1 }}
+                    >
+                      <ChevronLeft size={18} />
+                    </button>
+
+                    {/* Next chat */}
+                    <button
+                      className="header-btn"
+                      aria-label="Next Chat"
+                      onClick={handleNextChat}
+                      disabled={sessions.length === 0 || sessions.findIndex(s => s.id === currentSessionId) >= sessions.length - 1}
+                      title="Next chat"
+                      style={{ opacity: sessions.length === 0 || sessions.findIndex(s => s.id === currentSessionId) >= sessions.length - 1 ? 0.3 : 1 }}
+                    >
+                      <ChevronRight size={18} />
+                    </button>
+
+                    {/* Back to recent */}
+                    <button
+                      className="header-btn"
+                      aria-label="Back to Recent"
+                      onClick={handleBackToRecent}
+                      disabled={navigationHistory.length === 0}
+                      title="Back to recent chat"
+                      style={{ opacity: navigationHistory.length === 0 ? 0.3 : 1 }}
+                    >
+                      <History size={18} />
+                    </button>
+                  </>
+                )}
+              </div>
+
+            {/* Center - Logo and Model Selector - Compact in split-screen */}
+            <div className="header-center">
+              <div className="flex flex-col items-start w-full">
+                <div className="flex justify-between items-center w-full">
+                  <div className="flex items-center gap-2" style={{ gap: layoutMode === 'split-screen' ? '0.5rem' : '0.75rem' }}>
+                    {!isSidebarOpen && layoutMode !== 'split-screen' && (
+                      <img
+                        src="/client/agent-boy.svg"
+                        alt="Agent Girl"
+                        className="header-icon"
+                        loading="eager"
+                        onError={(e) => {
+                          console.error('Failed to load agent-boy.svg');
+                          setTimeout(() => {
+                            e.currentTarget.src = '/client/agent-boy.svg?' + Date.now();
+                          }, 100);
+                        }}
+                      />
+                    )}
+                    <div
+                      className="header-title text-gradient"
+                      style={{
+                        fontSize: layoutMode === 'split-screen' ? '0.875rem' : undefined,
+                      }}
+                    >
+                      {layoutMode === 'split-screen' ? 'Chat' : 'Agent Girl'}
+                    </div>
+                    {/* Model Selector - now allows mid-chat switching with context handoff */}
+                    <ModelSelector
+                      selectedModel={selectedModel}
+                      onModelChange={handleModelChange}
+                      hasMessages={messages.length > 0}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Right side */}
+            <div className="header-right">
+              {/* View toggles - Code & Display Mode */}
+              <div className="flex items-center gap-1">
+                {/* Code visibility toggle */}
+                <button
+                  onClick={() => setShowCode(!showCode)}
+                  className="flex items-center gap-1.5 px-2 py-1.5 rounded-md transition-colors"
+                  aria-label={showCode ? 'Hide code blocks' : 'Show code blocks'}
+                  title={showCode ? 'Hide code blocks' : 'Show code blocks'}
+                  style={{
+                    backgroundColor: showCode ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
+                    color: showCode ? '#3b82f6' : 'rgb(var(--text-secondary))',
+                  }}
+                >
+                  <Code2 className="w-3.5 h-3.5" />
+                  <span className="text-xs">{showCode ? 'Code' : 'Code'}</span>
+                </button>
+
+                {/* Display mode toggle */}
+                <button
+                  onClick={() => setDisplayMode(displayMode === 'full' ? 'compact' : 'full')}
+                  className="flex items-center gap-1.5 px-2 py-1.5 rounded-md transition-colors"
+                  aria-label={displayMode === 'full' ? 'Compact mode' : 'Full mode'}
+                  title={displayMode === 'full' ? 'Hide verbose output' : 'Show all output'}
+                  style={{
+                    backgroundColor: displayMode === 'full' ? 'rgba(139, 92, 246, 0.15)' : 'transparent',
+                    color: displayMode === 'full' ? '#8b5cf6' : 'rgb(var(--text-secondary))',
+                  }}
+                >
+                  {displayMode === 'full' ? (
+                    <Eye className="w-3.5 h-3.5" />
+                  ) : (
+                    <EyeOff className="w-3.5 h-3.5" />
+                  )}
+                  <span className="text-xs">{displayMode === 'full' ? 'Full' : 'Compact'}</span>
+                </button>
+              </div>
+
+              {/* Separator */}
+              {onLayoutModeChange && (
+                <div style={{ width: '1px', height: '20px', backgroundColor: 'rgba(255,255,255,0.1)', margin: '0 6px' }} />
+              )}
+
+              {/* Layout Mode Toggle - Click anywhere to toggle */}
+              {onLayoutModeChange && (
+                <button
+                  onClick={() => {
+                    const newMode = layoutMode === 'chat-only' ? 'split-screen' : 'chat-only';
+                    onLayoutModeChange(newMode);
+                    if (newMode === 'split-screen' && !previewUrl && onDetectPreviewUrl) {
+                      onDetectPreviewUrl();
+                    }
+                  }}
+                  className="flex items-center rounded-lg p-0.5 transition-all hover:bg-white/5"
+                  style={{ backgroundColor: 'rgba(255, 255, 255, 0.03)' }}
+                  title={layoutMode === 'chat-only' ? 'Switch to Splitview' : 'Switch to Chat only'}
+                >
+                  {/* Chat option */}
+                  <div
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-all"
+                    style={{
+                      backgroundColor: layoutMode === 'chat-only' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                      color: layoutMode === 'chat-only' ? '#3b82f6' : 'rgb(var(--text-secondary))',
+                      boxShadow: layoutMode === 'chat-only' ? '0 1px 2px rgba(0,0,0,0.2)' : 'none',
+                    }}
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    <span>Chat</span>
+                  </div>
+                  {/* Splitview option */}
+                  <div
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-all"
+                    style={{
+                      backgroundColor: layoutMode === 'split-screen' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                      color: layoutMode === 'split-screen' ? '#3b82f6' : 'rgb(var(--text-secondary))',
+                      boxShadow: layoutMode === 'split-screen' ? '0 1px 2px rgba(0,0,0,0.2)' : 'none',
+                    }}
+                  >
+                    <Monitor className="w-3.5 h-3.5" />
+                    <span>Splitview</span>
+                  </div>
+                </button>
+              )}
+
+              {/* Radio Player - hidden in split-screen mode */}
+              {layoutMode !== 'split-screen' && <RadioPlayer />}
+              {/* Working Directory Display - compact in split-screen mode */}
+              {currentSessionId && sessions.find(s => s.id === currentSessionId)?.working_directory && layoutMode !== 'split-screen' && (
+                <WorkingDirectoryDisplay
+                  directory={sessions.find(s => s.id === currentSessionId)?.working_directory || ''}
+                  sessionId={currentSessionId}
+                  onChangeDirectory={handleChangeDirectory}
+                />
+              )}
+              {/* About Button - hidden in split-screen mode */}
+              {layoutMode !== 'split-screen' && <AboutButton />}
+            </div>
+          </div>
+        </div>
+      </nav>
+
+        {/* Search Bar */}
+        {showSearchBar && (
+          <div
+            style={{
+              position: 'sticky',
+              top: '60px',
+              zIndex: 100,
+              padding: '0.5rem 1rem',
+              background: 'rgb(var(--bg-secondary))',
+              borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem',
+            }}
+          >
+            <div style={{ position: 'relative', flex: 1, maxWidth: '400px' }}>
+              <Search
+                size={16}
+                style={{
+                  position: 'absolute',
+                  left: '0.75rem',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: 'rgb(var(--text-secondary))',
+                }}
+              />
+              <input
+                type="text"
+                placeholder="Search in chat..."
+                value={searchQuery}
+                onChange={(e) => {
+                  const query = e.target.value;
+                  setSearchQuery(query);
+                  if (query.length >= 2) {
+                    // Find matching message indices
+                    const matches: number[] = [];
+                    messages.forEach((msg, idx) => {
+                      const content = typeof msg.content === 'string'
+                        ? msg.content
+                        : JSON.stringify(msg.content);
+                      if (content.toLowerCase().includes(query.toLowerCase())) {
+                        matches.push(idx);
+                      }
+                    });
+                    setSearchMatches(matches);
+                    setCurrentMatchIndex(0);
+                    if (matches.length > 0 && scrollContainerRef.current) {
+                      const messageElements = scrollContainerRef.current.querySelectorAll('[data-message-index]');
+                      const targetElement = Array.from(messageElements).find(
+                        el => el.getAttribute('data-message-index') === String(matches[0])
+                      );
+                      targetElement?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                  } else {
+                    setSearchMatches([]);
+                  }
+                }}
+                autoFocus
+                style={{
+                  width: '100%',
+                  padding: '0.5rem 0.75rem 0.5rem 2.25rem',
+                  background: 'rgb(var(--bg-input))',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '0.5rem',
+                  color: 'rgb(var(--text-primary))',
+                  fontSize: '0.875rem',
+                  outline: 'none',
+                }}
+              />
+            </div>
+            {searchMatches.length > 0 && (
+              <>
+                <span style={{ color: 'rgb(var(--text-secondary))', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
+                  {currentMatchIndex + 1} / {searchMatches.length}
+                </span>
+                <button
+                  onClick={() => {
+                    const newIdx = currentMatchIndex > 0 ? currentMatchIndex - 1 : searchMatches.length - 1;
+                    setCurrentMatchIndex(newIdx);
+                    if (scrollContainerRef.current) {
+                      const messageElements = scrollContainerRef.current.querySelectorAll('[data-message-index]');
+                      const targetElement = Array.from(messageElements).find(
+                        el => el.getAttribute('data-message-index') === String(searchMatches[newIdx])
+                      );
+                      targetElement?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                  }}
+                  style={{
+                    padding: '0.25rem',
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    border: 'none',
+                    borderRadius: '0.25rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    color: 'rgb(var(--text-secondary))',
+                  }}
+                  title="Previous match"
+                >
+                  <ChevronUp size={16} />
+                </button>
+                <button
+                  onClick={() => {
+                    const newIdx = currentMatchIndex < searchMatches.length - 1 ? currentMatchIndex + 1 : 0;
+                    setCurrentMatchIndex(newIdx);
+                    if (scrollContainerRef.current) {
+                      const messageElements = scrollContainerRef.current.querySelectorAll('[data-message-index]');
+                      const targetElement = Array.from(messageElements).find(
+                        el => el.getAttribute('data-message-index') === String(searchMatches[newIdx])
+                      );
+                      targetElement?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                  }}
+                  style={{
+                    padding: '0.25rem',
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    border: 'none',
+                    borderRadius: '0.25rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    color: 'rgb(var(--text-secondary))',
+                  }}
+                  title="Next match"
+                >
+                  <ChevronDown size={16} />
+                </button>
+              </>
+            )}
+            <button
+              onClick={() => {
+                setShowSearchBar(false);
+                setSearchQuery('');
+                setSearchMatches([]);
+              }}
+              style={{
+                padding: '0.25rem',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                color: 'rgb(var(--text-secondary))',
+                display: 'flex',
+              }}
+              title="Close search (Esc)"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        )}
+
+        {messages.length === 0 ? (
+          // New Chat Welcome Screen
+          <NewChatWelcome
+            key={currentSessionId || 'welcome'}
+            inputValue={inputValue}
+            onInputChange={setInputValue}
+            onSubmit={handleSubmit}
+            onStop={handleStop}
+            disabled={!isConnected || isLoading}
+            isGenerating={isLoading}
+            isPlanMode={isPlanMode}
+            onTogglePlanMode={handleTogglePlanMode}
+            availableCommands={availableCommands}
+            onOpenBuildWizard={handleOpenBuildWizard}
+            mode={currentSessionMode}
+            onModeChange={handleModeChange}
+          />
+        ) : (
+          // Chat Interface
+          <>
+            {/* Messages */}
+            <WorkingDirectoryContext.Provider value={{ workingDirectory: sessions.find(s => s.id === currentSessionId)?.working_directory || null }}>
+              <MessageList
+                messages={messages}
+                isLoading={isCurrentSessionLoading}
+                liveTokenCount={liveTokenCount}
+                scrollContainerRef={scrollContainerRef}
+                displayMode={displayMode}
+                showCode={showCode}
+                onRemoveMessage={handleRemoveMessage}
+              />
+            </WorkingDirectoryContext.Provider>
+
+            {/* Command Queue Display */}
+            <CommandQueueDisplay
+              queue={commandQueue}
+              onClearQueue={() => {
+                setCommandQueue(prev => prev.filter(cmd => cmd.status !== 'completed'));
+              }}
+            />
+
+            {/* Input */}
+            <ChatInput
+              key={currentSessionId || 'new-chat'}
+              value={inputValue}
+              onChange={setInputValue}
+              onSubmit={handleSubmit}
+              onStop={handleStop}
+              disabled={!isConnected || isLoading}
+              isGenerating={isLoading}
+              isPlanMode={isPlanMode}
+              onTogglePlanMode={handleTogglePlanMode}
+              backgroundProcesses={backgroundProcesses.get(currentSessionId || '') || []}
+              onKillProcess={handleKillProcess}
+              mode={currentSessionMode}
+              onModeChange={handleModeChange}
+              availableCommands={availableCommands}
+              contextUsage={currentSessionId ? contextUsage.get(currentSessionId) : undefined}
+              selectedModel={selectedModel}
+              layoutMode={layoutMode}
+              onOpenBuildWizard={handleOpenBuildWizard}
+              previewUrl={previewUrl}
+            />
+
+            {/* Working Directory Panel */}
+            <WorkingDirectoryPanel
+              workingDirectory={sessions.find(s => s.id === currentSessionId)?.working_directory || null}
+              chatFolder={sessions.find(s => s.id === currentSessionId)?.working_directory || undefined}
+              onDirectoryChange={(newPath) => {
+                if (currentSessionId) {
+                  handleChangeDirectory(currentSessionId, newPath);
+                }
+              }}
+              onInsertText={(text) => {
+                setInputValue(prev => prev + (prev && !prev.endsWith(' ') ? ' ' : '') + text);
+              }}
+              sessionId={currentSessionId || undefined}
+              isCollapsed={isWorkingDirPanelCollapsed}
+              onToggleCollapse={() => setIsWorkingDirPanelCollapsed(!isWorkingDirPanelCollapsed)}
+            />
+
+          </>
+        )}
+      </div>
+
+      {/* Plan Approval Modal */}
+      {pendingPlan && (
+        <PlanApprovalModal
+          plan={pendingPlan}
+          onApprove={handleApprovePlan}
+          onReject={handleRejectPlan}
+          isResponseInProgress={isLoading}
+        />
+      )}
+
+      {/* Question Modal */}
+      {pendingQuestion && (
+        <QuestionModal
+          toolId={pendingQuestion.toolId}
+          questions={pendingQuestion.questions}
+          onSubmit={handleQuestionSubmit}
+          onCancel={handleQuestionCancel}
+        />
+      )}
+
+      {/* Build Wizard */}
+      {isBuildWizardOpen && (
+        <BuildWizard
+          onComplete={handleBuildComplete}
+          onClose={handleCloseBuildWizard}
+        />
+      )}
+
+      {/* Scroll Button - only show when messages exist */}
+      {messages.length > 0 && <ScrollButton scrollContainerRef={scrollContainerRef} />}
+
+      {/* Keyboard Shortcuts Modal */}
+      <KeyboardShortcuts
+        isOpen={showKeyboardShortcuts}
+        onClose={() => setShowKeyboardShortcuts(false)}
+      />
+    </div>
+  );
+}

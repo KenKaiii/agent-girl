@@ -18,7 +18,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, memo, useCallback } from 'react';
 import { ChevronDown, Check } from 'lucide-react';
 import { AVAILABLE_MODELS } from '../../config/models';
 
@@ -29,7 +29,7 @@ interface ModelSelectorProps {
   hasMessages?: boolean;
 }
 
-export function ModelSelector({ selectedModel, onModelChange, disabled = false, hasMessages = false }: ModelSelectorProps) {
+export const ModelSelector = memo(function ModelSelector({ selectedModel, onModelChange, disabled = false, hasMessages = false }: ModelSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -49,10 +49,10 @@ export function ModelSelector({ selectedModel, onModelChange, disabled = false, 
     }
   }, [isOpen]);
 
-  const handleModelSelect = (modelId: string) => {
+  const handleModelSelect = useCallback((modelId: string) => {
     onModelChange(modelId);
     setIsOpen(false);
-  };
+  }, [onModelChange]);
 
   return (
     <div className="relative" ref={menuRef}>
@@ -159,4 +159,4 @@ export function ModelSelector({ selectedModel, onModelChange, disabled = false, 
       )}
     </div>
   );
-}
+});

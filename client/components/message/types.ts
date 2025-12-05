@@ -132,6 +132,46 @@ export interface AssistantMessage extends BaseMessage {
   };
 }
 
+export interface PreviewElement {
+  id: number;
+  tagName: string;
+  selector: string;
+  textContent?: string;
+  className?: string;
+  elementId?: string;
+  path?: string;
+  styles?: {
+    color?: string;
+    backgroundColor?: string;
+    fontSize?: string;
+  };
+}
+
+export interface PreviewFileContext {
+  framework: string;
+  routePattern?: string;
+  possibleFiles: string[];
+  resolvedFile?: string;
+  componentHints?: string[];
+}
+
+export interface PreviewViewport {
+  device: string;
+  width: number;
+  height: number;
+}
+
+export interface PreviewActionMetadata {
+  type: 'preview';
+  action: 'element_select' | 'style_change' | 'content_edit' | 'ai_request';
+  previewUrl: string;
+  elements: PreviewElement[];
+  fileContext?: PreviewFileContext;
+  viewport?: PreviewViewport;
+  screenshot?: string;
+  userRequest?: string;
+}
+
 export interface SystemMessage extends BaseMessage {
   type: 'system';
   content: string;
@@ -146,7 +186,7 @@ export interface SystemMessage extends BaseMessage {
     permissionMode?: string;
     slash_commands?: string[];
     apiKeySource?: string;
-  };
+  } | PreviewActionMetadata;
 }
 
 export interface UserToolResultMessage extends BaseMessage {

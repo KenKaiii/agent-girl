@@ -18,7 +18,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import React, { useState } from 'react';
+import React, { useState, memo, useCallback } from 'react';
 import { SyntaxHighlighter, vscDarkPlus } from '../../utils/syntaxHighlighter';
 import { showError } from '../../utils/errorMessages';
 import { FileText, FolderOpen, Copy } from 'lucide-react';
@@ -144,7 +144,7 @@ interface CodeBlockWithCopyProps {
   wrapperClassName?: string;
 }
 
-export function CodeBlockWithCopy({ code, language, customStyle, wrapperClassName }: CodeBlockWithCopyProps) {
+export const CodeBlockWithCopy = memo(function CodeBlockWithCopy({ code, language, customStyle, wrapperClassName }: CodeBlockWithCopyProps) {
   const { showCode } = useCodeVisibility();
 
   // If code visibility is disabled globally, don't render the code block
@@ -152,9 +152,8 @@ export function CodeBlockWithCopy({ code, language, customStyle, wrapperClassNam
     return null;
   }
   const [copied, setCopied] = useState(false);
-  const [hoveredButton, setHoveredButton] = useState<string | null>(null);
 
-  const handleCopy = async () => {
+  const handleCopy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(code);
       setCopied(true);
@@ -163,16 +162,7 @@ export function CodeBlockWithCopy({ code, language, customStyle, wrapperClassNam
       const errorMsg = err instanceof Error ? err.message : 'Unknown error';
       showError('COPY_FAILED', errorMsg);
     }
-  };
-
-  // Always use dark mode
-  const buttonStyle = (buttonName: string) => ({
-    cursor: 'pointer',
-    backgroundColor: hoveredButton === buttonName
-      ? 'rgba(255, 255, 255, 0.15)'
-      : 'rgba(255, 255, 255, 0.1)',
-    color: '#ffffff',
-  });
+  }, [code]);
 
   const codeStyle: { [key: string]: React.CSSProperties } = vscDarkPlus as unknown as { [key: string]: React.CSSProperties };
 
@@ -196,13 +186,10 @@ export function CodeBlockWithCopy({ code, language, customStyle, wrapperClassNam
           <div className="text-sm font-medium leading-6 text-white">{language}</div>
         </div>
 
-        {/* Right side: copy button */}
+        {/* Right side: copy button - CSS-only hover, no state */}
         <button
           onClick={handleCopy}
-          className="px-1.5 py-0.5 rounded-md border-none transition copy-code-button text-xs"
-          style={buttonStyle('copy')}
-          onMouseEnter={() => setHoveredButton('copy')}
-          onMouseLeave={() => setHoveredButton(null)}
+          className="px-1.5 py-0.5 rounded-md border-none transition-colors copy-code-button text-xs cursor-pointer text-white bg-white/10 hover:bg-white/15"
           aria-label={copied ? "Copied!" : "Copy code"}
           title={copied ? "Copied!" : "Copy code"}
         >
@@ -248,4 +235,4 @@ export function CodeBlockWithCopy({ code, language, customStyle, wrapperClassNam
       )}
     </div>
   );
-}
+});

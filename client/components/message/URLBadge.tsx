@@ -18,7 +18,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import React from 'react';
+import React, { memo } from 'react';
 import { formatUrlForBadge } from '../../utils/urlFormatter';
 
 interface URLBadgeProps {
@@ -32,7 +32,7 @@ interface URLBadgeProps {
  * - Truncates path to fit within 20 characters total
  * - Font size is 2px smaller than body text (14px vs 16px)
  */
-export function URLBadge({ href, children }: URLBadgeProps) {
+export const URLBadge = memo(function URLBadge({ href, children }: URLBadgeProps) {
   const displayText = children ? String(children) : formatUrlForBadge(href);
 
   return (
@@ -75,4 +75,4 @@ export function URLBadge({ href, children }: URLBadgeProps) {
       <span>{displayText}</span>
     </a>
   );
-}
+});

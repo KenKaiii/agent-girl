@@ -28,7 +28,7 @@ export { PortFinder } from './PortFinder';
 export { StyleEditor } from './StyleEditor';
 export { ImageEditor } from './ImageEditor';
 export { VisualEditor } from './VisualEditor';
-export type { EditMode, EditContext, AISuggestion } from './VisualEditor';
+export type { EditMode, EditContext, AISuggestion, AIEditProgress } from './VisualEditor';
 export { BuildPreviewPanel } from './BuildPreviewPanel';
 export { BuildLauncher, TEMPLATES } from './BuildLauncher';
 export type { Template, TemplateCategory } from './BuildLauncher';

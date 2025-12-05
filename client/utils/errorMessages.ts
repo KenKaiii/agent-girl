@@ -78,6 +78,11 @@ export const ErrorMessages = {
     description: 'Could not copy the path to clipboard',
     code: 'E026',
   },
+  RENAME_FOLDER: {
+    title: 'Failed to rename folder',
+    description: 'Could not rename the project folder',
+    code: 'E027',
+  },
 
   // Permission & Mode
   UPDATE_MODE: {

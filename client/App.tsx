@@ -24,6 +24,7 @@ import { QueuePanel } from "./components/queue/QueuePanel";
 import { MessageQueueProvider } from "./hooks/useMessageQueue";
 import { PreLoader } from "./components/preloader/PreLoader";
 import { Toaster } from "sonner";
+import { preloadHeavyComponents } from "./utils/lazyComponents";
 
 const App: React.FC = () => {
   const [showPreLoader, setShowPreLoader] = useState(true);
@@ -33,6 +34,14 @@ const App: React.FC = () => {
     const img = new Image();
     img.src = '/client/agent-boy.svg';
   }, []);
+
+  // Preload heavy components after initial render during idle time
+  useEffect(() => {
+    if (!showPreLoader) {
+      // Start preloading after preloader animation completes
+      preloadHeavyComponents();
+    }
+  }, [showPreLoader]);
 
   return (
     <MessageQueueProvider>

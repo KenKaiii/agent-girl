@@ -322,6 +322,156 @@ export async function renameSessionFolderFromFirstMessage(
   }
 }
 
+/** Stopwords to filter out from titles */
+const TITLE_STOPWORDS = new Set([
+  'the', 'a', 'an', 'and', 'or', 'but', 'is', 'are', 'was', 'were', 'be', 'been',
+  'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should',
+  'may', 'might', 'must', 'can', 'need', 'to', 'of', 'in', 'for', 'on', 'with',
+  'at', 'by', 'from', 'as', 'into', 'through', 'during', 'before', 'after',
+  'above', 'below', 'up', 'down', 'out', 'off', 'over', 'under', 'again',
+  'then', 'once', 'here', 'there', 'when', 'where', 'why', 'how', 'all',
+  'each', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'not', 'only',
+  'own', 'same', 'so', 'than', 'too', 'very', 'just', 'about', 'also', 'if',
+  'this', 'that', 'these', 'those', 'it', 'its', 'i', 'me', 'my', 'you', 'your',
+  'we', 'our', 'they', 'their', 'he', 'she', 'him', 'her', 'his', 'please',
+  'help', 'want', 'like', 'make', 'get', 'let', 'know', 'think', 'see', 'look',
+  'use', 'new', 'now', 'way', 'well', 'even', 'because', 'any', 'give', 'day',
+  'most', 'us', 'bitte', 'ich', 'du', 'wir', 'sie', 'es', 'mir', 'mich', 'dir',
+  'dich', 'uns', 'euch', 'ihm', 'ihr', 'und', 'oder', 'aber', 'wenn', 'dass',
+  'weil', 'als', 'wie', 'was', 'wer', 'wo', 'wann', 'warum', 'kann', 'kannst',
+  'können', 'muss', 'müssen', 'soll', 'sollen', 'will', 'wollen', 'möchte',
+]);
+
+/** Important tech/action keywords to prioritize */
+const PRIORITY_KEYWORDS = new Set([
+  // Actions
+  'fix', 'add', 'create', 'build', 'implement', 'update', 'remove', 'delete',
+  'refactor', 'optimize', 'debug', 'test', 'deploy', 'install', 'configure',
+  'setup', 'migrate', 'convert', 'integrate', 'analyze', 'review', 'improve',
+  // Tech terms
+  'api', 'auth', 'login', 'database', 'server', 'client', 'frontend', 'backend',
+  'component', 'function', 'class', 'interface', 'type', 'hook', 'state',
+  'route', 'endpoint', 'query', 'mutation', 'schema', 'model', 'service',
+  'controller', 'middleware', 'plugin', 'module', 'package', 'library',
+  'config', 'settings', 'env', 'docker', 'kubernetes', 'ci', 'cd', 'pipeline',
+  'test', 'unit', 'integration', 'e2e', 'mock', 'stub', 'fixture',
+  'style', 'css', 'tailwind', 'sass', 'scss', 'theme', 'dark', 'light',
+  'responsive', 'mobile', 'desktop', 'layout', 'grid', 'flex', 'animation',
+  'button', 'form', 'input', 'modal', 'dialog', 'sidebar', 'navbar', 'header',
+  'footer', 'card', 'list', 'table', 'chart', 'graph', 'icon', 'image',
+  'upload', 'download', 'export', 'import', 'sync', 'async', 'stream',
+  'websocket', 'socket', 'http', 'rest', 'graphql', 'grpc', 'webhook',
+  'cache', 'redis', 'postgres', 'mysql', 'mongodb', 'sqlite', 'prisma',
+  'typescript', 'javascript', 'python', 'rust', 'go', 'java', 'react',
+  'vue', 'svelte', 'angular', 'next', 'nuxt', 'astro', 'node', 'bun', 'deno',
+  'error', 'bug', 'issue', 'problem', 'crash', 'performance', 'memory', 'leak',
+  'security', 'vulnerability', 'authentication', 'authorization', 'permission',
+  'user', 'admin', 'role', 'session', 'token', 'jwt', 'oauth', 'sso',
+  'payment', 'stripe', 'checkout', 'cart', 'order', 'product', 'inventory',
+  'email', 'notification', 'push', 'sms', 'chat', 'message', 'comment',
+  'search', 'filter', 'sort', 'pagination', 'infinite', 'scroll', 'lazy',
+  'drag', 'drop', 'resize', 'collapse', 'expand', 'toggle', 'switch',
+  // German tech terms
+  'fehler', 'problem', 'erstellen', 'hinzufügen', 'entfernen', 'ändern',
+  'verbessern', 'optimieren', 'testen', 'prüfen', 'anpassen', 'konfigurieren',
+]);
+
+/**
+ * Generate a smart display title from message content
+ * Extracts important keywords and creates readable title without hyphens
+ */
+function generateSmartTitle(content: string): string {
+  if (!content || typeof content !== 'string') {
+    return 'New Chat';
+  }
+
+  // Clean the content
+  const cleaned = content
+    .replace(/```[\s\S]*?```/g, ' ') // Remove code blocks
+    .replace(/`[^`]+`/g, ' ') // Remove inline code
+    .replace(/https?:\/\/\S+/g, ' ') // Remove URLs
+    .replace(/[#*_[\](){}]/g, ' ') // Remove markdown chars
+    .replace(/\n+/g, ' ') // Replace newlines
+    .replace(/\s+/g, ' ') // Normalize spaces
+    .trim();
+
+  // Tokenize and clean words
+  const words = cleaned
+    .split(/[\s,.:;!?]+/)
+    .map(w => w.toLowerCase().replace(/[^a-zA-Z0-9äöüßÄÖÜ]/g, ''))
+    .filter(w => w.length > 1);
+
+  // Score words by importance
+  const wordScores = new Map<string, number>();
+  const seenWords = new Set<string>();
+
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i];
+
+    // Skip stopwords
+    if (TITLE_STOPWORDS.has(word)) continue;
+
+    // Skip already seen (keep first occurrence position)
+    if (seenWords.has(word)) continue;
+    seenWords.add(word);
+
+    let score = 0;
+
+    // Priority keywords get highest score
+    if (PRIORITY_KEYWORDS.has(word)) {
+      score += 100;
+    }
+
+    // Position bonus (earlier = more important)
+    score += Math.max(0, 50 - i * 2);
+
+    // Length bonus (longer words often more meaningful)
+    if (word.length >= 4) score += 10;
+    if (word.length >= 6) score += 10;
+    if (word.length >= 8) score += 5;
+
+    // CamelCase/compound word detection (original had capitals)
+    const originalWord = cleaned.split(/[\s,.:;!?]+/)[i];
+    if (originalWord && /[A-Z]/.test(originalWord.slice(1))) {
+      score += 20;
+    }
+
+    wordScores.set(word, score);
+  }
+
+  // Sort by score and take top keywords
+  const sortedWords = [...wordScores.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([word]) => word);
+
+  if (sortedWords.length === 0) {
+    // Fallback: take first meaningful words
+    const fallbackWords = words
+      .filter(w => !TITLE_STOPWORDS.has(w) && w.length > 2)
+      .slice(0, 3);
+    if (fallbackWords.length > 0) {
+      return capitalizeWords(fallbackWords.join(' ')).substring(0, 60);
+    }
+    return 'New Chat';
+  }
+
+  // Create title: capitalize each word, join with spaces
+  const title = capitalizeWords(sortedWords.join(' '));
+
+  return title.substring(0, 60);
+}
+
+/**
+ * Capitalize first letter of each word
+ */
+function capitalizeWords(text: string): string {
+  return text
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
 /**
  * Update session title from first message
  * Called after first message is received
@@ -341,16 +491,11 @@ export async function updateSessionTitleFromFirstMessage(
       return { success: false, error: 'Title already customized' };
     }
 
-    // Generate title from content
-    const newTitle = generateFolderNameFromContent(firstMessageContent)
-      .replace(/-/g, ' ')
-      .split(' ')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ')
-      .substring(0, 60);
+    // Generate smart title with keyword extraction
+    const newTitle = generateSmartTitle(firstMessageContent);
 
     // Update database
-    if (newTitle && newTitle.length > 0) {
+    if (newTitle && newTitle.length > 0 && newTitle !== 'New Chat') {
       sessionDb.renameSession(sessionId, newTitle);
       console.log(`📝 Updated session title: ${newTitle}`);
       return {

@@ -18,17 +18,17 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, memo, useCallback } from 'react';
 import { Play, Square } from 'lucide-react';
 
-export function RadioPlayer() {
+export const RadioPlayer = memo(function RadioPlayer() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
 
   // Nightwave Plaza - Vaporwave/Synthwave radio for coding
   const streamUrl = 'https://radio.plaza.one/mp3';
 
-  const handlePlay = () => {
+  const handlePlay = useCallback(() => {
     // Create audio element on first play (user interaction required)
     if (!audioRef.current) {
       const audio = new Audio(streamUrl);
@@ -59,15 +59,15 @@ export function RadioPlayer() {
       console.error('Failed to play radio:', error);
       setIsPlaying(false);
     });
-  };
+  }, []);
 
-  const handleStop = () => {
+  const handleStop = useCallback(() => {
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
       setIsPlaying(false);
     }
-  };
+  }, []);
 
   return (
     <div className="flex items-center gap-3" style={{ pointerEvents: 'auto', cursor: 'default' }}>
@@ -96,4 +96,4 @@ export function RadioPlayer() {
       )}
     </div>
   );
-}
+});

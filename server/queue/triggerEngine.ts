@@ -246,9 +246,6 @@ export class TriggerEngine extends EventEmitter {
   async fireTrigger(trigger: Trigger): Promise<Task | null> {
     console.log(`🔥 Firing trigger: ${trigger.id} (${trigger.type})`);
 
-    // Update last triggered time
-    const now = Date.now();
-
     // If target task ID is specified, schedule that task
     if (trigger.targetTaskId) {
       const task = this.db.getTask(trigger.targetTaskId);
@@ -287,7 +284,7 @@ export class TriggerEngine extends EventEmitter {
   /**
    * Evaluate condition-based triggers
    */
-  evaluateConditions(sessionId: string): void {
+  evaluateConditions(_sessionId: string): void {
     // This would check all condition-based triggers for a session
     // and fire them if their conditions are met
     // For now, this is a placeholder for future implementation

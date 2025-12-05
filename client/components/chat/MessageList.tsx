@@ -18,11 +18,26 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, memo, useCallback, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { MessageRenderer } from '../message/MessageRenderer';
 import { Zap, Clock } from 'lucide-react';
 import type { Message } from '../message/types';
+
+// Memoized message item to prevent unnecessary re-renders
+const MemoizedMessageItem = memo(function MemoizedMessageItem({
+  message,
+  displayMode,
+  showCode,
+  onRemoveMessage,
+}: {
+  message: Message;
+  displayMode?: 'full' | 'compact';
+  showCode: boolean;
+  onRemoveMessage?: (messageId: string) => void;
+}) {
+  return <MessageRenderer message={message} displayMode={displayMode} showCode={showCode} onRemoveMessage={onRemoveMessage} />;
+});
 
 interface MessageListProps {
   messages: Message[];
@@ -34,7 +49,7 @@ interface MessageListProps {
   onRemoveMessage?: (messageId: string) => void;
 }
 
-export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollContainerRef, displayMode, showCode = true, onRemoveMessage }: MessageListProps) {
+export const MessageList = memo(function MessageList({ messages, isLoading, liveTokenCount = 0, scrollContainerRef, displayMode, showCode = true, onRemoveMessage }: MessageListProps) {
   const parentRef = scrollContainerRef || useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -42,9 +57,8 @@ export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollCon
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const startTimeRef = useRef<number | null>(null);
 
-  // Smooth token count animation
+  // Token count display (debounced)
   const [displayedTokenCount, setDisplayedTokenCount] = useState(0);
-  const animationFrameRef = useRef<number | null>(null);
 
   // Smart scrolling - track if user is at bottom
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -72,44 +86,13 @@ export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollCon
     }
   }, [isLoading]);
 
-  // Smooth token count animation
+  // Simplified token count update - no animation to reduce CPU overhead
   useEffect(() => {
-    const startValue = displayedTokenCount;
-    const endValue = liveTokenCount;
-    const duration = 300; // 300ms animation duration
-    const startTime = Date.now();
-
-    if (startValue === endValue) return;
-
-    const animate = () => {
-      const now = Date.now();
-      const elapsed = now - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-
-      // Ease-out cubic function for smooth deceleration
-      const easeOut = 1 - Math.pow(1 - progress, 3);
-
-      const currentValue = Math.floor(startValue + (endValue - startValue) * easeOut);
-      setDisplayedTokenCount(currentValue);
-
-      if (progress < 1) {
-        animationFrameRef.current = requestAnimationFrame(animate);
-      } else {
-        setDisplayedTokenCount(endValue);
-      }
-    };
-
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-    }
-
-    animationFrameRef.current = requestAnimationFrame(animate);
-
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
-    };
+    // Debounce updates to avoid excessive re-renders during fast streaming
+    const timeout = setTimeout(() => {
+      setDisplayedTokenCount(liveTokenCount);
+    }, 100);
+    return () => clearTimeout(timeout);
   }, [liveTokenCount]);
 
   // Virtual scrolling setup
@@ -137,16 +120,18 @@ export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollCon
     return () => container.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Auto-scroll to bottom only if user is at bottom
+  // Auto-scroll to bottom only if user is at bottom - debounced for performance
   useEffect(() => {
     if (parentRef.current && isAtBottom) {
-      // Smooth scroll to bottom when user is already near the bottom
-      parentRef.current.scrollTo({
-        top: parentRef.current.scrollHeight,
-        behavior: 'smooth',
+      // Use 'auto' instead of 'smooth' during streaming for better performance
+      requestAnimationFrame(() => {
+        parentRef.current?.scrollTo({
+          top: parentRef.current.scrollHeight,
+          behavior: 'auto',
+        });
       });
     }
-  }, [messages, isAtBottom]);
+  }, [messages.length, isAtBottom]);
 
   if (messages.length === 0 && !isLoading) {
     return (
@@ -188,7 +173,7 @@ export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollCon
                     data-index={virtualItem.index}
                     data-message-index={virtualItem.index}
                   >
-                    <MessageRenderer message={message} displayMode={displayMode} showCode={showCode} onRemoveMessage={onRemoveMessage} />
+                    <MemoizedMessageItem message={message} displayMode={displayMode} showCode={showCode} onRemoveMessage={onRemoveMessage} />
                   </div>
                 );
               })}
@@ -293,4 +278,4 @@ export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollCon
       </div>
     </div>
   );
-}
+});

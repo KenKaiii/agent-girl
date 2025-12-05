@@ -18,9 +18,16 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { toast } from '../utils/toast';
 import { showError } from '../utils/errorMessages';
+
+export interface PaginatedResponse {
+  sessions: Session[];
+  total: number;
+  hasMore: boolean;
+  nextCursor?: string;
+}
 
 export interface Session {
   id: string;
@@ -47,30 +54,69 @@ export interface SessionMessage {
 // Use dynamic URL based on current window location (works on any port)
 const API_BASE = `${window.location.protocol}//${window.location.host}/api`;
 
+/**
+ * Retry wrapper for fetch with exponential backoff
+ * @param fn - Async function to retry
+ * @param maxRetries - Maximum number of retries (default: 3)
+ * @param baseDelay - Base delay in ms (default: 500)
+ */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries = 3,
+  baseDelay = 500
+): Promise<T> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+
+      // Don't retry on 4xx errors (client errors)
+      if (lastError.message.includes('status: 4')) {
+        throw lastError;
+      }
+
+      // Wait with exponential backoff before retry
+      if (attempt < maxRetries - 1) {
+        const delay = baseDelay * Math.pow(2, attempt);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        console.log(`Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms`);
+      }
+    }
+  }
+
+  throw lastError;
+}
+
 export function useSessionAPI() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const cursorRef = useRef<string | undefined>(undefined);
+  const hasMoreRef = useRef(true);
 
   /**
-   * Fetch all sessions
+   * Fetch all sessions (with automatic retry on failure)
    */
   const fetchSessions = useCallback(async (): Promise<Session[]> => {
     setIsLoading(true);
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE}/sessions`);
+      const data = await withRetry(async () => {
+        const response = await fetch(`${API_BASE}/sessions`);
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
 
-      const data = await response.json() as { sessions: Session[]; warning?: string };
+        return response.json() as Promise<{ sessions: Session[]; warning?: string }>;
+      });
 
       // Show warning if directories were recreated
       if (data.warning) {
         console.warn('⚠️  Directory warning:', data.warning);
-        // Show toast notification to user
         toast.success(`${data.warning}`, {
           description: 'Some chat folders were missing and have been recreated.',
           duration: 5000,
@@ -86,6 +132,76 @@ export function useSessionAPI() {
     } finally {
       setIsLoading(false);
     }
+  }, []);
+
+  /**
+   * Fetch sessions with pagination (lazy loading)
+   */
+  const fetchSessionsPaginated = useCallback(async (
+    limit = 30,
+    reset = false
+  ): Promise<PaginatedResponse> => {
+    if (!reset && !hasMoreRef.current) {
+      return { sessions: [], total: 0, hasMore: false };
+    }
+
+    if (reset) {
+      cursorRef.current = undefined;
+      hasMoreRef.current = true;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (cursorRef.current) {
+        params.set('cursor', cursorRef.current);
+      }
+
+      const response = await fetch(`${API_BASE}/sessions?${params}`);
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json() as PaginatedResponse & { warning?: string; imported?: string[] };
+
+      // Show warning if directories were recreated
+      if (data.warning) {
+        console.warn('⚠️  Directory warning:', data.warning);
+        toast.success(`${data.warning}`, {
+          description: 'Some chat folders were missing and have been recreated.',
+          duration: 5000,
+        });
+      }
+
+      // Update cursor for next page
+      cursorRef.current = data.nextCursor;
+      hasMoreRef.current = data.hasMore;
+
+      return {
+        sessions: data.sessions,
+        total: data.total,
+        hasMore: data.hasMore,
+        nextCursor: data.nextCursor,
+      };
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to fetch sessions';
+      setError(errorMsg);
+      showError('LOAD_CHATS', errorMsg);
+      return { sessions: [], total: 0, hasMore: false };
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  /**
+   * Reset pagination state
+   */
+  const resetPagination = useCallback(() => {
+    cursorRef.current = undefined;
+    hasMoreRef.current = true;
   }, []);
 
   /**
@@ -343,6 +459,8 @@ export function useSessionAPI() {
     isLoading,
     error,
     fetchSessions,
+    fetchSessionsPaginated,
+    resetPagination,
     fetchSessionMessages,
     createSession,
     deleteSession,

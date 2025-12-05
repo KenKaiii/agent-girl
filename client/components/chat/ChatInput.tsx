@@ -18,7 +18,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, memo, useCallback, useMemo, useLayoutEffect } from 'react';
 import { Send, Plus, X, Square, Palette, List, ListOrdered, Hammer, Monitor, Link } from 'lucide-react';
 import type { FileAttachment } from '../message/types';
 import type { BackgroundProcess } from '../process/BackgroundProcessMonitor';
@@ -29,6 +29,9 @@ import { StyleConfigModal } from './StyleConfigModal';
 import { FeaturesModal } from './FeaturesModal';
 import { getModelConfig } from '../../config/models';
 import { useMessageQueue } from '../../hooks/useMessageQueue';
+
+// Regex for detecting slash commands - compiled once
+const COMMAND_REGEX = /(^|\s)(\/([a-z-]+))(?=\s|$)/m;
 
 interface ChatInputProps {
   value: string;
@@ -56,7 +59,7 @@ interface ChatInputProps {
   previewUrl?: string | null;
 }
 
-export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGenerating, placeholder, isPlanMode, onTogglePlanMode, backgroundProcesses: _backgroundProcesses = [], onKillProcess: _onKillProcess, mode, onModeChange, availableCommands = [], contextUsage, selectedModel, layoutMode = 'chat-only', onOpenBuildWizard, previewUrl }: ChatInputProps) {
+export const ChatInput = memo(function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGenerating, placeholder, isPlanMode, onTogglePlanMode, backgroundProcesses: _backgroundProcesses = [], onKillProcess: _onKillProcess, mode, onModeChange, availableCommands = [], contextUsage, selectedModel, layoutMode = 'chat-only', onOpenBuildWizard, previewUrl }: ChatInputProps) {
   const isCompact = layoutMode === 'split-screen';
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -73,20 +76,29 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
   const [filteredCommands, setFilteredCommands] = useState<SlashCommand[]>([]);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
 
+  // Memoize command match check - prevents regex execution on every render
+  const hasCommand = useMemo(() => COMMAND_REGEX.test(value), [value]);
+
+  // Early check for slash prefix - avoids heavy computation when not needed
+  const startsWithSlash = value.startsWith('/');
+
   // Detect "/" at start of input for command autocomplete
+  // OPTIMIZED: Only run filtering when input actually starts with /
   useEffect(() => {
-    if (value.startsWith('/') && availableCommands.length > 0) {
-      const searchTerm = value.slice(1).toLowerCase();
-      const filtered = availableCommands.filter(cmd =>
-        cmd.name.toLowerCase().includes(searchTerm)
-      );
-      setFilteredCommands(filtered);
-      setShowCommandMenu(filtered.length > 0);
-      setSelectedCommandIndex(0);
-    } else {
-      setShowCommandMenu(false);
+    // Quick bail-out if no slash prefix
+    if (!startsWithSlash || availableCommands.length === 0) {
+      if (showCommandMenu) setShowCommandMenu(false);
+      return;
     }
-  }, [value, availableCommands]);
+
+    const searchTerm = value.slice(1).toLowerCase();
+    const filtered = availableCommands.filter(cmd =>
+      cmd.name.toLowerCase().includes(searchTerm)
+    );
+    setFilteredCommands(filtered);
+    setShowCommandMenu(filtered.length > 0);
+    setSelectedCommandIndex(0);
+  }, [startsWithSlash, value, availableCommands, showCommandMenu]);
 
   // Auto-focus on mount with slight delay to ensure DOM is ready
   useEffect(() => {
@@ -97,20 +109,37 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
   }, []);
 
   // Auto-resize textarea based on content
-  useEffect(() => {
+  // OPTIMIZED: Use useLayoutEffect + requestAnimationFrame for smoother resize
+  const rafIdRef = useRef<number | null>(null);
+
+  useLayoutEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
 
-    // Heights based on compact mode (split-screen)
-    const minHeight = isCompact ? 40 : 56;
-    const maxHeight = isCompact ? 80 : 120;
+    // Cancel any pending RAF to prevent stacking
+    if (rafIdRef.current) {
+      cancelAnimationFrame(rafIdRef.current);
+    }
 
-    // Reset height to recalculate
-    textarea.style.height = `${minHeight}px`;
+    // Use RAF for smooth, batched DOM updates
+    rafIdRef.current = requestAnimationFrame(() => {
+      // Heights based on compact mode (split-screen)
+      const minHeight = isCompact ? 40 : 56;
+      const maxHeight = isCompact ? 80 : 120;
 
-    // Set height based on scrollHeight, capped at max
-    const newHeight = Math.min(textarea.scrollHeight, maxHeight);
-    textarea.style.height = `${newHeight}px`;
+      // Reset height to recalculate
+      textarea.style.height = `${minHeight}px`;
+
+      // Set height based on scrollHeight, capped at max
+      const newHeight = Math.min(textarea.scrollHeight, maxHeight);
+      textarea.style.height = `${newHeight}px`;
+    });
+
+    return () => {
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
+    };
   }, [value, isCompact]);
 
   // Prevent browser default drag behavior (allows drop zones to work)
@@ -204,16 +233,16 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
     }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = useCallback(() => {
     onSubmit(attachedFiles.length > 0 ? attachedFiles : undefined, mode);
     setAttachedFiles([]);
     // Refocus input after submit
     setTimeout(() => textareaRef.current?.focus(), 0);
-  };
+  }, [attachedFiles, mode, onSubmit]);
 
-  const handleFileClick = () => {
+  const handleFileClick = useCallback(() => {
     fileInputRef.current?.click();
-  };
+  }, []);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -246,9 +275,9 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
     }
   };
 
-  const handleRemoveFile = (id: string) => {
+  const handleRemoveFile = useCallback((id: string) => {
     setAttachedFiles((prev) => prev.filter((f) => f.id !== id));
-  };
+  }, []);
 
   // Drag and drop handlers
   const handleDragEnter = (e: React.DragEvent) => {
@@ -272,6 +301,25 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
     e.preventDefault();
     e.stopPropagation();
     setIsDraggingOver(false);
+
+    // Check for path drop from WorkingDirectoryPanel first
+    const pathData = e.dataTransfer.getData('application/x-agent-girl-path');
+    if (pathData) {
+      try {
+        const { path, type } = JSON.parse(pathData) as { path: string; type: 'file' | 'directory' };
+        // Get just the filename/dirname for cleaner display
+        const name = path.split('/').pop() || path;
+        const prefix = type === 'file' ? 'File: ' : 'Folder: ';
+        // Insert path at cursor position or append to end
+        const newValue = value ? `${value}\n${prefix}\`${name}\` (${path})` : `${prefix}\`${name}\` (${path}) `;
+        onChange(newValue);
+        // Focus textarea after drop
+        setTimeout(() => textareaRef.current?.focus(), 0);
+        return;
+      } catch {
+        // Fall through to file handling if parsing fails
+      }
+    }
 
     const files = Array.from(e.dataTransfer.files);
     if (files.length === 0) return;
@@ -298,11 +346,11 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
     setAttachedFiles([fileData]);
   };
 
-  const formatFileSize = (bytes: number): string => {
+  const formatFileSize = useCallback((bytes: number): string => {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
+  }, []);
 
   return (
     <div
@@ -441,8 +489,8 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
 
           {/* Textarea - Below mode indicator */}
           <div className="relative px-2.5" style={{ overflow: 'visible' }}>
-            {/* Command Pill Overlay */}
-            {value.match(/(^|\s)(\/([a-z-]+))(?=\s|$)/m) && (
+            {/* Command Pill Overlay - uses memoized hasCommand */}
+            {hasCommand && (
               <div
                 className="absolute px-1 pt-1 w-full text-sm pointer-events-none z-10 text-gray-100"
                 style={{
@@ -472,7 +520,7 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
                 minHeight: isCompact ? '40px' : '56px',
                 maxHeight: isCompact ? '80px' : '120px',
                 overflowY: 'auto',
-                color: value.match(/(^|\s)(\/([a-z-]+))(?=\s|$)/m) ? 'transparent' : 'rgb(243, 244, 246)',
+                color: hasCommand ? 'transparent' : 'rgb(243, 244, 246)',
                 caretColor: 'rgb(243, 244, 246)',
                 position: 'relative',
                 zIndex: 20,
@@ -757,4 +805,4 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
       )}
     </div>
   );
-}
+});

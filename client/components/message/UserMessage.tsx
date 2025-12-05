@@ -18,7 +18,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import React, { useState } from 'react';
+import React, { useState, memo, useCallback } from 'react';
 import { UserMessage as UserMessageType, UserToolResultMessage } from './types';
 import { showError } from '../../utils/errorMessages';
 import { CommandTextRenderer } from './CommandTextRenderer';
@@ -46,7 +46,7 @@ function filterImagePathReferences(text: string): string {
     .trim();
 }
 
-export function UserMessage({ message }: UserMessageProps) {
+export const UserMessage = memo(function UserMessage({ message }: UserMessageProps) {
   const [copied, setCopied] = useState(false);
 
   // Handle copy to clipboard
@@ -184,4 +184,4 @@ export function UserMessage({ message }: UserMessageProps) {
       </div>
     </div>
   );
-}
+});

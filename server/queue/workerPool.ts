@@ -3,7 +3,7 @@
  * Distributes tasks across workers and monitors health
  */
 
-import { Task, Worker, TaskStatus, TaskExecutionResult } from './types';
+import { Task, Worker, TaskExecutionResult } from './types';
 import EventEmitter from 'events';
 import { randomUUID } from 'crypto';
 

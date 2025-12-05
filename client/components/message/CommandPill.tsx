@@ -3,7 +3,7 @@
  * Removed pill badge background wrapper
  */
 
-import React from 'react';
+import React, { memo } from 'react';
 
 interface CommandPillProps {
   commandName: string;
@@ -22,10 +22,10 @@ function getCommandGradientClass(commandName: string): string {
   return `agent-gradient-${gradientNum}`;
 }
 
-export function CommandPill({ commandName }: CommandPillProps) {
+export const CommandPill = memo(function CommandPill({ commandName }: CommandPillProps) {
   const gradientClass = getCommandGradientClass(commandName);
 
   return (
     <span className={gradientClass}>{commandName}</span>
   );
-}
+});

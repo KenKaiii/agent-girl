@@ -18,7 +18,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import React, { useState } from 'react';
+import React, { useState, memo } from 'react';
 
 interface ThinkingBlockProps {
   title: string;
@@ -26,7 +26,7 @@ interface ThinkingBlockProps {
   defaultExpanded?: boolean;
 }
 
-export function ThinkingBlock({ title, content, defaultExpanded = false }: ThinkingBlockProps) {
+export const ThinkingBlock = memo(function ThinkingBlock({ title, content, defaultExpanded = false }: ThinkingBlockProps) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
   return (
@@ -65,4 +65,4 @@ export function ThinkingBlock({ title, content, defaultExpanded = false }: Think
       )}
     </div>
   );
-}
+});

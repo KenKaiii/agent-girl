@@ -18,8 +18,9 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import React, { useState } from 'react';
-import { SystemMessage as SystemMessageType } from './types';
+import React, { useState, memo } from 'react';
+import { SystemMessage as SystemMessageType, PreviewActionMetadata } from './types';
+import { PreviewActionMessage, PreviewActionData } from './PreviewActionMessage';
 
 interface SystemMessageProps {
   message: SystemMessageType;
@@ -29,11 +30,29 @@ function formatTimestamp(timestamp: string): string {
   return new Date(timestamp).toLocaleString();
 }
 
-export function SystemMessage({ message }: SystemMessageProps) {
+export const SystemMessage = memo(function SystemMessage({ message }: SystemMessageProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  
-  const isInitMessage = message.metadata?.type === 'system' && message.metadata?.subtype === 'init';
-  
+
+  const isInitMessage = message.metadata?.type === 'system' && (message.metadata as { subtype?: string })?.subtype === 'init';
+
+  // Check if this is a preview action message
+  const isPreviewAction = message.metadata?.type === 'preview';
+
+  if (isPreviewAction) {
+    const previewMeta = message.metadata as PreviewActionMetadata;
+    const previewData: PreviewActionData = {
+      type: 'preview_action',
+      action: previewMeta.action,
+      previewUrl: previewMeta.previewUrl,
+      elements: previewMeta.elements,
+      fileContext: previewMeta.fileContext,
+      viewport: previewMeta.viewport,
+      screenshot: previewMeta.screenshot,
+      timestamp: message.timestamp,
+    };
+    return <PreviewActionMessage data={previewData} />;
+  }
+
   return (
     <div className="mb-4 p-4 bg-gray-50 border-l-4 border-gray-400 rounded-r-lg">
       <div className="flex justify-between items-start mb-2">
@@ -75,4 +94,4 @@ export function SystemMessage({ message }: SystemMessageProps) {
       )}
     </div>
   );
-}
+});

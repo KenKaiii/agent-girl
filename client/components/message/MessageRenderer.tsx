@@ -18,7 +18,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import React from 'react';
+import React, { memo } from 'react';
 import { Message } from './types';
 import { UserMessage } from './UserMessage';
 import { SystemMessage } from './SystemMessage';
@@ -31,7 +31,7 @@ interface MessageRendererProps {
   onRemoveMessage?: (messageId: string) => void;
 }
 
-export function MessageRenderer({ message, displayMode, showCode = true, onRemoveMessage }: MessageRendererProps) {
+export const MessageRenderer = memo(function MessageRenderer({ message, displayMode, showCode = true, onRemoveMessage }: MessageRendererProps) {
   switch (message.type) {
     case 'user':
       return <UserMessage message={message} />;
@@ -56,9 +56,11 @@ export function MessageRenderer({ message, displayMode, showCode = true, onRemov
       );
     }
   }
-}
+});
 
 export * from './types';
 export { UserMessage } from './UserMessage';
 export { SystemMessage } from './SystemMessage';
 export { AssistantMessage } from './AssistantMessage';
+export { PreviewActionMessage } from './PreviewActionMessage';
+export type { PreviewActionData } from './PreviewActionMessage';

@@ -67,6 +67,16 @@ export interface AISuggestion {
   confidence: number;
 }
 
+// AI Edit progress status for cross-component communication
+export interface AIEditProgress {
+  isActive: boolean;
+  status: 'idle' | 'analyzing' | 'editing' | 'completed' | 'error';
+  currentTool?: string;
+  currentFile?: string;
+  message?: string;
+  thinkingContent?: string;
+}
+
 interface VisualEditorProps {
   element: SelectedElement;
   elements: SelectedElement[];
@@ -81,6 +91,8 @@ interface VisualEditorProps {
   projectPath?: string;
   sourceFilePath?: string;
   onFileSaved?: (filePath: string) => void;
+  // AI progress tracking from chat
+  aiProgress?: AIEditProgress;
 }
 
 // Context for AI editing
@@ -426,6 +438,7 @@ export function VisualEditor({
   projectPath,
   sourceFilePath,
   onFileSaved,
+  aiProgress,
 }: VisualEditorProps) {
   const [editMode, setEditMode] = useState<EditMode>('hybrid');
   const [activePanel, setActivePanel] = useState<'main' | 'style' | 'image' | 'source' | null>('main');
@@ -763,6 +776,59 @@ export function VisualEditor({
               onApply={handleApplySuggestion}
               isLoading={isLoadingSuggestions}
             />
+          </div>
+        )}
+
+        {/* AI Progress Indicator from Chat */}
+        {aiProgress?.isActive && (
+          <div className="pt-2 border-t border-white/5">
+            <div
+              className="p-3 rounded-lg"
+              style={{
+                background: 'linear-gradient(135deg, rgba(236, 72, 153, 0.1), rgba(139, 92, 246, 0.1))',
+                border: '1px solid rgba(236, 72, 153, 0.3)',
+              }}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-pink-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-pink-500"></span>
+                </span>
+                <span className="text-xs font-medium text-pink-300">
+                  {aiProgress.status === 'analyzing' && 'Analysiere...'}
+                  {aiProgress.status === 'editing' && 'Bearbeite...'}
+                  {aiProgress.status === 'completed' && 'Fertig!'}
+                  {aiProgress.status === 'error' && 'Fehler'}
+                </span>
+              </div>
+
+              {aiProgress.currentTool && (
+                <div className="text-[10px] text-gray-400 flex items-center gap-1 mb-1">
+                  <Code size={10} />
+                  <span className="font-mono">{aiProgress.currentTool}</span>
+                </div>
+              )}
+
+              {aiProgress.currentFile && (
+                <div className="text-[10px] text-gray-400 flex items-center gap-1 mb-1">
+                  <FileCode size={10} />
+                  <span className="font-mono truncate">{aiProgress.currentFile.split('/').pop()}</span>
+                </div>
+              )}
+
+              {aiProgress.message && (
+                <div className="text-[10px] text-gray-500 mt-1">
+                  {aiProgress.message}
+                </div>
+              )}
+
+              {aiProgress.thinkingContent && (
+                <div className="mt-2 p-2 rounded bg-black/30 text-[9px] text-gray-400 font-mono max-h-20 overflow-y-auto">
+                  {aiProgress.thinkingContent.slice(0, 200)}
+                  {aiProgress.thinkingContent.length > 200 && '...'}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

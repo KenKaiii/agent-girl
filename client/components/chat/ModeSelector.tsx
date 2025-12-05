@@ -98,7 +98,7 @@ export function ModeSelector({ selectedMode, onSelectMode, onOpenBuildWizard }: 
 
   return (
     <>
-      <div className="w-full overflow-x-auto scrollbar-none flex flex-row items-center justify-center gap-1.5 sm:gap-2 text-xs sm:text-sm md:text-base pb-1" style={{ flexWrap: 'nowrap' }}>
+      <div className="w-full overflow-x-auto scrollbar-none flex flex-row items-center justify-center gap-1 xs:gap-1.5 sm:gap-2 text-xs sm:text-sm md:text-base pb-1" style={{ flexWrap: 'nowrap' }}>
         {MODES.map((mode, index) => {
           const isSelected = selectedMode === mode.id && !mode.isBuildMode;
           return (
@@ -107,7 +107,7 @@ export function ModeSelector({ selectedMode, onSelectMode, onOpenBuildWizard }: 
               onClick={() => handleModeClick(mode)}
               onMouseEnter={(e) => handleMouseEnter(mode.id, e)}
               onMouseLeave={() => setHoveredMode(null)}
-              className={`promptCard waterfall flex flex-col shrink-0 px-2 py-1.5 sm:px-3 sm:py-1.5 md:px-4 md:py-2 rounded-md sm:rounded-lg group items-center justify-center text-center ${
+              className={`promptCard waterfall flex flex-col px-1.5 py-1 xs:px-2 xs:py-1.5 sm:px-3 sm:py-1.5 md:px-4 md:py-2 rounded-md sm:rounded-lg group items-center justify-center text-center ${
                 isSelected
                   ? 'border-none'
                   : 'border-b-2 border-white/10 hover:border-white/20 text-white/90 hover:text-white transition'
@@ -132,13 +132,14 @@ export function ModeSelector({ selectedMode, onSelectMode, onOpenBuildWizard }: 
               }),
             }}
           >
-            <div className="flex gap-1.5 sm:gap-2 md:gap-3 justify-between items-center w-full h-5 sm:h-6 md:h-7"
+            <div className="flex gap-1 xs:gap-1.5 sm:gap-2 md:gap-3 justify-between items-center w-full h-5 sm:h-6 md:h-7"
                  style={isSelected ? { color: '#000000' } : {}}>
-              <div className="flex flex-row flex-1 gap-1.5 sm:gap-2 md:gap-3 items-center min-w-0 transition">
-                <div className="flex justify-center items-center [&>svg]:size-3 sm:[&>svg]:size-3.5 md:[&>svg]:size-4">
+              <div className="flex flex-row flex-1 gap-1 xs:gap-1.5 sm:gap-2 md:gap-3 items-center min-w-0 transition">
+                <div className="flex justify-center items-center [&>svg]:size-3.5 xs:[&>svg]:size-3 sm:[&>svg]:size-3.5 md:[&>svg]:size-4">
                   {mode.icon}
                 </div>
-                <div className="truncate font-medium">{mode.name}</div>
+                {/* Hide text on very small screens, show only icon */}
+                <div className="hidden xs:block truncate font-medium">{mode.name}</div>
               </div>
             </div>
           </button>
