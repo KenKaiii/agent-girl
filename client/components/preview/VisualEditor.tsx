@@ -39,6 +39,20 @@ import { StyleEditor } from './StyleEditor';
 import { ImageEditor } from './ImageEditor';
 import { SourceCodeEditor } from './SourceCodeEditor';
 import { useQuickEdit } from '../../hooks/useFileSync';
+import { usePreviewEditing } from '../../hooks/useProjectDiscovery';
+
+// HMR trigger helper - forces reload after file save
+async function triggerHMR(filePath: string): Promise<void> {
+  try {
+    await fetch('/api/preview/hmr-trigger', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filePath }),
+    });
+  } catch {
+    // HMR trigger is optional, don't fail on error
+  }
+}
 
 // Edit modes
 export type EditMode = 'direct' | 'ai' | 'hybrid';
@@ -422,6 +436,28 @@ export function VisualEditor({
   // File sync hook
   const { changeStyle, changeText, framework, isLoading: isSyncing, error: syncError } = useQuickEdit(projectPath);
 
+  // Keyboard shortcut: ⌘+. to jump to source
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === '.') {
+        e.preventDefault();
+        if (sourceFilePath) {
+          setActivePanel('source');
+        }
+      }
+      // ⌘+Esc to close
+      if (e.key === 'Escape') {
+        if (activePanel !== 'main') {
+          setActivePanel('main');
+        } else {
+          onClose();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [sourceFilePath, activePanel, onClose]);
+
   // Generate AI suggestions when in hybrid mode
   useEffect(() => {
     if (editMode === 'hybrid' && element) {
@@ -508,6 +544,8 @@ export function VisualEditor({
           if (success) {
             setFileSyncStatus('saved');
             onFileSaved?.(sourceFilePath);
+            // Trigger HMR for instant reload
+            await triggerHMR(sourceFilePath);
             // Reset status after 2 seconds
             setTimeout(() => setFileSyncStatus('idle'), 2000);
           } else {
@@ -593,6 +631,8 @@ export function VisualEditor({
             });
             if (!res.ok) throw new Error('Save failed');
             onFileSaved?.(filePath);
+            // Trigger HMR for instant reload
+            await triggerHMR(filePath);
             setFileSyncStatus('saved');
             setTimeout(() => setFileSyncStatus('idle'), 2000);
           } catch (err) {
@@ -757,15 +797,16 @@ export function VisualEditor({
               +{elements.length - 1} weitere
             </span>
           )}
-          {/* Source code button */}
+          {/* Source code button with ⌘. shortcut */}
           {sourceFilePath && (
             <button
               onClick={() => setActivePanel('source')}
               className="flex items-center gap-1 px-2 py-1 rounded text-[10px] text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
-              title="Source Code bearbeiten"
+              title="Source Code bearbeiten (⌘.)"
             >
               <FileCode size={12} />
               Source
+              <span className="text-[8px] text-gray-600 ml-0.5">⌘.</span>
             </button>
           )}
           {/* Framework badge */}
