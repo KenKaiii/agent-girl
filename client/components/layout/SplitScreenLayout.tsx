@@ -20,8 +20,6 @@ import {
   useLiveReload,
   buildEnhancedContext,
   PortFinder,
-  BuildLauncher,
-  type Template,
 } from '../preview';
 import type { SelectedElement, SelectionMode } from '../preview';
 import {
@@ -47,8 +45,6 @@ import {
   ChevronRight,
   CheckCircle2,
   XCircle,
-  Rocket,
-  Sparkles,
 } from 'lucide-react';
 
 // Extended device types with real device presets
@@ -122,50 +118,6 @@ export function SplitScreenLayout() {
 
   // AI Edit handler from ChatContainer
   const aiEditHandlerRef = useRef<((request: AIEditRequest) => void) | null>(null);
-
-  // Build mode state - shows BuildLauncher for template selection
-  const [showBuildLauncher, setShowBuildLauncher] = useState(false);
-
-  // Handle template selection - sends command to chat
-  const handleSelectTemplate = useCallback((template: Template) => {
-    if (aiEditHandlerRef.current) {
-      aiEditHandlerRef.current({
-        prompt: template.command,
-        elements: [],
-        previewUrl: '',
-      });
-    }
-    setShowBuildLauncher(false);
-  }, []);
-
-  // Handle quick action (clone, ai, blank, niche)
-  const handleQuickAction = useCallback((action: string, input?: string) => {
-    let prompt = '';
-    switch (action) {
-      case 'clone':
-        prompt = `/clone ${input || ''}`;
-        break;
-      case 'ai':
-        prompt = input || 'Create a modern Astro 5 website';
-        break;
-      case 'blank':
-        prompt = '/new blank';
-        break;
-      case 'niche':
-        prompt = `/new ${input || 'business'}-optimized`;
-        break;
-      default:
-        prompt = action;
-    }
-    if (aiEditHandlerRef.current && prompt) {
-      aiEditHandlerRef.current({
-        prompt,
-        elements: [],
-        previewUrl: '',
-      });
-    }
-    setShowBuildLauncher(false);
-  }, []);
 
   // AI progress state for showing tool usage in preview header
   const [aiProgress, setAIProgress] = useState<AIProgressState>({
@@ -703,15 +655,11 @@ export function SplitScreenLayout() {
         if (isAIEditPanelOpen) {
           setIsAIEditPanelOpen(false);
         }
-        // Close Build Launcher if open
-        if (showBuildLauncher) {
-          setShowBuildLauncher(false);
-        }
       }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isSelectionMode, showFloatingPrompt, showDevicePicker, showActionHistory, isAIEditPanelOpen, showBuildLauncher]);
+  }, [isSelectionMode, showFloatingPrompt, showDevicePicker, showActionHistory, isAIEditPanelOpen]);
 
   return (
     <div
@@ -961,20 +909,6 @@ export function SplitScreenLayout() {
                 title={isSelectionMode ? 'Auswahl beenden (Esc)' : 'Elemente auswählen'}
               >
                 <Pencil size={14} />
-              </button>
-
-              {/* Build Mode - Launch new project */}
-              <button
-                onClick={() => setShowBuildLauncher(!showBuildLauncher)}
-                className="p-1.5 rounded transition-all"
-                style={{
-                  background: showBuildLauncher ? 'rgba(139, 92, 246, 0.2)' : 'transparent',
-                  color: showBuildLauncher ? '#a78bfa' : '#666',
-                  boxShadow: showBuildLauncher ? '0 0 0 1px rgba(139, 92, 246, 0.3)' : 'none',
-                }}
-                title="Build new project (Astro templates)"
-              >
-                <Rocket size={14} />
               </button>
 
               {/* Local Data Manager */}
@@ -1269,40 +1203,25 @@ export function SplitScreenLayout() {
                   }}
                 />
               </div>
-            ) : showBuildLauncher ? (
-              /* Build Launcher - Astro template gallery */
-              <div className="w-full h-full overflow-auto">
-                <BuildLauncher
-                  onSelectTemplate={handleSelectTemplate}
-                  onQuickAction={handleQuickAction}
-                />
-              </div>
             ) : (
-              /* Empty state - prompt to use Build mode */
+              /* Empty state */
               <div className="text-center p-8 max-w-sm">
                 <div
                   className="w-14 h-14 mx-auto mb-4 rounded-xl flex items-center justify-center"
-                  style={{ background: 'rgba(139, 92, 246, 0.15)' }}
+                  style={{ background: 'rgba(59, 130, 246, 0.15)' }}
                 >
-                  <Rocket size={28} className="text-purple-400" />
+                  <Globe size={28} className="text-blue-500" />
                 </div>
                 <h3 className="text-base font-semibold mb-2 text-gray-200">
-                  No Preview Yet
+                  No Preview URL
                 </h3>
                 <p className="text-sm mb-5 text-gray-500">
-                  Start a new Astro project or enter an existing URL.
+                  Start a dev server or enter a URL to preview your app.
                 </p>
-                <div className="flex gap-2 justify-center flex-wrap">
-                  <button
-                    onClick={() => setShowBuildLauncher(true)}
-                    className="px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-purple-600 hover:bg-purple-500 text-white flex items-center gap-2"
-                  >
-                    <Sparkles size={14} />
-                    Build New
-                  </button>
+                <div className="flex gap-2 justify-center">
                   <button
                     onClick={() => detectPreviewUrl()}
-                    className="px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-white/10 hover:bg-white/15 text-gray-300"
+                    className="px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-blue-600 hover:bg-blue-500 text-white"
                   >
                     Auto-detect
                   </button>
