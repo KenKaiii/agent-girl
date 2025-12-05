@@ -84,6 +84,18 @@ export interface AIEditRequest {
   };
 }
 
+// Action history entry for tracking AI tool usage
+export interface ActionHistoryEntry {
+  id: string;
+  timestamp: number;
+  tool: string;
+  toolDisplayName: string;
+  file?: string;
+  status: 'running' | 'success' | 'error';
+  duration?: number; // ms
+  errorMessage?: string;
+}
+
 // AI progress state for preview integration
 export interface AIProgressState {
   isActive: boolean;
@@ -96,6 +108,8 @@ export interface AIProgressState {
   editedFilesCount?: number; // Number of files edited in this session
   startTime?: number; // Timestamp when AI started working
   errorMessage?: string; // Error message if status is 'error'
+  actionHistory?: ActionHistoryEntry[]; // Recent actions for history log
+  currentToolId?: string; // Track current tool for result matching
 }
 
 // Human-readable tool names for display
@@ -1157,19 +1171,33 @@ export function ChatContainer({
         // Handle tool use messages
         const toolUseMsg = message as { type: 'tool_use'; toolId: string; toolName: string; toolInput: Record<string, unknown> };
 
-        // Report AI progress to preview panel
+        // Report AI progress to preview panel with action history
         if (onAIProgressChange) {
           const filePath = (toolUseMsg.toolInput.file_path as string) || (toolUseMsg.toolInput.path as string);
           const toolName = toolUseMsg.toolName;
           const isFileEdit = FILE_EDIT_TOOLS.includes(toolName);
+          const displayName = TOOL_DISPLAY_NAMES[toolName] || toolName;
+
+          // Create new action history entry
+          const newAction: ActionHistoryEntry = {
+            id: toolUseMsg.toolId,
+            timestamp: Date.now(),
+            tool: toolName,
+            toolDisplayName: displayName,
+            file: filePath,
+            status: 'running',
+          };
+
           onAIProgressChange({
             isActive: true,
             currentTool: toolName,
             currentFile: filePath,
             status: 'tool_use',
-            toolDisplayName: TOOL_DISPLAY_NAMES[toolName] || toolName,
+            toolDisplayName: displayName,
             isFileEdit,
-          });
+            currentToolId: toolUseMsg.toolId,
+            newAction, // Signal to add this action to history
+          } as AIProgressState & { newAction: ActionHistoryEntry });
         }
 
         // Use flushSync to prevent React batching from causing tools to be lost

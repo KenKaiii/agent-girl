@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ChatContainer, type AIEditRequest, type AIProgressState } from '../chat/ChatContainer';
+import { ChatContainer, type AIEditRequest, type AIProgressState, type ActionHistoryEntry } from '../chat/ChatContainer';
 import {
   ElementSelector,
   ModeSelector,
@@ -41,6 +41,10 @@ import {
   AlertCircle,
   FileEdit,
   Clock,
+  History,
+  ChevronRight,
+  CheckCircle2,
+  XCircle,
 } from 'lucide-react';
 
 // Extended device types with real device presets
@@ -127,6 +131,11 @@ export function SplitScreenLayout() {
   const startTimeRef = useRef<number | null>(null);
   const completionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Action history for showing recent tool operations
+  const [actionHistory, setActionHistory] = useState<ActionHistoryEntry[]>([]);
+  const [showActionHistory, setShowActionHistory] = useState(false);
+  const actionHistoryRef = useRef<HTMLDivElement>(null);
+
   // Refs for drag handling - use refs for immediate access without re-renders
   const containerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -139,7 +148,7 @@ export function SplitScreenLayout() {
   );
 
   // Handle AI progress changes - auto-refresh after file edits complete
-  const handleAIProgressChange = useCallback((progress: AIProgressState) => {
+  const handleAIProgressChange = useCallback((progress: AIProgressState & { newAction?: ActionHistoryEntry }) => {
     // Clear any pending completion timeout
     if (completionTimeoutRef.current) {
       clearTimeout(completionTimeoutRef.current);
@@ -158,15 +167,43 @@ export function SplitScreenLayout() {
       pendingRefreshRef.current = true;
     }
 
+    // Handle new action from tool_use - add to history
+    if (progress.newAction) {
+      setActionHistory(prev => {
+        // Mark previous running action as success (if exists)
+        const updated = prev.map(a =>
+          a.status === 'running'
+            ? { ...a, status: 'success' as const, duration: Date.now() - a.timestamp }
+            : a
+        );
+        // Add new action (keep last 20)
+        return [...updated, progress.newAction!].slice(-20);
+      });
+    }
+
     // Update state with tracked values
     setAIProgress({
       ...progress,
       editedFilesCount: editedFilesCountRef.current,
       startTime: startTimeRef.current || undefined,
+      actionHistory, // Include current history
     });
 
     // Handle completion
     if (progress.status === 'completed' || progress.status === 'error') {
+      // Mark any running actions as completed/error
+      setActionHistory(prev =>
+        prev.map(a =>
+          a.status === 'running'
+            ? {
+                ...a,
+                status: progress.status === 'error' ? 'error' : 'success',
+                duration: Date.now() - a.timestamp,
+              }
+            : a
+        )
+      );
+
       // Trigger refresh if we have pending edits
       if (pendingRefreshRef.current && progress.status === 'completed') {
         pendingRefreshRef.current = false;
@@ -185,7 +222,7 @@ export function SplitScreenLayout() {
         editedFilesCountRef.current = 0;
       }, 2500);
     }
-  }, [refreshPreview]);
+  }, [refreshPreview, actionHistory]);
 
   // Live elapsed time state (updates every second while active)
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -586,6 +623,17 @@ export function SplitScreenLayout() {
     }
   };
 
+  // Close action history when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (actionHistoryRef.current && !actionHistoryRef.current.contains(e.target as Node)) {
+        setShowActionHistory(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   // Keyboard shortcuts - Escape to exit selection mode
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -604,11 +652,15 @@ export function SplitScreenLayout() {
         if (showDevicePicker) {
           setShowDevicePicker(false);
         }
+        // Close action history if open
+        if (showActionHistory) {
+          setShowActionHistory(false);
+        }
       }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isSelectionMode, showFloatingPrompt, showDevicePicker]);
+  }, [isSelectionMode, showFloatingPrompt, showDevicePicker, showActionHistory]);
 
   return (
     <div
@@ -947,6 +999,118 @@ export function SplitScreenLayout() {
                   )}
                 </div>
               )}
+
+              {/* Action History Button + Dropdown */}
+              <div className="relative" ref={actionHistoryRef}>
+                <button
+                  onClick={() => setShowActionHistory(!showActionHistory)}
+                  className="p-1.5 rounded transition-all relative"
+                  style={{
+                    background: showActionHistory ? 'rgba(139, 92, 246, 0.2)' : 'transparent',
+                    color: actionHistory.length > 0 ? '#a78bfa' : '#666',
+                  }}
+                  title="Action history"
+                >
+                  <History size={14} />
+                  {actionHistory.length > 0 && (
+                    <span
+                      className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full text-[8px] font-bold flex items-center justify-center"
+                      style={{ background: '#8b5cf6', color: '#fff' }}
+                    >
+                      {actionHistory.length > 9 ? '9+' : actionHistory.length}
+                    </span>
+                  )}
+                </button>
+
+                {/* Action History Dropdown */}
+                {showActionHistory && (
+                  <div
+                    className="absolute top-full right-0 mt-1 py-2 rounded-lg shadow-xl z-50 overflow-hidden"
+                    style={{
+                      background: '#1a1a1e',
+                      border: '1px solid #333',
+                      width: '320px',
+                      maxHeight: '400px',
+                    }}
+                  >
+                    <div className="flex items-center justify-between px-3 pb-2 border-b border-white/10">
+                      <span className="text-xs font-semibold" style={{ color: '#888' }}>Action History</span>
+                      {actionHistory.length > 0 && (
+                        <button
+                          onClick={() => setActionHistory([])}
+                          className="text-xs px-1.5 py-0.5 rounded hover:bg-white/10 transition-colors"
+                          style={{ color: '#666' }}
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="overflow-y-auto" style={{ maxHeight: '340px' }}>
+                      {actionHistory.length === 0 ? (
+                        <div className="px-3 py-6 text-center" style={{ color: '#666' }}>
+                          <History size={24} className="mx-auto mb-2 opacity-30" />
+                          <p className="text-xs">No actions yet</p>
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-white/5">
+                          {[...actionHistory].reverse().map((action) => (
+                            <div
+                              key={action.id}
+                              className="px-3 py-2 hover:bg-white/5 transition-colors"
+                            >
+                              <div className="flex items-center gap-2">
+                                {/* Status icon */}
+                                {action.status === 'running' ? (
+                                  <Loader2 size={12} className="animate-spin" style={{ color: '#ec4899' }} />
+                                ) : action.status === 'success' ? (
+                                  <CheckCircle2 size={12} style={{ color: '#22c55e' }} />
+                                ) : (
+                                  <XCircle size={12} style={{ color: '#ef4444' }} />
+                                )}
+
+                                {/* Tool name */}
+                                <span className="text-xs font-medium" style={{ color: '#ddd' }}>
+                                  {action.toolDisplayName}
+                                </span>
+
+                                {/* File name */}
+                                {action.file && (
+                                  <>
+                                    <ChevronRight size={10} style={{ color: '#555' }} />
+                                    <span className="text-xs font-mono truncate" style={{ color: '#a78bfa', maxWidth: '120px' }}>
+                                      {action.file.split('/').pop()}
+                                    </span>
+                                  </>
+                                )}
+
+                                {/* Duration */}
+                                {action.duration !== undefined && (
+                                  <span className="text-xs font-mono ml-auto" style={{ color: '#666' }}>
+                                    {action.duration < 1000
+                                      ? `${action.duration}ms`
+                                      : `${(action.duration / 1000).toFixed(1)}s`}
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Full file path on hover */}
+                              {action.file && (
+                                <div
+                                  className="text-xs font-mono mt-1 truncate"
+                                  style={{ color: '#555', fontSize: '10px' }}
+                                >
+                                  {action.file}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
 
               {/* Divider */}
               <div className="w-px h-4 bg-white/10 mx-1" />
