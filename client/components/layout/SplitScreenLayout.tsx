@@ -117,6 +117,9 @@ export function SplitScreenLayout() {
     status: 'idle',
   });
 
+  // Track if we should auto-refresh after file edit
+  const pendingRefreshRef = useRef(false);
+
   // Refs for drag handling - use refs for immediate access without re-renders
   const containerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -127,6 +130,25 @@ export function SplitScreenLayout() {
     previewUrl,
     () => console.log('HMR update detected')
   );
+
+  // Handle AI progress changes - auto-refresh after file edits complete
+  const handleAIProgressChange = useCallback((progress: AIProgressState) => {
+    setAIProgress(progress);
+
+    // Mark pending refresh when file is being edited
+    if (progress.isFileEdit) {
+      pendingRefreshRef.current = true;
+    }
+
+    // Trigger refresh when AI completes and we have pending edits
+    if (progress.status === 'completed' && pendingRefreshRef.current) {
+      pendingRefreshRef.current = false;
+      // Small delay to let HMR process the file change
+      setTimeout(() => {
+        refreshPreview();
+      }, 500);
+    }
+  }, [refreshPreview]);
 
   // Preview container dimensions for canvas
   const previewContentRef = useRef<HTMLDivElement>(null);
@@ -545,7 +567,7 @@ export function SplitScreenLayout() {
           onAIEditRequestHandler={(handler) => {
             aiEditHandlerRef.current = handler;
           }}
-          onAIProgressChange={setAIProgress}
+          onAIProgressChange={handleAIProgressChange}
         />
       </div>
 
@@ -775,13 +797,27 @@ export function SplitScreenLayout() {
                 <div
                   className="flex items-center gap-1.5 px-2 py-1 rounded-md ml-1"
                   style={{
-                    background: 'linear-gradient(135deg, rgba(236, 72, 153, 0.15), rgba(139, 92, 246, 0.15))',
-                    border: '1px solid rgba(236, 72, 153, 0.3)',
+                    background: aiProgress.status === 'thinking'
+                      ? 'linear-gradient(135deg, rgba(251, 191, 36, 0.15), rgba(245, 158, 11, 0.15))'
+                      : aiProgress.isFileEdit
+                        ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.15), rgba(16, 185, 129, 0.15))'
+                        : 'linear-gradient(135deg, rgba(236, 72, 153, 0.15), rgba(139, 92, 246, 0.15))',
+                    border: aiProgress.status === 'thinking'
+                      ? '1px solid rgba(251, 191, 36, 0.3)'
+                      : aiProgress.isFileEdit
+                        ? '1px solid rgba(34, 197, 94, 0.3)'
+                        : '1px solid rgba(236, 72, 153, 0.3)',
                   }}
                 >
-                  <Loader2 size={12} className="animate-spin" style={{ color: '#ec4899' }} />
-                  <span className="text-xs font-medium" style={{ color: '#f9a8d4' }}>
-                    {aiProgress.currentTool || 'Processing...'}
+                  {aiProgress.status === 'thinking' ? (
+                    <Zap size={12} className="animate-pulse" style={{ color: '#fbbf24' }} />
+                  ) : (
+                    <Loader2 size={12} className="animate-spin" style={{ color: aiProgress.isFileEdit ? '#22c55e' : '#ec4899' }} />
+                  )}
+                  <span className="text-xs font-medium" style={{
+                    color: aiProgress.status === 'thinking' ? '#fcd34d' : aiProgress.isFileEdit ? '#86efac' : '#f9a8d4'
+                  }}>
+                    {aiProgress.toolDisplayName || aiProgress.currentTool || 'Processing...'}
                   </span>
                   {aiProgress.currentFile && (
                     <span className="text-xs font-mono truncate max-w-[120px]" style={{ color: '#a78bfa' }}>

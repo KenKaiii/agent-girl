@@ -89,8 +89,28 @@ export interface AIProgressState {
   isActive: boolean;
   currentTool?: string;
   currentFile?: string;
-  status: 'idle' | 'thinking' | 'tool_use' | 'completed' | 'error';
+  status: 'idle' | 'thinking' | 'writing' | 'tool_use' | 'completed' | 'error';
+  toolDisplayName?: string; // Human-readable tool name
+  isFileEdit?: boolean; // True when Edit/Write tool is used (trigger refresh)
+  completedAction?: string; // Last completed action for brief display
 }
+
+// Human-readable tool names for display
+const TOOL_DISPLAY_NAMES: Record<string, string> = {
+  Read: 'Reading',
+  Edit: 'Editing',
+  Write: 'Writing',
+  Bash: 'Running',
+  Glob: 'Searching',
+  Grep: 'Searching',
+  Task: 'Spawning agent',
+  WebFetch: 'Fetching',
+  WebSearch: 'Searching web',
+  TodoWrite: 'Updating tasks',
+};
+
+// Tools that modify files (should trigger preview refresh)
+const FILE_EDIT_TOOLS = ['Edit', 'Write'];
 
 interface ChatContainerProps {
   layoutMode?: 'chat-only' | 'split-screen';
@@ -1016,6 +1036,14 @@ export function ChatContainer({
       // Handle incoming WebSocket messages
       if (message.type === 'assistant_message' && 'content' in message) {
         const assistantContent = message.content as string;
+        // Report writing state to preview (only on first message)
+        if (onAIProgressChange) {
+          onAIProgressChange({
+            isActive: true,
+            status: 'writing',
+            toolDisplayName: 'Responding...',
+          });
+        }
         setMessages((prev) => {
           const lastMessage = prev[prev.length - 1];
 
@@ -1063,6 +1091,14 @@ export function ChatContainer({
         });
       } else if (message.type === 'thinking_start') {
         console.log('💭 Thinking block started');
+        // Report thinking state to preview
+        if (onAIProgressChange) {
+          onAIProgressChange({
+            isActive: true,
+            status: 'thinking',
+            toolDisplayName: 'Thinking...',
+          });
+        }
         // Create a new thinking block when thinking starts
         setMessages((prev) => {
           const lastMessage = prev[prev.length - 1];
@@ -1121,11 +1157,15 @@ export function ChatContainer({
         // Report AI progress to preview panel
         if (onAIProgressChange) {
           const filePath = (toolUseMsg.toolInput.file_path as string) || (toolUseMsg.toolInput.path as string);
+          const toolName = toolUseMsg.toolName;
+          const isFileEdit = FILE_EDIT_TOOLS.includes(toolName);
           onAIProgressChange({
             isActive: true,
-            currentTool: toolUseMsg.toolName,
+            currentTool: toolName,
             currentFile: filePath,
             status: 'tool_use',
+            toolDisplayName: TOOL_DISPLAY_NAMES[toolName] || toolName,
+            isFileEdit,
           });
         }
 
