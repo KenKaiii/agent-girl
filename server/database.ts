@@ -125,6 +125,10 @@ class SessionDatabase {
   }
 
   private initialize() {
+    // Enable WAL mode for better concurrent read/write performance
+    this.db.run("PRAGMA journal_mode = WAL");
+    this.db.run("PRAGMA synchronous = NORMAL"); // Faster writes, still safe with WAL
+
     // Create sessions table
     this.db.run(`
       CREATE TABLE IF NOT EXISTS sessions (
@@ -147,10 +151,22 @@ class SessionDatabase {
       )
     `);
 
-    // Create index for faster queries
+    // Create indexes for faster queries
     this.db.run(`
       CREATE INDEX IF NOT EXISTS idx_messages_session_id
       ON messages(session_id)
+    `);
+
+    // Compound index for message queries (filter by session, sort by timestamp)
+    this.db.run(`
+      CREATE INDEX IF NOT EXISTS idx_messages_session_timestamp
+      ON messages(session_id, timestamp)
+    `);
+
+    // Index for session sorting by updated_at (most common query)
+    this.db.run(`
+      CREATE INDEX IF NOT EXISTS idx_sessions_updated_at
+      ON sessions(updated_at DESC)
     `);
 
     // Unified migration: Check all columns in single PRAGMA query
@@ -289,7 +305,44 @@ class SessionDatabase {
     return chatDir;
   }
 
-  getSessions(): { sessions: Session[]; recreatedDirectories: string[] } {
+  /**
+   * Check if a folder has meaningful content (not just CLAUDE.md, .claude, or empty)
+   * A folder is considered "meaningful" if it has:
+   * - Any files other than CLAUDE.md and .DS_Store
+   * - Any subdirectories other than .claude and hidden folders
+   */
+  private folderHasMeaningfulContent(folderPath: string): boolean {
+    try {
+      if (!fs.existsSync(folderPath)) return false;
+
+      const entries = fs.readdirSync(folderPath, { withFileTypes: true });
+
+      for (const entry of entries) {
+        // Skip system files
+        if (entry.name === '.DS_Store') continue;
+
+        if (entry.isFile()) {
+          // Any file other than CLAUDE.md is meaningful
+          if (entry.name !== 'CLAUDE.md') return true;
+        } else if (entry.isDirectory()) {
+          // Skip .claude and hidden folders
+          if (entry.name === '.claude' || entry.name.startsWith('.')) continue;
+          // Any other directory is meaningful
+          return true;
+        }
+      }
+
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Get all sessions with optional directory validation
+   * @param skipDirectoryValidation - Skip expensive directory existence checks (default: false)
+   */
+  getSessions(skipDirectoryValidation = false): { sessions: Session[]; recreatedDirectories: string[] } {
     const sessions = this.db
       .query<Session, []>(
         `SELECT
@@ -316,20 +369,28 @@ class SessionDatabase {
       )
       .all();
 
-    // Validate and recreate missing directories
+    // Skip directory validation if requested (faster response for session list)
+    if (skipDirectoryValidation) {
+      return { sessions, recreatedDirectories: [] };
+    }
+
+    // Validate directories - only recreate for sessions with actual messages
     const recreatedDirectories: string[] = [];
 
     for (const session of sessions) {
       if (session.working_directory && !fs.existsSync(session.working_directory)) {
-        console.warn(`⚠️  Missing directory for session ${session.id}: ${session.working_directory}`);
-
-        try {
-          fs.mkdirSync(session.working_directory, { recursive: true });
-          console.log(`✅ Recreated directory: ${session.working_directory}`);
-          recreatedDirectories.push(session.working_directory);
-        } catch (error) {
-          console.error(`❌ Failed to recreate directory: ${session.working_directory}`, error);
+        // Only recreate if session has messages (actual chat content)
+        if (session.message_count > 0) {
+          console.warn(`⚠️  Missing directory for session with ${session.message_count} messages: ${session.working_directory}`);
+          try {
+            fs.mkdirSync(session.working_directory, { recursive: true });
+            console.log(`✅ Recreated directory: ${session.working_directory}`);
+            recreatedDirectories.push(session.working_directory);
+          } catch (error) {
+            console.error(`❌ Failed to recreate directory: ${session.working_directory}`, error);
+          }
         }
+        // Empty sessions without messages - don't recreate, let them be cleaned up
       }
     }
 
@@ -474,6 +535,12 @@ class SessionDatabase {
 
       // Skip hidden folders and system folders
       if (entry.name.startsWith('.') || entry.name === 'node_modules') {
+        continue;
+      }
+
+      // Skip empty folders - only import folders with meaningful content
+      if (!this.folderHasMeaningfulContent(folderPath)) {
+        console.log(`📭 Skipping empty folder: ${entry.name}`);
         continue;
       }
 
@@ -899,6 +966,17 @@ class SessionDatabase {
   }
 
   /**
+   * Get message count for a session (efficient COUNT query instead of fetching all)
+   * Use this when you only need to know the number of messages
+   */
+  getMessageCount(sessionId: string): number {
+    const result = this.db.query<{ count: number }, [string]>(
+      'SELECT COUNT(*) as count FROM messages WHERE session_id = ?'
+    ).get(sessionId);
+    return result?.count ?? 0;
+  }
+
+  /**
    * Search messages across all sessions or within a specific session
    * Returns messages with context preview around the match
    */
@@ -986,6 +1064,75 @@ class SessionDatabase {
       console.error('❌ Failed to clear session messages:', error);
       return false;
     }
+  }
+
+  /**
+   * Clean up empty folders in the agent-girl directory
+   * Removes folders that have no meaningful content (only CLAUDE.md, .claude, or empty)
+   * Also deletes corresponding sessions from the database
+   * @returns Object with arrays of deleted folders and sessions
+   */
+  cleanupEmptyFolders(): { deletedFolders: string[]; deletedSessions: string[]; errors: string[] } {
+    const baseDir = getDefaultWorkingDirectory();
+    const deletedFolders: string[] = [];
+    const deletedSessions: string[] = [];
+    const errors: string[] = [];
+
+    if (!fs.existsSync(baseDir)) {
+      return { deletedFolders, deletedSessions, errors };
+    }
+
+    console.log('🧹 Starting cleanup of empty folders...');
+
+    // Get all sessions with their message counts
+    const sessions = this.db.query<{ id: string; working_directory: string; message_count: number }, []>(
+      `SELECT s.id, s.working_directory, COUNT(m.id) as message_count
+       FROM sessions s
+       LEFT JOIN messages m ON s.id = m.session_id
+       GROUP BY s.id`
+    ).all();
+
+    // Create a map for quick lookup
+    const sessionsByDir = new Map(sessions.map(s => [s.working_directory, s]));
+
+    // Scan the base directory
+    const entries = fs.readdirSync(baseDir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+
+      const folderPath = path.join(baseDir, entry.name);
+
+      // Check if folder has meaningful content
+      if (!this.folderHasMeaningfulContent(folderPath)) {
+        const session = sessionsByDir.get(folderPath);
+
+        // Only delete if session has no messages OR no session exists
+        if (!session || session.message_count === 0) {
+          try {
+            // Delete the folder recursively
+            fs.rmSync(folderPath, { recursive: true, force: true });
+            deletedFolders.push(entry.name);
+            console.log(`🗑️  Deleted empty folder: ${entry.name}`);
+
+            // Delete session from database if exists
+            if (session) {
+              this.db.run('DELETE FROM sessions WHERE id = ?', [session.id]);
+              deletedSessions.push(session.id);
+              console.log(`🗑️  Deleted session: ${session.id.substring(0, 8)}`);
+            }
+          } catch (error) {
+            const errorMsg = `Failed to delete ${entry.name}: ${error}`;
+            errors.push(errorMsg);
+            console.error(`❌ ${errorMsg}`);
+          }
+        }
+      }
+    }
+
+    console.log(`✅ Cleanup complete: ${deletedFolders.length} folders, ${deletedSessions.length} sessions deleted`);
+    return { deletedFolders, deletedSessions, errors };
   }
 
   close() {

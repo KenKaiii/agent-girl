@@ -17,7 +17,7 @@ import { saveImageToSessionPictures, saveFileToSessionFiles } from "../imageUtil
 import { backgroundProcessManager } from "../backgroundProcessManager";
 import { loadUserConfig } from "../userConfig";
 import { parseApiError, getUserFriendlyMessage } from "../utils/apiErrors";
-import { TimeoutController } from "../utils/timeout";
+import { ActivityTimeoutController } from "../utils/timeout";
 import { sessionStreamManager } from "../sessionStreamManager";
 import { expandSlashCommand } from "../slashCommandExpander";
 import { renameSessionFolderFromFirstMessage, updateSessionTitleFromFirstMessage } from "../folderNaming";
@@ -25,8 +25,6 @@ import { getDefaultWorkingDirectory } from "../directoryUtils";
 import { createAskUserQuestionServer, setQuestionCallback, answerQuestion, cancelQuestion } from "../mcp/askUserQuestion";
 import { wsRateLimiter } from "../utils/rateLimiter";
 import { logger } from "../utils/logger";
-import { WebSocketMessageSchema, validateInput } from "../utils/validation";
-import { RateLimitError } from "../utils/Result";
 
 interface ChatWebSocketData {
   type: 'hot-reload' | 'chat';
@@ -402,8 +400,9 @@ Run bash commands with the understanding that this is your current working direc
     let stderrOutput = '';
 
     // Check if we have SDK session ID from previous subprocess
-    const sessionMessages = sessionDb.getSessionMessages(sessionId as string);
-    const isFirstMessage = sessionMessages.length === 1; // Only current message, no prior
+    // Use efficient COUNT query instead of fetching all messages
+    const messageCount = sessionDb.getMessageCount(sessionId as string);
+    const isFirstMessage = messageCount === 1; // Only current message, no prior
 
     // Log resume decision
     if (!isFirstMessage && session.sdk_session_id) {
@@ -699,19 +698,21 @@ Run bash commands with the understanding that this is your current working direc
       }],
     };
 
-    // Create timeout controller (10 minutes for all modes)
-    const timeoutController = new TimeoutController({
-      timeoutMs: 600000, // 10 minutes
-      warningMs: 300000,  // 5 minutes
+    // Create activity-based timeout controller with hang detection
+    // Detects both total timeout (10min) and activity-based hangs (no output for 3min)
+    const timeoutController = new ActivityTimeoutController({
+      timeoutMs: 600000, // 10 minutes total
+      warningMs: 300000,  // 5 minutes warning
+      hangWarningMs: 90000,  // 1.5 minutes no activity = warning
+      hangAbortMs: 180000,   // 3 minutes no activity = abort (agents stuck)
       onWarning: () => {
         console.log(`⚠️ [TIMEOUT] Warning: 5 minutes elapsed for session ${sessionId.toString().substring(0, 8)}`);
-        // Send warning notification to client (use safeSend for WebSocket lifecycle safety)
         sessionStreamManager.safeSend(
           sessionId as string,
           JSON.stringify({
             type: 'timeout_warning',
             message: 'AI is taking longer than usual...',
-            elapsedSeconds: 60,
+            elapsedSeconds: 300,
             sessionId: sessionId,
           })
         );
@@ -719,11 +720,9 @@ Run bash commands with the understanding that this is your current working direc
       onTimeout: () => {
         console.log(`🔴 [TIMEOUT] Hard timeout reached (10min) for session ${sessionId.toString().substring(0, 8)}, aborting session`);
 
-        // Force abort the SDK subprocess
         const aborted = sessionStreamManager.abortSession(sessionId as string);
 
         if (aborted) {
-          // Send timeout error to client
           sessionStreamManager.safeSend(
             sessionId as string,
             JSON.stringify({
@@ -734,12 +733,73 @@ Run bash commands with the understanding that this is your current working direc
             })
           );
 
-          // Cleanup session immediately
           sessionStreamManager.cleanupSession(sessionId as string, 'timeout');
           activeQueries.delete(sessionId as string);
         }
       },
+      onHangWarning: (lastActivityType, silentMs) => {
+        console.log(`⚠️ [HANG] No activity for ${Math.floor(silentMs / 1000)}s (last: ${lastActivityType}) - session ${sessionId.toString().substring(0, 8)}`);
+        sessionStreamManager.safeSend(
+          sessionId as string,
+          JSON.stringify({
+            type: 'hang_warning',
+            message: `AI appears to be stuck (no output for ${Math.floor(silentMs / 1000)}s)...`,
+            lastActivity: lastActivityType,
+            silentSeconds: Math.floor(silentMs / 1000),
+            sessionId: sessionId,
+          })
+        );
+      },
+      onHangAbort: (lastActivityType, silentMs) => {
+        console.log(`🔴 [HANG] Aborting session ${sessionId.toString().substring(0, 8)} - no activity for ${Math.floor(silentMs / 1000)}s (last: ${lastActivityType})`);
+
+        const aborted = sessionStreamManager.abortSession(sessionId as string);
+
+        if (aborted) {
+          sessionStreamManager.safeSend(
+            sessionId as string,
+            JSON.stringify({
+              type: 'error',
+              message: `Agent stopped responding (no activity for ${Math.floor(silentMs / 1000)}s). Try rephrasing or breaking down the task.`,
+              errorType: 'hang',
+              lastActivity: lastActivityType,
+              sessionId: sessionId,
+            })
+          );
+
+          sessionStreamManager.cleanupSession(sessionId as string, 'hang_detected');
+          activeQueries.delete(sessionId as string);
+        }
+      },
     });
+
+    // Set up output token limit callbacks (25000 token limit workaround)
+    timeoutController.setOutputTokenCallbacks(
+      (tokenCount) => {
+        console.log(`⚠️ [OUTPUT TOKENS] Approaching limit: ${tokenCount}/25000 tokens`);
+        sessionStreamManager.safeSend(
+          sessionId as string,
+          JSON.stringify({
+            type: 'output_token_warning',
+            message: `Response is getting long (${tokenCount} tokens). Consider asking for a summary.`,
+            outputTokens: tokenCount,
+            sessionId: sessionId,
+          })
+        );
+      },
+      (tokenCount) => {
+        console.log(`🔴 [OUTPUT TOKENS] Limit reached: ${tokenCount}/25000 tokens - advising continuation`);
+        sessionStreamManager.safeSend(
+          sessionId as string,
+          JSON.stringify({
+            type: 'output_token_limit',
+            message: `Output limit approaching (${tokenCount} tokens). The AI may stop mid-response. You can type "continue" to get more.`,
+            outputTokens: tokenCount,
+            sessionId: sessionId,
+          })
+        );
+      }
+    );
 
     // Retry configuration
     const MAX_RETRIES = 3;
@@ -1036,6 +1096,12 @@ Run bash commands with the understanding that this is your current working direc
                   JSON.stringify({ type: 'result', success: true, sessionId: sessionId })
                 );
 
+                // Update progress tracking: mark turn complete with model info
+                sessionDb.updateProgress(sessionId as string, {
+                  lastActivity: 'idle',
+                  model: apiModelId,
+                });
+
                 // Cancel timeout for this turn (will restart on next message)
                 timeoutController.cancel();
 
@@ -1046,6 +1112,7 @@ Run bash commands with the understanding that this is your current working direc
                 currentMessageId = null; // Reset message ID for next turn
                 exitPlanModeSentThisTurn = false; // Reset plan mode flag for next turn
                 toolUseCount = 0; // Reset tool counter for next turn
+                timeoutController.resetOutputTokens(); // Reset output token counter for next turn
 
                 // Continue loop - wait for next message from stream
                 continue;
@@ -1074,8 +1141,13 @@ Run bash commands with the understanding that this is your current working direc
             currentTextResponse += text;
             deltaChars = text.length;
 
-            // Reset timeout on actual text output (meaningful progress)
+            // Record activity for hang detection and reset timeout
+            timeoutController.recordActivity('text_output');
             timeoutController.reset();
+
+            // Track output tokens (estimate ~4 chars/token)
+            const estimatedDeltaTokens = Math.ceil(text.length / 4);
+            timeoutController.addOutputTokens(estimatedDeltaTokens);
 
             sessionStreamManager.safeSend(
               sessionId as string,
@@ -1108,10 +1180,22 @@ Run bash commands with the understanding that this is your current working direc
             // Tool input being generated (like Write tool file content)
             const jsonDelta = event.delta.partial_json || '';
             deltaChars = jsonDelta.length;
+            // Record activity - tool input generation means agent is working
+            if (deltaChars > 0) {
+              timeoutController.recordActivity('tool_input');
+            }
           } else if (event.delta?.type === 'thinking_delta') {
             // Claude's internal reasoning/thinking
             const thinkingText = event.delta.thinking || '';
             deltaChars = thinkingText.length;
+
+            // Record activity for thinking (important for hang detection)
+            if (deltaChars > 0) {
+              timeoutController.recordActivity('thinking');
+              // Track thinking tokens too (they count toward output)
+              const estimatedThinkingTokens = Math.ceil(thinkingText.length / 4);
+              timeoutController.addOutputTokens(estimatedThinkingTokens);
+            }
 
             sessionStreamManager.safeSend(
               sessionId as string,
@@ -1173,8 +1257,8 @@ Run bash commands with the understanding that this is your current working direc
           // Handle tool use from complete assistant message
           for (const block of content) {
             if (block.type === 'tool_use') {
-              // IMPORTANT: Reset timeout on tool use to prevent timeouts during long tool executions
-              // GLM models may not output text for several minutes during tool/agent execution
+              // Record activity for hang detection - tool invocation is meaningful progress
+              timeoutController.recordActivity(`tool_use:${block.name}`);
               timeoutController.reset();
 
               // Hang detection logging (especially useful for GLM debugging)
@@ -1199,6 +1283,24 @@ Run bash commands with the understanding that this is your current working direc
                 const taskPrompt = toolInput?.prompt as string || '';
                 sessionDb.updateProgress(sessionId as string, {
                   currentTask: taskPrompt.slice(0, 100) + (taskPrompt.length > 100 ? '...' : ''),
+                  lastActivity: 'analyzing',
+                });
+              } else if (block.name === 'TodoWrite') {
+                // Track todo list updates as resume hint
+                const todos = toolInput?.todos as Array<{ content: string; status: string }> | undefined;
+                if (todos && todos.length > 0) {
+                  const inProgress = todos.filter(t => t.status === 'in_progress');
+                  const completed = todos.filter(t => t.status === 'completed');
+                  const pendingCount = todos.length - completed.length - inProgress.length;
+                  sessionDb.updateProgress(sessionId as string, {
+                    resumeHint: `${completed.length}/${todos.length} Tasks done` +
+                      (inProgress.length > 0 ? `, working on: ${inProgress[0].content.slice(0, 50)}` : '') +
+                      (pendingCount > 0 ? `, ${pendingCount} pending` : ''),
+                  });
+                }
+              } else if (['Bash', 'Grep', 'Glob', 'WebSearch', 'WebFetch'].includes(block.name)) {
+                // Track search/command operations as analyzing
+                sessionDb.updateProgress(sessionId as string, {
                   lastActivity: 'analyzing',
                 });
               }
