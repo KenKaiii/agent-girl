@@ -30,7 +30,7 @@ import { AboutButton } from '../header/AboutButton';
 import { RadioPlayer } from '../header/RadioPlayer';
 import { PlanApprovalModal } from '../plan/PlanApprovalModal';
 import { QuestionModal, type Question } from '../question/QuestionModal';
-import { BuildWizard } from '../build-wizard/BuildWizard';
+import { BuildLauncher, type Template } from '../preview/BuildLauncher';
 import { ScrollButton } from './ScrollButton';
 import { WorkingDirectoryPanel } from './WorkingDirectoryPanel';
 import { CommandQueueDisplay } from '../queue/CommandQueueDisplay';
@@ -1885,19 +1885,49 @@ export function ChatContainer({
     setIsBuildWizardOpen(false);
   };
 
-  const handleBuildComplete = (prompt: string) => {
-    // Close wizard
+  // Handle template selection from BuildLauncher
+  const handleSelectTemplate = (template: Template) => {
     setIsBuildWizardOpen(false);
-
-    // Clear current session to force creation of new session with Coder mode
     setCurrentSessionId(null);
     setCurrentSessionMode('coder');
     setMessages([]);
 
-    // Auto-submit immediately with prompt override (no need to wait for state)
+    // Submit the template command (e.g., "/new landing-modern")
     setTimeout(() => {
-      handleSubmit(undefined, 'coder', prompt);
+      handleSubmit(undefined, 'coder', template.command);
     }, 100);
+  };
+
+  // Handle quick actions from BuildLauncher (clone, ai, blank, niche)
+  const handleQuickAction = (action: string, input?: string) => {
+    let prompt = '';
+    switch (action) {
+      case 'clone':
+        prompt = `/clone ${input || ''}`;
+        break;
+      case 'ai':
+        prompt = input || 'Create a modern Astro 5 website';
+        break;
+      case 'blank':
+        prompt = '/new blank';
+        break;
+      case 'niche':
+        prompt = `/new ${input || 'business'}-optimized`;
+        break;
+      default:
+        prompt = action;
+    }
+
+    if (prompt) {
+      setIsBuildWizardOpen(false);
+      setCurrentSessionId(null);
+      setCurrentSessionMode('coder');
+      setMessages([]);
+
+      setTimeout(() => {
+        handleSubmit(undefined, 'coder', prompt);
+      }, 100);
+    }
   };
 
   // Handle AI edit request from preview element selection
@@ -2570,10 +2600,11 @@ export function ChatContainer({
         />
       )}
 
-      {/* Build Wizard */}
+      {/* Build Launcher - Astro Templates */}
       {isBuildWizardOpen && (
-        <BuildWizard
-          onComplete={handleBuildComplete}
+        <BuildLauncher
+          onSelectTemplate={handleSelectTemplate}
+          onQuickAction={handleQuickAction}
           onClose={handleCloseBuildWizard}
         />
       )}
