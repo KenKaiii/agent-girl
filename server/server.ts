@@ -51,6 +51,9 @@ import { handleSessionRoutes } from "./routes/sessions";
 import { handleDirectoryRoutes } from "./routes/directory";
 import { handleUserConfigRoutes } from "./routes/userConfig";
 import { handleCommandRoutes } from "./routes/commands";
+import { handleSectionRoutes } from "./routes/sections";
+import { handleFilesRoutes } from "./routes/files";
+import { handlePreviewRoutes } from "./routes/preview";
 import { handleWebSocketMessage } from "./websocket/messageHandlers";
 import { handleHealthCheck, handleLivenessProbe, handleReadinessProbe, updateWsStats } from "./routes/health";
 import { logger } from "./utils/logger";
@@ -82,21 +85,27 @@ const activeQueries = new Map<string, unknown>();
 
 const hotReloadClients = new Set<HotReloadClient>();
 
-// Watch for file changes (hot reload) - only in dev mode
-if (!IS_STANDALONE) {
-  watch('./client', { recursive: true }, (_eventType, filename) => {
-    if (filename && (filename.endsWith('.tsx') || filename.endsWith('.ts') || filename.endsWith('.css') || filename.endsWith('.html'))) {
-      // Notify all hot reload clients
-      hotReloadClients.forEach(client => {
-        try {
-          client.send(JSON.stringify({ type: 'reload' }));
-        } catch {
-          hotReloadClients.delete(client);
-        }
-      });
-    }
-  });
-}
+// Watch for file changes (hot reload) - DISABLED for CPU testing
+// TODO: Re-enable after fixing CPU issue
+// if (!IS_STANDALONE) {
+//   let watchDebounce: Timer | null = null;
+//   const DEBOUNCE_MS = 100;
+//   watch('./client', { recursive: true }, (_eventType, filename) => {
+//     if (filename && (filename.endsWith('.tsx') || filename.endsWith('.ts') || filename.endsWith('.css') || filename.endsWith('.html'))) {
+//       if (watchDebounce) clearTimeout(watchDebounce);
+//       watchDebounce = setTimeout(() => {
+//         hotReloadClients.forEach(client => {
+//           try {
+//             client.send(JSON.stringify({ type: 'reload' }));
+//           } catch {
+//             hotReloadClients.delete(client);
+//           }
+//         });
+//       }, DEBOUNCE_MS);
+//     }
+//   });
+// }
+void watch; // Suppress unused import warning
 
 const server = Bun.serve({
   port: 3001,
@@ -178,6 +187,24 @@ const server = Bun.serve({
     const commandResponse = await handleCommandRoutes(req, url);
     if (commandResponse) {
       return commandResponse;
+    }
+
+    // Try section routes
+    const sectionResponse = await handleSectionRoutes(req, url);
+    if (sectionResponse) {
+      return sectionResponse;
+    }
+
+    // Try files routes
+    const filesResponse = await handleFilesRoutes(req, url);
+    if (filesResponse) {
+      return filesResponse;
+    }
+
+    // Try preview routes
+    const previewResponse = await handlePreviewRoutes(req, url);
+    if (previewResponse) {
+      return previewResponse;
     }
 
     // Try to handle as static file
