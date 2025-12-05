@@ -18,13 +18,12 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { flushSync } from 'react-dom';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { NewChatWelcome } from './NewChatWelcome';
-import { Sidebar } from '../sidebar/Sidebar';
-import { ResizableSidebar, useSidebarWidth } from '../sidebar/ResizableSidebar';
+import { Sidebar, useSidebarWidth } from '../sidebar/Sidebar';
 import { ModelSelector } from '../header/ModelSelector';
 import { WorkingDirectoryDisplay } from '../header/WorkingDirectoryDisplay';
 import { AboutButton } from '../header/AboutButton';
@@ -33,6 +32,7 @@ import { PlanApprovalModal } from '../plan/PlanApprovalModal';
 import { QuestionModal, type Question } from '../question/QuestionModal';
 import { BuildWizard } from '../build-wizard/BuildWizard';
 import { ScrollButton } from './ScrollButton';
+import { WorkingDirectoryPanel } from './WorkingDirectoryPanel';
 import { CommandQueueDisplay } from '../queue/CommandQueueDisplay';
 import { KeyboardShortcuts } from '../ui/KeyboardShortcuts';
 import { useWebSocket } from '../../hooks/useWebSocket';
@@ -127,8 +127,50 @@ export function ChatContainer({
   const [_isLoadingSessions, setIsLoadingSessions] = useState(true);
   const [currentSessionMode, setCurrentSessionMode] = useState<'general' | 'coder' | 'intense-research' | 'spark' | 'unified'>('general');
 
+  // Pagination state for lazy loading
+  const [hasMoreSessions, setHasMoreSessions] = useState(true);
+  const [totalSessions, setTotalSessions] = useState(0);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
   // Slash commands available for current session
   const [availableCommands, setAvailableCommands] = useState<SlashCommand[]>([]);
+
+  // Commands cache by working directory (commands are dir-specific)
+  const commandsCache = useRef<Map<string, SlashCommand[]>>(new Map());
+
+  // Lazy load commands using requestIdleCallback
+  const loadCommandsLazy = useCallback((sessionId: string, workingDirectory?: string) => {
+    // Check cache first
+    if (workingDirectory && commandsCache.current.has(workingDirectory)) {
+      setAvailableCommands(commandsCache.current.get(workingDirectory)!);
+      return;
+    }
+
+    // Use requestIdleCallback to defer loading
+    const loadCommands = async () => {
+      try {
+        const commandsRes = await fetch(`/api/sessions/${sessionId}/commands`);
+        if (commandsRes.ok) {
+          const commandsData = await commandsRes.json();
+          const commands = commandsData.commands || [];
+          setAvailableCommands(commands);
+          // Cache by working directory
+          if (workingDirectory) {
+            commandsCache.current.set(workingDirectory, commands);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load slash commands:', error);
+      }
+    };
+
+    if ('requestIdleCallback' in window) {
+      (window as typeof window & { requestIdleCallback: (cb: IdleRequestCallback, opts?: IdleRequestOptions) => number })
+        .requestIdleCallback(() => loadCommands(), { timeout: 2000 });
+    } else {
+      setTimeout(loadCommands, 100);
+    }
+  }, []);
 
   // Queue management (currently unused - hidden UI)
   useMessageQueue();
@@ -160,13 +202,30 @@ export function ChatContainer({
     localStorage.setItem('agent-girl-sidebar-open', String(isSidebarOpen));
   }, [isSidebarOpen]);
 
-  // Persist draft text to localStorage (saves on change, clears on submit)
+  // Persist draft text to localStorage with debouncing
+  // OPTIMIZED: Debounce localStorage writes to avoid blocking on every keystroke
+  const draftTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
-    if (inputValue) {
-      localStorage.setItem('agent-girl-draft-text', inputValue);
-    } else {
-      localStorage.removeItem('agent-girl-draft-text');
+    // Clear any pending write
+    if (draftTimeoutRef.current) {
+      clearTimeout(draftTimeoutRef.current);
     }
+
+    // Debounce the localStorage write by 500ms
+    draftTimeoutRef.current = setTimeout(() => {
+      if (inputValue) {
+        localStorage.setItem('agent-girl-draft-text', inputValue);
+      } else {
+        localStorage.removeItem('agent-girl-draft-text');
+      }
+    }, 500);
+
+    return () => {
+      if (draftTimeoutRef.current) {
+        clearTimeout(draftTimeoutRef.current);
+      }
+    };
   }, [inputValue]);
 
   // Automatically cache messages as they update during streaming
@@ -218,6 +277,9 @@ export function ChatContainer({
   const [searchMatches, setSearchMatches] = useState<number[]>([]);
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
 
+  // Working directory panel state
+  const [isWorkingDirPanelCollapsed, setIsWorkingDirPanelCollapsed] = useState(true);
+
   const sessionAPI = useSessionAPI();
 
   // Responsive hooks
@@ -248,6 +310,39 @@ export function ChatContainer({
   // Check if CURRENT session is loading (for typing indicator)
   const isCurrentSessionLoading = currentSessionId ? loadingSessions.has(currentSessionId) : false;
 
+  // Memoize sidebar chats - only recompute when sessions or currentSessionId changes
+  // loadingSessions is handled separately in Sidebar component to avoid re-mapping
+  const sidebarChats = useMemo(() => sessions.map(session => {
+    const folderName = session.working_directory?.split('/').filter(Boolean).pop() || session.title;
+    return {
+      id: session.id,
+      title: folderName,
+      timestamp: new Date(session.updated_at),
+      isActive: session.id === currentSessionId,
+      workingDirectory: session.working_directory,
+    };
+  }), [sessions, currentSessionId]);
+
+  // Simple handlers - no useCallback needed for simple setters
+  const handleSidebarToggle = () => setIsSidebarOpen(prev => !prev);
+  const handleToggleCompact = () => setDisplayMode(prev => prev === 'compact' ? 'full' : 'compact');
+  const handleToggleCode = () => setShowCode(prev => !prev);
+  const handleNewChatTab = () => window.open(window.location.origin, '_blank');
+
+  const handleSidebarPreviousChat = () => {
+    if (navigationHistoryRef.current.length > 0) {
+      const previousId = navigationHistoryRef.current.pop();
+      if (previousId) handleSessionSelect(previousId);
+    }
+  };
+
+  const handleSidebarBackToRecent = () => {
+    if (navigationHistoryRef.current.length > 0) {
+      navigationHistoryRef.current = [];
+      if (sessions.length > 0) handleSessionSelect(sessions[0].id);
+    }
+  };
+
   // Save model selection to localStorage
   // Supports mid-chat model switching with context handoff
   const handleModelChange = (modelId: string) => {
@@ -270,6 +365,32 @@ export function ChatContainer({
     }
   };
 
+  // Load more sessions for infinite scroll
+  const loadMoreSessions = useCallback(async () => {
+    if (isLoadingMore || !hasMoreSessions) return;
+
+    setIsLoadingMore(true);
+    try {
+      const result = await sessionAPI.fetchSessionsPaginated(30, false);
+      if (result.sessions.length > 0) {
+        setSessions(prev => [...prev, ...result.sessions]);
+        setHasMoreSessions(result.hasMore);
+      } else {
+        setHasMoreSessions(false);
+      }
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [sessionAPI, isLoadingMore, hasMoreSessions]);
+
+  // Refresh sessions list (used after creating new session)
+  const loadSessions = useCallback(async () => {
+    const result = await sessionAPI.fetchSessionsPaginated(50, true);
+    setSessions(result.sessions);
+    setHasMoreSessions(result.hasMore);
+    setTotalSessions(result.total);
+  }, [sessionAPI]);
+
   // Load sessions on mount and restore from URL
   useEffect(() => {
     // Only initialize once - prevent re-running after handleNewChat
@@ -278,8 +399,13 @@ export function ChatContainer({
 
     const initializeApp = async () => {
       setIsLoadingSessions(true);
-      const loadedSessions = await sessionAPI.fetchSessions();
+
+      // Use paginated loading - load initial batch of 50 sessions
+      const result = await sessionAPI.fetchSessionsPaginated(50, true);
+      const loadedSessions = result.sessions;
       setSessions(loadedSessions);
+      setHasMoreSessions(result.hasMore);
+      setTotalSessions(result.total);
 
       // Initialize context usage from loaded sessions
       const newContextUsage = new Map<string, {
@@ -319,16 +445,8 @@ export function ChatContainer({
           setIsPlanMode(session.permission_mode === 'plan');
           setCurrentSessionMode(session.mode);
 
-          // Load slash commands for this session
-          try {
-            const commandsRes = await fetch(`/api/sessions/${hashSessionId}/commands`);
-            if (commandsRes.ok) {
-              const commandsData = await commandsRes.json();
-              setAvailableCommands(commandsData.commands || []);
-            }
-          } catch (error) {
-            console.error('Failed to load slash commands:', error);
-          }
+          // Load slash commands lazily (deferred to avoid blocking)
+          loadCommandsLazy(hashSessionId, session.working_directory);
 
           // Load messages from database
           const sessionMessages = await sessionAPI.fetchSessionMessages(hashSessionId);
@@ -372,7 +490,7 @@ export function ChatContainer({
     };
 
     initializeApp();
-  }, [sessionAPI]);
+  }, [sessionAPI, loadCommandsLazy]);
 
   // Keyboard shortcuts handler
   useEffect(() => {
@@ -486,32 +604,7 @@ export function ChatContainer({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [showCode, displayMode, navigationHistory, showSearchBar, isSidebarOpen]);
 
-  const loadSessions = async (): Promise<Session[]> => {
-    setIsLoadingSessions(true);
-    const loadedSessions = await sessionAPI.fetchSessions();
-    setSessions(loadedSessions);
-
-    // Initialize context usage from loaded sessions
-    const newContextUsage = new Map<string, {
-      inputTokens: number;
-      contextWindow: number;
-      contextPercentage: number;
-    }>();
-
-    loadedSessions.forEach(session => {
-      if (session.context_input_tokens && session.context_window && session.context_percentage !== undefined) {
-        newContextUsage.set(session.id, {
-          inputTokens: session.context_input_tokens,
-          contextWindow: session.context_window,
-          contextPercentage: session.context_percentage,
-        });
-      }
-    });
-
-    setContextUsage(newContextUsage);
-    setIsLoadingSessions(false);
-    return loadedSessions;
-  };
+  // loadSessions is defined above using useCallback with pagination support
 
   // Handle session switching
   const handleSessionSelect = async (sessionId: string) => {
@@ -537,8 +630,7 @@ export function ChatContainer({
     // Update URL to include session ID for persistence on refresh
     window.location.hash = sessionId;
 
-    // Load session details to get permission mode and mode
-    const sessions = await sessionAPI.fetchSessions();
+    // Use sessions from state instead of fetching again - PERFORMANCE FIX
     const session = sessions.find(s => s.id === sessionId);
     if (session) {
       setIsPlanMode(session.permission_mode === 'plan');
@@ -546,17 +638,8 @@ export function ChatContainer({
       console.log('🎭 Session mode loaded:', session.mode, 'for session:', sessionId);
     }
 
-    // Load slash commands for this session
-    try {
-      const commandsRes = await fetch(`/api/sessions/${sessionId}/commands`);
-      if (commandsRes.ok) {
-        const commandsData = await commandsRes.json();
-        setAvailableCommands(commandsData.commands || []);
-        console.log(`📋 Loaded ${commandsData.commands?.length || 0} slash commands for session`);
-      }
-    } catch (error) {
-      console.error('Failed to load slash commands:', error);
-    }
+    // Load slash commands lazily (uses cache if same working directory)
+    loadCommandsLazy(sessionId, session?.working_directory);
 
     // Check cache first before loading from database
     const cachedMessages = messageCache.current.get(sessionId);
@@ -710,16 +793,9 @@ export function ChatContainer({
     if (result.success) {
       await loadSessions();
 
-      // Reload slash commands for new directory
-      try {
-        const commandsRes = await fetch(`/api/sessions/${sessionId}/commands`);
-        if (commandsRes.ok) {
-          const commandsData = await commandsRes.json();
-          setAvailableCommands(commandsData.commands || []);
-        }
-      } catch (error) {
-        console.error('Failed to load commands after directory change:', error);
-      }
+      // Invalidate cache for old directory and load commands for new one
+      commandsCache.current.delete(newDirectory);
+      loadCommandsLazy(sessionId, newDirectory);
 
       toast.success('Directory changed', {
         description: 'Context reset - conversation starts fresh'
@@ -1534,17 +1610,8 @@ export function ChatContainer({
         setCurrentSessionMode(newSession.mode);
         console.log('🎭 Session created with mode:', newSession.mode, '(requested:', mode, ')');
 
-        // Load slash commands for new session
-        try {
-          const commandsRes = await fetch(`/api/sessions/${sessionId}/commands`);
-          if (commandsRes.ok) {
-            const commandsData = await commandsRes.json();
-            setAvailableCommands(commandsData.commands || []);
-            console.log(`📋 Loaded ${commandsData.commands?.length || 0} commands for new session`);
-          }
-        } catch (error) {
-          console.error('Failed to load commands for new session:', error);
-        }
+        // Load slash commands lazily for new session
+        loadCommandsLazy(sessionId, newSession.working_directory);
 
         // Apply current permission mode to new session
         const permissionMode = isPlanMode ? 'plan' : 'bypassPermissions';
@@ -1759,63 +1826,39 @@ export function ChatContainer({
   }, [onAIEditRequestHandler, handleAIEditRequest]);
 
   return (
-    <div className="flex h-screen">
-      {/* Resizable Sidebar */}
-      <ResizableSidebar
+    <div className={`flex h-screen ${layoutMode === 'split-screen' ? 'relative' : ''}`} style={{ overflow: 'visible' }}>
+      {/* Sidebar with integrated resize functionality */}
+      <Sidebar
         isOpen={isSidebarOpen}
-        onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
-      >
-        <Sidebar
-          isOpen={isSidebarOpen}
-          onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
-          chats={sessions.map(session => {
-            // Extract folder name from working_directory path
-            const folderName = session.working_directory?.split('/').filter(Boolean).pop() || session.title;
-            return {
-              id: session.id,
-              title: folderName,
-              timestamp: new Date(session.updated_at),
-              isActive: session.id === currentSessionId,
-              isLoading: loadingSessions.has(session.id),
-              workingDirectory: session.working_directory,
-            };
-          })}
-          onNewChat={handleNewChat}
-          onChatSelect={handleSessionSelect}
-          onChatDelete={handleChatDelete}
-          onChatRename={handleChatRename}
-          showCompact={displayMode === 'compact'}
-          onToggleCompact={() => setDisplayMode(displayMode === 'compact' ? 'full' : 'compact')}
-          showCode={showCode}
-          onToggleCode={() => setShowCode(!showCode)}
-          onNewChatTab={() => window.open(window.location.origin, '_blank')}
-          onPreviousChat={() => {
-            if (navigationHistoryRef.current.length > 0) {
-              const previousId = navigationHistoryRef.current.pop();
-              if (previousId) handleSessionSelect(previousId);
-            }
-          }}
-          onNextChat={() => {
-            // Next chat navigation would need to be implemented based on your navigation model
-            // For now, this is a placeholder
-          }}
-          onBackToRecent={() => {
-            if (navigationHistoryRef.current.length > 0) {
-              navigationHistoryRef.current = [];
-              if (sessions.length > 0) handleSessionSelect(sessions[0].id);
-            }
-          }}
-          canPreviousChat={navigationHistoryRef.current.length > 0}
-          canNextChat={false}
-          canBackToRecent={navigationHistoryRef.current.length > 0}
-        />
-      </ResizableSidebar>
+        onToggle={handleSidebarToggle}
+        layoutMode={layoutMode}
+        chats={sidebarChats}
+        onNewChat={handleNewChat}
+        onChatSelect={handleSessionSelect}
+        onChatDelete={handleChatDelete}
+        onChatRename={handleChatRename}
+        showCompact={displayMode === 'compact'}
+        onToggleCompact={handleToggleCompact}
+        showCode={showCode}
+        onToggleCode={handleToggleCode}
+        onNewChatTab={handleNewChatTab}
+        onPreviousChat={handleSidebarPreviousChat}
+        onNextChat={handleNextChat}
+        onBackToRecent={handleSidebarBackToRecent}
+        canPreviousChat={navigationHistoryRef.current.length > 0}
+        canNextChat={false}
+        canBackToRecent={navigationHistoryRef.current.length > 0}
+        hasMoreChats={hasMoreSessions}
+        isLoadingMore={isLoadingMore}
+        onLoadMore={loadMoreSessions}
+        totalChats={totalSessions}
+      />
 
       {/* Main Chat Area - responsive margin based on sidebar width */}
       <div
         className="flex flex-col flex-1 h-screen min-h-0 overflow-hidden"
         style={{
-          marginLeft: isMobile ? 0 : `${sidebarWidth}px`,
+          marginLeft: isMobile || layoutMode === 'split-screen' ? 0 : `${sidebarWidth}px`,
           transition: 'margin-left 0.2s ease-in-out',
         }}
       >
@@ -1823,8 +1866,16 @@ export function ChatContainer({
         <nav
           className="header"
           style={{
-            height: layoutMode === 'split-screen' ? '48px' : undefined,
-            minHeight: layoutMode === 'split-screen' ? '48px' : undefined,
+            height: layoutMode === 'split-screen' ? '48px' : '56px',
+            minHeight: layoutMode === 'split-screen' ? '48px' : '56px',
+            backgroundColor: '#141618',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+            display: 'flex',
+            alignItems: 'center',
+            width: '100%',
+            flexShrink: 0,
+            position: 'relative',
+            zIndex: 50,
           }}
         >
           <div className="header-content">
@@ -2261,6 +2312,23 @@ export function ChatContainer({
               layoutMode={layoutMode}
               onOpenBuildWizard={handleOpenBuildWizard}
               previewUrl={previewUrl}
+            />
+
+            {/* Working Directory Panel */}
+            <WorkingDirectoryPanel
+              workingDirectory={sessions.find(s => s.id === currentSessionId)?.working_directory || null}
+              chatFolder={sessions.find(s => s.id === currentSessionId)?.working_directory || undefined}
+              onDirectoryChange={(newPath) => {
+                if (currentSessionId) {
+                  handleChangeDirectory(currentSessionId, newPath);
+                }
+              }}
+              onInsertText={(text) => {
+                setInputValue(prev => prev + (prev && !prev.endsWith(' ') ? ' ' : '') + text);
+              }}
+              sessionId={currentSessionId || undefined}
+              isCollapsed={isWorkingDirPanelCollapsed}
+              onToggleCollapse={() => setIsWorkingDirPanelCollapsed(!isWorkingDirPanelCollapsed)}
             />
 
           </>

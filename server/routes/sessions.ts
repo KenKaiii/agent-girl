@@ -1,12 +1,40 @@
 /**
  * Session API Routes
  * Handles all session-related REST endpoints
+ *
+ * Performance: Pre-compiled regex patterns for route matching
+ * Performance: Import folders only once per server startup (not every request)
  */
 
 import { sessionDb } from "../database";
 import { backgroundProcessManager } from "../backgroundProcessManager";
 import { sessionStreamManager } from "../sessionStreamManager";
 import { setupSessionCommands } from "../commandSetup";
+
+// Track if we've imported existing folders this server session
+let hasImportedFolders = false;
+const pendingImport: Promise<{ imported: string[] }> | null = null;
+
+// Pre-compiled regex patterns for route matching (compiled once at module load)
+const ROUTE_PATTERNS = {
+  SESSION_BY_ID: /^\/api\/sessions\/([^/]+)$/,
+  SESSION_MESSAGES: /^\/api\/sessions\/([^/]+)\/messages$/,
+  SESSION_DIRECTORY: /^\/api\/sessions\/([^/]+)\/directory$/,
+  SESSION_MODE: /^\/api\/sessions\/([^/]+)\/mode$/,
+  SESSION_CHAT_MODE: /^\/api\/sessions\/([^/]+)\/chat-mode$/,
+  SESSION_EXPORT: /^\/api\/sessions\/([^/]+)\/export$/,
+  SESSION_EXPORT_MD: /^\/api\/sessions\/([^/]+)\/export\/markdown$/,
+  SESSION_EXPORT_SUMMARY: /^\/api\/sessions\/([^/]+)\/export\/summary$/,
+  SESSION_STATS: /^\/api\/sessions\/([^/]+)\/stats$/,
+} as const;
+
+/**
+ * Extract session ID from pathname using pre-compiled pattern
+ */
+function extractSessionId(pathname: string, pattern: RegExp): string | null {
+  const match = pathname.match(pattern);
+  return match ? match[1] : null;
+}
 
 /**
  * Handle session-related API routes
@@ -17,27 +45,90 @@ export async function handleSessionRoutes(
   url: URL,
   activeQueries: Map<string, unknown>
 ): Promise<Response | undefined> {
+  const { pathname } = url;
+  const { method } = req;
 
-  // GET /api/sessions - List all sessions
-  if (url.pathname === '/api/sessions' && req.method === 'GET') {
-    // Import any existing folders not in the database
-    const { imported } = sessionDb.importExistingFolders();
+  // Fast path: Skip if not an API route
+  if (!pathname.startsWith('/api/sessions')) {
+    return undefined;
+  }
 
-    const { sessions, recreatedDirectories } = sessionDb.getSessions();
+  // GET /api/sessions - List all sessions (with optional pagination)
+  if (pathname === '/api/sessions' && method === 'GET') {
+    // Import existing folders only once per server session (non-blocking for subsequent requests)
+    let imported: string[] = [];
+
+    if (!hasImportedFolders) {
+      // First request: do synchronous import (one-time cost)
+      if (!pendingImport) {
+        hasImportedFolders = true;
+        const result = sessionDb.importExistingFolders();
+        imported = result.imported;
+      }
+    }
+    // Subsequent requests skip import entirely for faster response
+
+    // Check for pagination params
+    const limit = url.searchParams.get('limit');
+    const offset = url.searchParams.get('offset');
+    const cursor = url.searchParams.get('cursor');
+
+    // Use paginated endpoint if any pagination param is provided
+    if (limit || offset || cursor) {
+      const result = sessionDb.getSessionsPaginated({
+        limit: limit ? parseInt(limit, 10) : 30,
+        offset: offset ? parseInt(offset, 10) : 0,
+        cursor: cursor || undefined,
+      });
+
+      // Strip large fields for list view - keep essential UI data + working_directory
+      const lightSessions = result.data.map(s => ({
+        id: s.id,
+        title: s.title,
+        created_at: s.created_at,
+        updated_at: s.updated_at,
+        mode: s.mode,
+        message_count: s.message_count,
+        context_percentage: s.context_percentage,
+        working_directory: s.working_directory,
+        permission_mode: s.permission_mode,
+      }));
+
+      return new Response(JSON.stringify({
+        sessions: lightSessions,
+        total: result.total,
+        hasMore: result.hasMore,
+        nextCursor: result.nextCursor,
+        imported: imported.length > 0 ? imported : undefined,
+      }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Default: return all sessions (skip directory validation for speed)
+    const { sessions } = sessionDb.getSessions(true);
+
+    // Strip large fields for list view - only keep essential UI data
+    const lightSessions = sessions.map(s => ({
+      id: s.id,
+      title: s.title,
+      created_at: s.created_at,
+      updated_at: s.updated_at,
+      mode: s.mode,
+      message_count: s.message_count,
+      context_percentage: s.context_percentage,
+    }));
 
     return new Response(JSON.stringify({
-      sessions,
+      sessions: lightSessions,
       imported: imported.length > 0 ? imported : undefined,
-      warning: recreatedDirectories.length > 0
-        ? `Recreated ${recreatedDirectories.length} missing director${recreatedDirectories.length === 1 ? 'y' : 'ies'}`
-        : undefined
     }), {
       headers: { 'Content-Type': 'application/json' },
     });
   }
 
   // POST /api/sessions - Create new session
-  if (url.pathname === '/api/sessions' && req.method === 'POST') {
+  if (pathname === '/api/sessions' && method === 'POST') {
     const body = await req.json() as { title?: string; workingDirectory?: string; mode?: 'general' | 'coder' | 'intense-research' | 'spark' };
     const session = sessionDb.createSession(body.title || 'New Chat', body.workingDirectory, body.mode || 'general');
     return new Response(JSON.stringify(session), {
@@ -45,9 +136,18 @@ export async function handleSessionRoutes(
     });
   }
 
+  // POST /api/sessions/cleanup - Clean up empty folders
+  if (pathname === '/api/sessions/cleanup' && method === 'POST') {
+    const result = sessionDb.cleanupEmptyFolders();
+    return new Response(JSON.stringify(result), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   // GET /api/sessions/:id - Get session by ID
-  if (url.pathname.match(/^\/api\/sessions\/[^/]+$/) && req.method === 'GET') {
-    const sessionId = url.pathname.split('/').pop()!;
+  const getSessionId = extractSessionId(pathname, ROUTE_PATTERNS.SESSION_BY_ID);
+  if (getSessionId && method === 'GET') {
+    const sessionId = getSessionId;
     const session = sessionDb.getSession(sessionId);
 
     if (!session) {
@@ -63,8 +163,8 @@ export async function handleSessionRoutes(
   }
 
   // DELETE /api/sessions/:id - Delete session
-  if (url.pathname.match(/^\/api\/sessions\/[^/]+$/) && req.method === 'DELETE') {
-    const sessionId = url.pathname.split('/').pop()!;
+  if (getSessionId && method === 'DELETE') {
+    const sessionId = getSessionId;
 
     // Clean up background processes for this session before deleting
     await backgroundProcessManager.cleanupSession(sessionId);
@@ -83,8 +183,8 @@ export async function handleSessionRoutes(
   }
 
   // PATCH /api/sessions/:id - Rename session folder
-  if (url.pathname.match(/^\/api\/sessions\/[^/]+$/) && req.method === 'PATCH') {
-    const sessionId = url.pathname.split('/').pop()!;
+  if (getSessionId && method === 'PATCH') {
+    const sessionId = getSessionId;
     const body = await req.json() as { folderName: string };
 
     console.log('📝 API: Rename folder request:', {
@@ -118,8 +218,9 @@ export async function handleSessionRoutes(
   }
 
   // GET /api/sessions/:id/messages - Get session messages
-  if (url.pathname.match(/^\/api\/sessions\/[^/]+\/messages$/) && req.method === 'GET') {
-    const sessionId = url.pathname.split('/')[3];
+  const messagesSessionId = extractSessionId(pathname, ROUTE_PATTERNS.SESSION_MESSAGES);
+  if (messagesSessionId && method === 'GET') {
+    const sessionId = messagesSessionId;
     const messages = sessionDb.getSessionMessages(sessionId);
 
     return new Response(JSON.stringify(messages), {
@@ -128,8 +229,9 @@ export async function handleSessionRoutes(
   }
 
   // PATCH /api/sessions/:id/directory - Update working directory
-  if (url.pathname.match(/^\/api\/sessions\/[^/]+\/directory$/) && req.method === 'PATCH') {
-    const sessionId = url.pathname.split('/')[3];
+  const directorySessionId = extractSessionId(pathname, ROUTE_PATTERNS.SESSION_DIRECTORY);
+  if (directorySessionId && method === 'PATCH') {
+    const sessionId = directorySessionId;
     const body = await req.json() as { workingDirectory: string };
 
     console.log('📁 API: Update working directory request:', {
@@ -169,8 +271,9 @@ export async function handleSessionRoutes(
   }
 
   // PATCH /api/sessions/:id/mode - Update permission mode
-  if (url.pathname.match(/^\/api\/sessions\/[^/]+\/mode$/) && req.method === 'PATCH') {
-    const sessionId = url.pathname.split('/')[3];
+  const modeSessionId = extractSessionId(pathname, ROUTE_PATTERNS.SESSION_MODE);
+  if (modeSessionId && method === 'PATCH') {
+    const sessionId = modeSessionId;
     const body = await req.json() as { mode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' };
 
     const success = sessionDb.updatePermissionMode(sessionId, body.mode);
@@ -189,8 +292,9 @@ export async function handleSessionRoutes(
   }
 
   // PATCH /api/sessions/:id/chat-mode - Update session chat mode (general, coder, etc)
-  if (url.pathname.match(/^\/api\/sessions\/[^/]+\/chat-mode$/) && req.method === 'PATCH') {
-    const sessionId = url.pathname.split('/')[3];
+  const chatModeSessionId = extractSessionId(pathname, ROUTE_PATTERNS.SESSION_CHAT_MODE);
+  if (chatModeSessionId && method === 'PATCH') {
+    const sessionId = chatModeSessionId;
     const body = await req.json() as { mode: 'general' | 'coder' | 'intense-research' | 'spark' };
 
     const success = sessionDb.updateSessionMode(sessionId, body.mode);
@@ -209,8 +313,9 @@ export async function handleSessionRoutes(
   }
 
   // GET /api/sessions/:id/export - Export session with all messages
-  if (url.pathname.match(/^\/api\/sessions\/[^/]+\/export$/) && req.method === 'GET') {
-    const sessionId = url.pathname.split('/')[3];
+  const exportSessionId = extractSessionId(pathname, ROUTE_PATTERNS.SESSION_EXPORT);
+  if (exportSessionId && method === 'GET') {
+    const sessionId = exportSessionId;
     const session = sessionDb.getSession(sessionId);
 
     if (!session) {
@@ -250,8 +355,9 @@ export async function handleSessionRoutes(
   }
 
   // GET /api/sessions/:id/export/markdown - Export session as Markdown
-  if (url.pathname.match(/^\/api\/sessions\/[^/]+\/export\/markdown$/) && req.method === 'GET') {
-    const sessionId = url.pathname.split('/')[3];
+  const exportMdSessionId = extractSessionId(pathname, ROUTE_PATTERNS.SESSION_EXPORT_MD);
+  if (exportMdSessionId && method === 'GET') {
+    const sessionId = exportMdSessionId;
     const session = sessionDb.getSession(sessionId);
 
     if (!session) {
@@ -313,8 +419,9 @@ export async function handleSessionRoutes(
   }
 
   // GET /api/sessions/:id/export/summary - Export summary (text-only, no code/tools)
-  if (url.pathname.match(/^\/api\/sessions\/[^/]+\/export\/summary$/) && req.method === 'GET') {
-    const sessionId = url.pathname.split('/')[3];
+  const exportSummarySessionId = extractSessionId(pathname, ROUTE_PATTERNS.SESSION_EXPORT_SUMMARY);
+  if (exportSummarySessionId && method === 'GET') {
+    const sessionId = exportSummarySessionId;
     const session = sessionDb.getSession(sessionId);
 
     if (!session) {
@@ -370,8 +477,9 @@ export async function handleSessionRoutes(
   }
 
   // GET /api/sessions/:id/stats - Get session statistics
-  if (url.pathname.match(/^\/api\/sessions\/[^/]+\/stats$/) && req.method === 'GET') {
-    const sessionId = url.pathname.split('/')[3];
+  const statsSessionId = extractSessionId(pathname, ROUTE_PATTERNS.SESSION_STATS);
+  if (statsSessionId && method === 'GET') {
+    const sessionId = statsSessionId;
     const session = sessionDb.getSession(sessionId);
 
     if (!session) {
@@ -462,7 +570,7 @@ export async function handleSessionRoutes(
   }
 
   // POST /api/sessions/import - Import session from JSON
-  if (url.pathname === '/api/sessions/import' && req.method === 'POST') {
+  if (pathname === '/api/sessions/import' && method === 'POST') {
     try {
       const importData = await req.json() as {
         version?: string;
@@ -522,7 +630,7 @@ export async function handleSessionRoutes(
   }
 
   // GET /api/sessions/search - Search messages across all sessions
-  if (url.pathname === '/api/sessions/search' && req.method === 'GET') {
+  if (pathname === '/api/sessions/search' && method === 'GET') {
     const query = url.searchParams.get('q') || '';
     const sessionId = url.searchParams.get('sessionId') || undefined;
     const limit = parseInt(url.searchParams.get('limit') || '50', 10);
