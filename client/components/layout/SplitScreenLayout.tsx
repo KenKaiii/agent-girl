@@ -187,6 +187,28 @@ export function SplitScreenLayout() {
     }
   }, [refreshPreview]);
 
+  // Live elapsed time state (updates every second while active)
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  // Update elapsed time every second while AI is active
+  useEffect(() => {
+    if (!aiProgress.isActive || !aiProgress.startTime) {
+      return;
+    }
+
+    // Initial calculation
+    setElapsedSeconds(Math.round((Date.now() - aiProgress.startTime) / 1000));
+
+    // Update every second
+    const interval = setInterval(() => {
+      if (aiProgress.startTime) {
+        setElapsedSeconds(Math.round((Date.now() - aiProgress.startTime) / 1000));
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [aiProgress.isActive, aiProgress.startTime]);
+
   // Preview container dimensions for canvas
   const previewContentRef = useRef<HTMLDivElement>(null);
   const [previewDimensions, setPreviewDimensions] = useState({ width: 0, height: 0 });
@@ -197,6 +219,24 @@ export function SplitScreenLayout() {
   const togglePreview = useCallback(() => {
     setShowPreview(prev => !prev);
   }, []);
+
+  // Keyboard shortcuts for preview
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd/Ctrl + Shift + P to toggle preview
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'p') {
+        e.preventDefault();
+        togglePreview();
+      }
+      // Cmd/Ctrl + Shift + R to refresh preview
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'r' && showPreview) {
+        e.preventDefault();
+        refreshPreview();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [togglePreview, showPreview, refreshPreview]);
 
   // Auto-detect preview URL on common ports
   const detectPreviewUrl = useCallback(async (): Promise<boolean> => {
@@ -895,11 +935,13 @@ export function SplitScreenLayout() {
                   )}
 
                   {/* Elapsed time (show while active or completed) */}
-                  {aiProgress.startTime && (
+                  {(aiProgress.isActive || aiProgress.status === 'completed') && elapsedSeconds > 0 && (
                     <div className="flex items-center gap-0.5" style={{ color: '#9ca3af' }}>
                       <Clock size={10} />
                       <span className="text-xs font-mono">
-                        {Math.round((Date.now() - aiProgress.startTime) / 1000)}s
+                        {elapsedSeconds >= 60
+                          ? `${Math.floor(elapsedSeconds / 60)}m ${elapsedSeconds % 60}s`
+                          : `${elapsedSeconds}s`}
                       </span>
                     </div>
                   )}
