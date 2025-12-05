@@ -400,32 +400,44 @@ export function ChatContainer({
     const initializeApp = async () => {
       setIsLoadingSessions(true);
 
-      // Use paginated loading - load initial batch of 50 sessions
-      const result = await sessionAPI.fetchSessionsPaginated(50, true);
+      // Use paginated loading - load initial batch of 25 sessions for fast first paint
+      const result = await sessionAPI.fetchSessionsPaginated(25, true);
       const loadedSessions = result.sessions;
       setSessions(loadedSessions);
       setHasMoreSessions(result.hasMore);
       setTotalSessions(result.total);
 
-      // Initialize context usage from loaded sessions
-      const newContextUsage = new Map<string, {
-        inputTokens: number;
-        contextWindow: number;
-        contextPercentage: number;
-      }>();
-
-      loadedSessions.forEach(session => {
-        if (session.context_input_tokens && session.context_window && session.context_percentage !== undefined) {
-          newContextUsage.set(session.id, {
-            inputTokens: session.context_input_tokens,
-            contextWindow: session.context_window,
-            contextPercentage: session.context_percentage,
-          });
-        }
-      });
-
-      setContextUsage(newContextUsage);
+      // Show UI immediately
       setIsLoadingSessions(false);
+
+      // Defer context usage initialization to avoid blocking first paint
+      const buildContextUsage = () => {
+        const newContextUsage = new Map<string, {
+          inputTokens: number;
+          contextWindow: number;
+          contextPercentage: number;
+        }>();
+
+        loadedSessions.forEach(session => {
+          if (session.context_input_tokens && session.context_window && session.context_percentage !== undefined) {
+            newContextUsage.set(session.id, {
+              inputTokens: session.context_input_tokens,
+              contextWindow: session.context_window,
+              contextPercentage: session.context_percentage,
+            });
+          }
+        });
+
+        setContextUsage(newContextUsage);
+      };
+
+      // Use requestIdleCallback to defer non-critical work
+      if ('requestIdleCallback' in window) {
+        (window as typeof window & { requestIdleCallback: (cb: IdleRequestCallback) => number })
+          .requestIdleCallback(buildContextUsage);
+      } else {
+        setTimeout(buildContextUsage, 0);
+      }
 
       // Restore session from URL hash (#session-id-here or #uuid-here)
       let hashSessionId = window.location.hash.slice(1); // Remove '#'
