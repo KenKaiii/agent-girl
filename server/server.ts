@@ -59,8 +59,9 @@ import { handleHealthCheck, handleLivenessProbe, handleReadinessProbe, updateWsS
 import { logger } from "./utils/logger";
 import type { ServerWebSocket, Server as ServerType } from "bun";
 
-// Initialize startup configuration (loads env vars, sets up PostCSS)
-const { isStandalone: IS_STANDALONE, binaryDir: BINARY_DIR, postcss, tailwindcss, autoprefixer } = await initializeStartup();
+// Initialize startup configuration (loads env vars)
+// NOTE: PostCSS is now lazy-loaded in staticFileServer.ts to avoid 100% CPU
+const { isStandalone: IS_STANDALONE, binaryDir: BINARY_DIR } = await initializeStartup();
 
 // Check Node.js availability for Claude SDK subprocess
 await checkNodeAvailability();
@@ -211,9 +212,6 @@ const server = Bun.serve({
     const staticResponse = await handleStaticFile(req, {
       binaryDir: BINARY_DIR,
       isStandalone: IS_STANDALONE,
-      postcss,
-      tailwindcss,
-      autoprefixer,
     });
 
     if (staticResponse) {

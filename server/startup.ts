@@ -47,18 +47,12 @@ export interface StartupConfig {
   isStandalone: boolean;
   binaryDir: string;
   debugLog: (message: string) => void;
-  // PostCSS modules (null in standalone mode, lazy-loaded in dev)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  postcss: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  tailwindcss: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  autoprefixer: any;
+  // PostCSS is now lazy-loaded in staticFileServer.ts to avoid 100% CPU from oxide bindings
 }
 
 /**
  * Initialize startup configuration
- * Loads environment variables and sets up PostCSS (dev mode only)
+ * Loads environment variables (PostCSS is lazy-loaded in staticFileServer.ts)
  */
 export async function initializeStartup(): Promise<StartupConfig> {
   const BINARY_DIR = getBinaryDir();
@@ -70,19 +64,9 @@ export async function initializeStartup(): Promise<StartupConfig> {
   debugLog(`  - process.cwd(): ${process.cwd()}`);
   debugLog(`  - BINARY_DIR: ${BINARY_DIR}`);
 
-  // Conditionally import PostCSS only in dev mode (not standalone)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let postcss: any = null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let tailwindcss: any = null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let autoprefixer: any = null;
-
-  if (!IS_STANDALONE) {
-    postcss = (await import('postcss')).default;
-    tailwindcss = (await import('@tailwindcss/postcss')).default;
-    autoprefixer = (await import('autoprefixer')).default;
-  }
+  // NOTE: PostCSS/Tailwind imports REMOVED from startup
+  // @tailwindcss/oxide native bindings were causing 100% CPU via file watchers
+  // PostCSS is now lazy-loaded in staticFileServer.ts on first CSS request
 
   // Load environment variables
   // In standalone mode, manually parse .env from binary directory
@@ -138,9 +122,6 @@ export async function initializeStartup(): Promise<StartupConfig> {
     isStandalone: IS_STANDALONE,
     binaryDir: BINARY_DIR,
     debugLog,
-    postcss,
-    tailwindcss,
-    autoprefixer,
   };
 }
 

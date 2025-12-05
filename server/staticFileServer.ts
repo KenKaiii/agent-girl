@@ -1,6 +1,9 @@
 /**
  * Static File Server Module
  * Handles all static file serving including HTML, CSS, TypeScript, and media files
+ *
+ * NOTE: PostCSS is lazy-loaded on first CSS request to avoid 100% CPU from
+ * @tailwindcss/oxide native bindings starting file watchers at startup.
  */
 
 import path from 'path';
@@ -10,12 +13,40 @@ import { logger } from './utils/logger';
 interface StaticFileServerOptions {
   binaryDir: string;
   isStandalone: boolean;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  postcss: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  tailwindcss: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  autoprefixer: any;
+}
+
+// Lazy-loaded PostCSS modules (cached after first load)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let postcssCache: any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let tailwindcssCache: any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let autoprefixerCache: any = null;
+let postcssLoaded = false;
+
+/**
+ * Lazy-load PostCSS modules on first CSS request
+ * This prevents 100% CPU from oxide bindings at startup
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function getPostCSS(): Promise<{ postcss: any; tailwindcss: any; autoprefixer: any } | null> {
+  if (postcssLoaded) {
+    return postcssCache ? { postcss: postcssCache, tailwindcss: tailwindcssCache, autoprefixer: autoprefixerCache } : null;
+  }
+
+  postcssLoaded = true;
+
+  try {
+    logger.debug('Lazy-loading PostCSS for CSS processing...');
+    postcssCache = (await import('postcss')).default;
+    tailwindcssCache = (await import('@tailwindcss/postcss')).default;
+    autoprefixerCache = (await import('autoprefixer')).default;
+    logger.debug('PostCSS loaded successfully');
+    return { postcss: postcssCache, tailwindcss: tailwindcssCache, autoprefixer: autoprefixerCache };
+  } catch (error) {
+    logger.error('Failed to load PostCSS', { error });
+    return null;
+  }
 }
 
 /**
@@ -44,7 +75,7 @@ export async function handleStaticFile(
   req: Request,
   options: StaticFileServerOptions
 ): Promise<Response | undefined> {
-  const { binaryDir, isStandalone, postcss, tailwindcss, autoprefixer } = options;
+  const { binaryDir, isStandalone } = options;
   const url = new URL(req.url);
 
   // Serve index.html
@@ -105,8 +136,10 @@ export async function handleStaticFile(
           });
         }
 
-        // In dev mode, process CSS with PostCSS
-        if (postcss && tailwindcss && autoprefixer) {
+        // In dev mode, process CSS with PostCSS (lazy-loaded)
+        const postCSSModules = await getPostCSS();
+        if (postCSSModules) {
+          const { postcss, tailwindcss, autoprefixer } = postCSSModules;
           const result = await postcss([
             tailwindcss(),
             autoprefixer,
@@ -148,30 +181,34 @@ export async function handleStaticFile(
       });
     }
 
-    // In dev mode, process CSS with PostCSS on-the-fly
-    if (!isStandalone && postcss && tailwindcss && autoprefixer) {
+    // In dev mode, process CSS with PostCSS on-the-fly (lazy-loaded)
+    if (!isStandalone) {
       const sourceCssPath = path.join(binaryDir, 'client/globals.css');
       const sourceCssFile = Bun.file(sourceCssPath);
 
       if (await sourceCssFile.exists()) {
-        try {
-          const cssContent = await sourceCssFile.text();
-          const result = await postcss([
-            tailwindcss(),
-            autoprefixer,
-          ]).process(cssContent, {
-            from: sourceCssPath,
-            to: undefined
-          });
+        const postCSSModules = await getPostCSS();
+        if (postCSSModules) {
+          try {
+            const { postcss, tailwindcss, autoprefixer } = postCSSModules;
+            const cssContent = await sourceCssFile.text();
+            const result = await postcss([
+              tailwindcss(),
+              autoprefixer,
+            ]).process(cssContent, {
+              from: sourceCssPath,
+              to: undefined
+            });
 
-          return new Response(result.css, {
-            headers: {
-              'Content-Type': 'text/css',
-            },
-          });
-        } catch (error) {
-          console.error('CSS processing error:', error);
-          return new Response('CSS processing failed', { status: 500 });
+            return new Response(result.css, {
+              headers: {
+                'Content-Type': 'text/css',
+              },
+            });
+          } catch (error) {
+            console.error('CSS processing error:', error);
+            return new Response('CSS processing failed', { status: 500 });
+          }
         }
       }
     }
