@@ -1,9 +1,6 @@
 /**
  * Static File Server Module
  * Handles all static file serving including HTML, CSS, TypeScript, and media files
- *
- * NOTE: PostCSS is lazy-loaded on first CSS request to avoid 100% CPU from
- * @tailwindcss/oxide native bindings starting file watchers at startup.
  */
 
 import path from 'path';
@@ -15,7 +12,7 @@ interface StaticFileServerOptions {
   isStandalone: boolean;
 }
 
-// Lazy-loaded PostCSS modules (cached after first load)
+// Lazy-loaded PostCSS modules (to avoid loading @tailwindcss/oxide at startup)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let postcssCache: any = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -25,10 +22,10 @@ let autoprefixerCache: any = null;
 let postcssLoaded = false;
 
 /**
- * Lazy-load PostCSS modules on first CSS request
- * This prevents 100% CPU from oxide bindings at startup
+ * Lazy-load PostCSS and its plugins on first CSS request
+ * This avoids loading @tailwindcss/oxide native bindings at startup,
+ * which causes 100% CPU due to file watcher initialization
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getPostCSS(): Promise<{ postcss: any; tailwindcss: any; autoprefixer: any } | null> {
   if (postcssLoaded) {
     return postcssCache ? { postcss: postcssCache, tailwindcss: tailwindcssCache, autoprefixer: autoprefixerCache } : null;
@@ -137,9 +134,9 @@ export async function handleStaticFile(
         }
 
         // In dev mode, process CSS with PostCSS (lazy-loaded)
-        const postCSSModules = await getPostCSS();
-        if (postCSSModules) {
-          const { postcss, tailwindcss, autoprefixer } = postCSSModules;
+        const postcssModules = await getPostCSS();
+        if (postcssModules) {
+          const { postcss, tailwindcss, autoprefixer } = postcssModules;
           const result = await postcss([
             tailwindcss(),
             autoprefixer,
@@ -155,7 +152,7 @@ export async function handleStaticFile(
           });
         }
 
-        // Fallback: serve raw CSS
+        // Fallback: serve raw CSS (PostCSS not available)
         return new Response(cssContent, {
           headers: {
             'Content-Type': 'text/css',
@@ -183,14 +180,14 @@ export async function handleStaticFile(
 
     // In dev mode, process CSS with PostCSS on-the-fly (lazy-loaded)
     if (!isStandalone) {
-      const sourceCssPath = path.join(binaryDir, 'client/globals.css');
-      const sourceCssFile = Bun.file(sourceCssPath);
+      const postcssModules = await getPostCSS();
+      if (postcssModules) {
+        const { postcss, tailwindcss, autoprefixer } = postcssModules;
+        const sourceCssPath = path.join(binaryDir, 'client/globals.css');
+        const sourceCssFile = Bun.file(sourceCssPath);
 
-      if (await sourceCssFile.exists()) {
-        const postCSSModules = await getPostCSS();
-        if (postCSSModules) {
+        if (await sourceCssFile.exists()) {
           try {
-            const { postcss, tailwindcss, autoprefixer } = postCSSModules;
             const cssContent = await sourceCssFile.text();
             const result = await postcss([
               tailwindcss(),
@@ -206,7 +203,7 @@ export async function handleStaticFile(
               },
             });
           } catch (error) {
-            console.error('CSS processing error:', error);
+            logger.error('CSS processing error', { error });
             return new Response('CSS processing failed', { status: 500 });
           }
         }

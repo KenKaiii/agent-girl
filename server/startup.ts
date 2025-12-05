@@ -47,12 +47,11 @@ export interface StartupConfig {
   isStandalone: boolean;
   binaryDir: string;
   debugLog: (message: string) => void;
-  // PostCSS is now lazy-loaded in staticFileServer.ts to avoid 100% CPU from oxide bindings
 }
 
 /**
  * Initialize startup configuration
- * Loads environment variables (PostCSS is lazy-loaded in staticFileServer.ts)
+ * Loads environment variables (PostCSS is lazy-loaded in staticFileServer)
  */
 export async function initializeStartup(): Promise<StartupConfig> {
   const BINARY_DIR = getBinaryDir();
@@ -64,9 +63,9 @@ export async function initializeStartup(): Promise<StartupConfig> {
   debugLog(`  - process.cwd(): ${process.cwd()}`);
   debugLog(`  - BINARY_DIR: ${BINARY_DIR}`);
 
-  // NOTE: PostCSS/Tailwind imports REMOVED from startup
-  // @tailwindcss/oxide native bindings were causing 100% CPU via file watchers
-  // PostCSS is now lazy-loaded in staticFileServer.ts on first CSS request
+  // NOTE: PostCSS/Tailwind is now lazy-loaded in staticFileServer.ts
+  // to avoid loading @tailwindcss/oxide native bindings at startup,
+  // which causes 100% CPU due to file watcher initialization
 
   // Load environment variables
   // In standalone mode, manually parse .env from binary directory
