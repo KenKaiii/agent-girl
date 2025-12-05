@@ -109,24 +109,35 @@ async function checkProviders(): Promise<ComponentHealth> {
 
 /**
  * Check memory usage
+ * Note: Bun's V8 can report heapUsed > heapTotal during GC cycles
+ * Use RSS-based threshold as primary metric for actual memory pressure
  */
 function checkMemory(): MemoryHealth {
   const usage = process.memoryUsage();
-  const percentUsed = Math.round((usage.heapUsed / usage.heapTotal) * 100);
+  const heapUsedMB = Math.round(usage.heapUsed / 1024 / 1024);
+  const heapTotalMB = Math.round(usage.heapTotal / 1024 / 1024);
+  const rssMB = Math.round(usage.rss / 1024 / 1024);
 
+  // Use RSS (Resident Set Size) as the real memory usage indicator
+  // RSS > 1GB is concerning, > 2GB is critical
   let status: 'ok' | 'warning' | 'critical' = 'ok';
-  if (percentUsed > 90) {
+  if (rssMB > 2048) {
     status = 'critical';
-  } else if (percentUsed > 75) {
+  } else if (rssMB > 1024) {
     status = 'warning';
   }
 
+  // Calculate heap percentage safely (Bun quirk: heapUsed can exceed heapTotal)
+  const percentUsed = heapTotalMB > 0
+    ? Math.min(100, Math.round((heapUsedMB / heapTotalMB) * 100))
+    : 0;
+
   return {
     status,
-    heapUsed: Math.round(usage.heapUsed / 1024 / 1024),
-    heapTotal: Math.round(usage.heapTotal / 1024 / 1024),
+    heapUsed: heapUsedMB,
+    heapTotal: heapTotalMB,
     external: Math.round(usage.external / 1024 / 1024),
-    rss: Math.round(usage.rss / 1024 / 1024),
+    rss: rssMB,
     percentUsed,
   };
 }
