@@ -31,6 +31,7 @@ import { RadioPlayer } from '../header/RadioPlayer';
 import { PlanApprovalModal } from '../plan/PlanApprovalModal';
 import { QuestionModal, type Question } from '../question/QuestionModal';
 import { BuildLauncher, type Template } from '../preview/BuildLauncher';
+import { BuildWizard } from '../build-wizard/BuildWizard';
 import { ScrollButton } from './ScrollButton';
 import { WorkingDirectoryPanel } from './WorkingDirectoryPanel';
 import { CommandQueueDisplay } from '../queue/CommandQueueDisplay';
@@ -39,7 +40,7 @@ import { useWebSocket } from '../../hooks/useWebSocket';
 import { WorkingDirectoryContext } from '../../hooks/useWorkingDirectory';
 import { useSessionAPI, type Session } from '../../hooks/useSessionAPI';
 import { useResponsive } from '../../hooks/useResponsive';
-import { Menu, Edit3, ChevronLeft, ChevronRight, History, ExternalLink, Eye, EyeOff, Code2, Monitor, MessageSquare, Search, X, ChevronUp, ChevronDown } from 'lucide-react';
+import { Menu, Edit3, ChevronLeft, ChevronRight, History, ExternalLink, Eye, EyeOff, Code2, Monitor, MessageSquare, Search, X, ChevronUp, ChevronDown, Rocket, Hammer } from 'lucide-react';
 import type { Message, SystemMessage, PreviewActionMetadata, PreviewElement } from '../message/types';
 import { toast } from '../../utils/toast';
 import { showError } from '../../utils/errorMessages';
@@ -339,6 +340,7 @@ export function ChatContainer({
 
   // Build wizard state
   const [isBuildWizardOpen, setIsBuildWizardOpen] = useState(false);
+  const [buildMode, setBuildMode] = useState<'launcher' | 'wizard'>('launcher');
 
   // Command queue state
   const [commandQueue, setCommandQueue] = useState<Array<{ id: string; content: string; status: 'pending' | 'running' | 'completed' }>>(
@@ -1930,6 +1932,18 @@ export function ChatContainer({
     }
   };
 
+  // Handle BuildWizard completion (step-by-step custom project)
+  const handleBuildComplete = (prompt: string) => {
+    setIsBuildWizardOpen(false);
+    setCurrentSessionId(null);
+    setCurrentSessionMode('coder');
+    setMessages([]);
+
+    setTimeout(() => {
+      handleSubmit(undefined, 'coder', prompt);
+    }, 100);
+  };
+
   // Handle AI edit request from preview element selection
   const handleAIEditRequest = useCallback(async (request: AIEditRequest) => {
     // First, add a preview action system message to show context in chat
@@ -2600,13 +2614,64 @@ export function ChatContainer({
         />
       )}
 
-      {/* Build Launcher - Astro Templates */}
+      {/* Build Mode - Tab Selection */}
       {isBuildWizardOpen && (
-        <BuildLauncher
-          onSelectTemplate={handleSelectTemplate}
-          onQuickAction={handleQuickAction}
-          onClose={handleCloseBuildWizard}
-        />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="relative w-full max-w-4xl max-h-[85vh] rounded-2xl overflow-hidden"
+            style={{ background: 'linear-gradient(180deg, #1a1a2e 0%, #16162a 100%)', border: '1px solid rgba(255,255,255,0.1)' }}>
+            {/* Header with Tabs */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+              <div className="flex items-center gap-1">
+                {/* Website Builder Tab */}
+                <button
+                  onClick={() => setBuildMode('launcher')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                    buildMode === 'launcher'
+                      ? 'bg-gradient-to-r from-blue-500/20 to-purple-500/20 text-white border border-blue-500/30'
+                      : 'text-gray-400 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  <Rocket size={16} />
+                  Website Builder
+                </button>
+                {/* Custom Project Tab */}
+                <button
+                  onClick={() => setBuildMode('wizard')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                    buildMode === 'wizard'
+                      ? 'bg-gradient-to-r from-orange-500/20 to-amber-500/20 text-white border border-orange-500/30'
+                      : 'text-gray-400 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  <Hammer size={16} />
+                  Custom Project
+                </button>
+              </div>
+              {/* Close Button */}
+              <button
+                onClick={handleCloseBuildWizard}
+                className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            {/* Content */}
+            <div className="overflow-y-auto" style={{ maxHeight: 'calc(85vh - 60px)' }}>
+              {buildMode === 'launcher' ? (
+                <BuildLauncher
+                  onSelectTemplate={handleSelectTemplate}
+                  onQuickAction={handleQuickAction}
+                  onClose={handleCloseBuildWizard}
+                />
+              ) : (
+                <BuildWizard
+                  onComplete={handleBuildComplete}
+                  onClose={handleCloseBuildWizard}
+                />
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Scroll Button - only show when messages exist */}
