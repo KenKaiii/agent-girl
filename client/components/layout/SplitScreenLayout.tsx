@@ -131,10 +131,34 @@ export function SplitScreenLayout() {
   const startTimeRef = useRef<number | null>(null);
   const completionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Action history for showing recent tool operations
-  const [actionHistory, setActionHistory] = useState<ActionHistoryEntry[]>([]);
+  // Action history for showing recent tool operations (persisted)
+  const [actionHistory, setActionHistory] = useState<ActionHistoryEntry[]>(() => {
+    try {
+      const saved = localStorage.getItem('agent-girl-action-history');
+      if (saved) {
+        const parsed = JSON.parse(saved) as ActionHistoryEntry[];
+        // Filter out stale running entries (older than 5 minutes)
+        const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+        return parsed
+          .filter(a => a.status !== 'running' || a.timestamp > fiveMinutesAgo)
+          .slice(-20);
+      }
+    } catch {
+      // Ignore parse errors
+    }
+    return [];
+  });
   const [showActionHistory, setShowActionHistory] = useState(false);
   const actionHistoryRef = useRef<HTMLDivElement>(null);
+
+  // Persist action history to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('agent-girl-action-history', JSON.stringify(actionHistory));
+    } catch {
+      // Ignore storage errors
+    }
+  }, [actionHistory]);
 
   // Refs for drag handling - use refs for immediate access without re-renders
   const containerRef = useRef<HTMLDivElement>(null);
@@ -360,35 +384,6 @@ export function SplitScreenLayout() {
       document.removeEventListener('mouseup', handleMouseUp);
     };
   }, []);
-
-  // Keyboard shortcuts - Escape to exit selection mode
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        // Exit selection mode
-        if (isSelectionMode) {
-          setIsSelectionMode(false);
-          setSelectedElements([]);
-          setShowFloatingPrompt(false);
-        }
-        // Close floating prompt if open
-        if (showFloatingPrompt) {
-          setShowFloatingPrompt(false);
-        }
-        // Close device picker if open
-        if (showDevicePicker) {
-          setShowDevicePicker(false);
-        }
-        // Close AI Edit panel if open
-        if (isAIEditPanelOpen) {
-          setIsAIEditPanelOpen(false);
-        }
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isSelectionMode, showFloatingPrompt, showDevicePicker, isAIEditPanelOpen]);
 
   const handleDragStart = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -634,7 +629,7 @@ export function SplitScreenLayout() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Keyboard shortcuts - Escape to exit selection mode
+  // Keyboard shortcuts - Escape to close all panels and exit selection mode
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -656,11 +651,15 @@ export function SplitScreenLayout() {
         if (showActionHistory) {
           setShowActionHistory(false);
         }
+        // Close AI Edit panel if open
+        if (isAIEditPanelOpen) {
+          setIsAIEditPanelOpen(false);
+        }
       }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isSelectionMode, showFloatingPrompt, showDevicePicker, showActionHistory]);
+  }, [isSelectionMode, showFloatingPrompt, showDevicePicker, showActionHistory, isAIEditPanelOpen]);
 
   return (
     <div

@@ -114,20 +114,50 @@ export interface AIProgressState {
 
 // Human-readable tool names for display
 const TOOL_DISPLAY_NAMES: Record<string, string> = {
+  // File operations
   Read: 'Reading',
   Edit: 'Editing',
   Write: 'Writing',
-  Bash: 'Running',
-  Glob: 'Searching',
-  Grep: 'Searching',
+  Glob: 'Finding files',
+  Grep: 'Searching code',
+  // Shell & system
+  Bash: 'Running command',
+  BashOutput: 'Reading output',
+  KillShell: 'Stopping process',
+  // Navigation & research
   Task: 'Spawning agent',
-  WebFetch: 'Fetching',
+  WebFetch: 'Fetching URL',
   WebSearch: 'Searching web',
+  // Project management
   TodoWrite: 'Updating tasks',
+  NotebookEdit: 'Editing notebook',
+  // User interaction
+  AskUserQuestion: 'Asking question',
+  // MCP tools (common prefixes)
+  mcp__github: 'GitHub',
+  mcp__browser: 'Browser',
+  mcp__lancedb: 'Vector DB',
+  mcp__session: 'Session',
+};
+
+// Get display name for a tool (handles MCP prefixes)
+const getToolDisplayName = (toolName: string): string => {
+  // Direct match
+  if (TOOL_DISPLAY_NAMES[toolName]) {
+    return TOOL_DISPLAY_NAMES[toolName];
+  }
+  // Check MCP prefixes
+  for (const [prefix, name] of Object.entries(TOOL_DISPLAY_NAMES)) {
+    if (toolName.startsWith(prefix)) {
+      return name;
+    }
+  }
+  // Fallback: clean up tool name
+  return toolName.replace(/^mcp__\w+__/, '').replace(/_/g, ' ');
 };
 
 // Tools that modify files (should trigger preview refresh)
-const FILE_EDIT_TOOLS = ['Edit', 'Write'];
+const FILE_EDIT_TOOLS = ['Edit', 'Write', 'NotebookEdit'];
 
 interface ChatContainerProps {
   layoutMode?: 'chat-only' | 'split-screen';
@@ -1176,7 +1206,21 @@ export function ChatContainer({
           const filePath = (toolUseMsg.toolInput.file_path as string) || (toolUseMsg.toolInput.path as string);
           const toolName = toolUseMsg.toolName;
           const isFileEdit = FILE_EDIT_TOOLS.includes(toolName);
-          const displayName = TOOL_DISPLAY_NAMES[toolName] || toolName;
+          const displayName = getToolDisplayName(toolName);
+
+          // Extract additional context based on tool type
+          let contextInfo = filePath;
+          if (toolName === 'Bash' && toolUseMsg.toolInput.command) {
+            // Show first part of command
+            const cmd = String(toolUseMsg.toolInput.command);
+            contextInfo = cmd.length > 50 ? cmd.substring(0, 47) + '...' : cmd;
+          } else if (toolName === 'WebFetch' && toolUseMsg.toolInput.url) {
+            contextInfo = String(toolUseMsg.toolInput.url);
+          } else if (toolName === 'WebSearch' && toolUseMsg.toolInput.query) {
+            contextInfo = String(toolUseMsg.toolInput.query);
+          } else if (toolName === 'Grep' && toolUseMsg.toolInput.pattern) {
+            contextInfo = `/${toolUseMsg.toolInput.pattern}/`;
+          }
 
           // Create new action history entry
           const newAction: ActionHistoryEntry = {
@@ -1184,7 +1228,7 @@ export function ChatContainer({
             timestamp: Date.now(),
             tool: toolName,
             toolDisplayName: displayName,
-            file: filePath,
+            file: contextInfo,
             status: 'running',
           };
 
