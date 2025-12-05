@@ -93,6 +93,19 @@ interface Chat {
   workingDirectory?: string;
 }
 
+// Format kebab-case folder names to readable display titles
+// e.g., "agent-girl-research" -> "Agent Girl Research"
+function formatDisplayTitle(title: string): string {
+  // Only transform pure kebab-case folder names (lowercase + dashes + numbers)
+  if (/^[a-z0-9-]+$/.test(title)) {
+    return title
+      .split('-')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  }
+  return title;
+}
+
 // Format relative time for display
 function formatRelativeTime(date: Date): string {
   const now = new Date();
@@ -868,7 +881,7 @@ export function Sidebar({
                               title={chat.workingDirectory || chat.title}
                             >
                               <div className="sidebar-chat-title">
-                                {chat.title}
+                                {formatDisplayTitle(chat.title)}
                                 {chat.isLoading && (
                                   <span style={{
                                     marginLeft: '0.5rem',

@@ -450,7 +450,12 @@ export function ChatContainer({
     try {
       const result = await sessionAPI.fetchSessionsPaginated(30, false);
       if (result.sessions.length > 0) {
-        setSessions(prev => [...prev, ...result.sessions]);
+        // Deduplicate sessions by ID to prevent showing duplicates
+        setSessions(prev => {
+          const existingIds = new Set(prev.map(s => s.id));
+          const newSessions = result.sessions.filter(s => !existingIds.has(s.id));
+          return [...prev, ...newSessions];
+        });
         setHasMoreSessions(result.hasMore);
       } else {
         setHasMoreSessions(false);
