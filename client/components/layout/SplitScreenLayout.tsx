@@ -37,6 +37,10 @@ import {
   ChevronDown,
   Loader2,
   Zap,
+  Check,
+  AlertCircle,
+  FileEdit,
+  Clock,
 } from 'lucide-react';
 
 // Extended device types with real device presets
@@ -119,6 +123,9 @@ export function SplitScreenLayout() {
 
   // Track if we should auto-refresh after file edit
   const pendingRefreshRef = useRef(false);
+  const editedFilesCountRef = useRef(0);
+  const startTimeRef = useRef<number | null>(null);
+  const completionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Refs for drag handling - use refs for immediate access without re-renders
   const containerRef = useRef<HTMLDivElement>(null);
@@ -133,20 +140,50 @@ export function SplitScreenLayout() {
 
   // Handle AI progress changes - auto-refresh after file edits complete
   const handleAIProgressChange = useCallback((progress: AIProgressState) => {
-    setAIProgress(progress);
+    // Clear any pending completion timeout
+    if (completionTimeoutRef.current) {
+      clearTimeout(completionTimeoutRef.current);
+      completionTimeoutRef.current = null;
+    }
 
-    // Mark pending refresh when file is being edited
+    // Track start time on first activity
+    if (progress.isActive && !startTimeRef.current) {
+      startTimeRef.current = Date.now();
+      editedFilesCountRef.current = 0;
+    }
+
+    // Count edited files
     if (progress.isFileEdit) {
+      editedFilesCountRef.current += 1;
       pendingRefreshRef.current = true;
     }
 
-    // Trigger refresh when AI completes and we have pending edits
-    if (progress.status === 'completed' && pendingRefreshRef.current) {
-      pendingRefreshRef.current = false;
-      // Small delay to let HMR process the file change
-      setTimeout(() => {
-        refreshPreview();
-      }, 500);
+    // Update state with tracked values
+    setAIProgress({
+      ...progress,
+      editedFilesCount: editedFilesCountRef.current,
+      startTime: startTimeRef.current || undefined,
+    });
+
+    // Handle completion
+    if (progress.status === 'completed' || progress.status === 'error') {
+      // Trigger refresh if we have pending edits
+      if (pendingRefreshRef.current && progress.status === 'completed') {
+        pendingRefreshRef.current = false;
+        setTimeout(() => {
+          refreshPreview();
+        }, 500);
+      }
+
+      // Show completion briefly then hide
+      completionTimeoutRef.current = setTimeout(() => {
+        setAIProgress({
+          isActive: false,
+          status: 'idle',
+        });
+        startTimeRef.current = null;
+        editedFilesCountRef.current = 0;
+      }, 2500);
     }
   }, [refreshPreview]);
 
@@ -793,36 +830,78 @@ export function SplitScreenLayout() {
               </button>
 
               {/* AI Progress Indicator */}
-              {aiProgress.isActive && (
+              {(aiProgress.isActive || aiProgress.status === 'completed' || aiProgress.status === 'error') && (
                 <div
-                  className="flex items-center gap-1.5 px-2 py-1 rounded-md ml-1"
+                  className="flex items-center gap-1.5 px-2 py-1 rounded-md ml-1 transition-all duration-300"
                   style={{
-                    background: aiProgress.status === 'thinking'
-                      ? 'linear-gradient(135deg, rgba(251, 191, 36, 0.15), rgba(245, 158, 11, 0.15))'
-                      : aiProgress.isFileEdit
-                        ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.15), rgba(16, 185, 129, 0.15))'
-                        : 'linear-gradient(135deg, rgba(236, 72, 153, 0.15), rgba(139, 92, 246, 0.15))',
-                    border: aiProgress.status === 'thinking'
-                      ? '1px solid rgba(251, 191, 36, 0.3)'
-                      : aiProgress.isFileEdit
-                        ? '1px solid rgba(34, 197, 94, 0.3)'
-                        : '1px solid rgba(236, 72, 153, 0.3)',
+                    background: aiProgress.status === 'completed'
+                      ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.15), rgba(16, 185, 129, 0.15))'
+                      : aiProgress.status === 'error'
+                        ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(220, 38, 38, 0.15))'
+                        : aiProgress.status === 'thinking'
+                          ? 'linear-gradient(135deg, rgba(251, 191, 36, 0.15), rgba(245, 158, 11, 0.15))'
+                          : aiProgress.isFileEdit
+                            ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.15), rgba(16, 185, 129, 0.15))'
+                            : 'linear-gradient(135deg, rgba(236, 72, 153, 0.15), rgba(139, 92, 246, 0.15))',
+                    border: aiProgress.status === 'completed'
+                      ? '1px solid rgba(34, 197, 94, 0.4)'
+                      : aiProgress.status === 'error'
+                        ? '1px solid rgba(239, 68, 68, 0.4)'
+                        : aiProgress.status === 'thinking'
+                          ? '1px solid rgba(251, 191, 36, 0.3)'
+                          : aiProgress.isFileEdit
+                            ? '1px solid rgba(34, 197, 94, 0.3)'
+                            : '1px solid rgba(236, 72, 153, 0.3)',
                   }}
                 >
-                  {aiProgress.status === 'thinking' ? (
+                  {/* Icon based on status */}
+                  {aiProgress.status === 'completed' ? (
+                    <Check size={12} style={{ color: '#22c55e' }} />
+                  ) : aiProgress.status === 'error' ? (
+                    <AlertCircle size={12} style={{ color: '#ef4444' }} />
+                  ) : aiProgress.status === 'thinking' ? (
                     <Zap size={12} className="animate-pulse" style={{ color: '#fbbf24' }} />
                   ) : (
                     <Loader2 size={12} className="animate-spin" style={{ color: aiProgress.isFileEdit ? '#22c55e' : '#ec4899' }} />
                   )}
+
+                  {/* Status text */}
                   <span className="text-xs font-medium" style={{
-                    color: aiProgress.status === 'thinking' ? '#fcd34d' : aiProgress.isFileEdit ? '#86efac' : '#f9a8d4'
+                    color: aiProgress.status === 'completed' ? '#86efac'
+                      : aiProgress.status === 'error' ? '#fca5a5'
+                        : aiProgress.status === 'thinking' ? '#fcd34d'
+                          : aiProgress.isFileEdit ? '#86efac' : '#f9a8d4'
                   }}>
-                    {aiProgress.toolDisplayName || aiProgress.currentTool || 'Processing...'}
+                    {aiProgress.status === 'completed'
+                      ? 'Done!'
+                      : aiProgress.status === 'error'
+                        ? 'Error'
+                        : aiProgress.toolDisplayName || aiProgress.currentTool || 'Processing...'}
                   </span>
-                  {aiProgress.currentFile && (
-                    <span className="text-xs font-mono truncate max-w-[120px]" style={{ color: '#a78bfa' }}>
+
+                  {/* Current file (only when active) */}
+                  {aiProgress.isActive && aiProgress.currentFile && (
+                    <span className="text-xs font-mono truncate max-w-[100px]" style={{ color: '#a78bfa' }}>
                       {aiProgress.currentFile.split('/').pop()}
                     </span>
+                  )}
+
+                  {/* Edited files count */}
+                  {aiProgress.editedFilesCount && aiProgress.editedFilesCount > 0 && (
+                    <div className="flex items-center gap-0.5" style={{ color: '#86efac' }}>
+                      <FileEdit size={10} />
+                      <span className="text-xs">{aiProgress.editedFilesCount}</span>
+                    </div>
+                  )}
+
+                  {/* Elapsed time (show while active or completed) */}
+                  {aiProgress.startTime && (
+                    <div className="flex items-center gap-0.5" style={{ color: '#9ca3af' }}>
+                      <Clock size={10} />
+                      <span className="text-xs font-mono">
+                        {Math.round((Date.now() - aiProgress.startTime) / 1000)}s
+                      </span>
+                    </div>
                   )}
                 </div>
               )}

@@ -93,6 +93,9 @@ export interface AIProgressState {
   toolDisplayName?: string; // Human-readable tool name
   isFileEdit?: boolean; // True when Edit/Write tool is used (trigger refresh)
   completedAction?: string; // Last completed action for brief display
+  editedFilesCount?: number; // Number of files edited in this session
+  startTime?: number; // Timestamp when AI started working
+  errorMessage?: string; // Error message if status is 'error'
 }
 
 // Human-readable tool names for display
