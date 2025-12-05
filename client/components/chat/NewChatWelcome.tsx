@@ -19,7 +19,7 @@
  */
 
 import React, { useRef, useState, useEffect, memo, useCallback, useMemo } from 'react';
-import { Send, Plus, X, Square } from 'lucide-react';
+import { Send, Plus, X, Square, Hammer } from 'lucide-react';
 import type { FileAttachment } from '../message/types';
 import { ModeIndicator } from './ModeIndicator';
 import type { SlashCommand } from '../../hooks/useWebSocket';
@@ -558,6 +558,25 @@ export const NewChatWelcome = memo(function NewChatWelcome({ inputValue, onInput
                       >
                         <span className="hidden sm:inline">Plan Mode</span>
                         <span className="sm:hidden">Plan</span>
+                      </button>
+                    )}
+
+                    {/* Build Wizard button */}
+                    {onOpenBuildWizard && (
+                      <button
+                        onClick={onOpenBuildWizard}
+                        type="button"
+                        className="flex items-center gap-1.5 rounded-md sm:rounded-lg transition outline-none focus:outline-none text-[10px] sm:text-xs font-medium px-1.5 py-1 sm:px-3 sm:py-1.5"
+                        style={{
+                          background: 'linear-gradient(90deg, rgba(255, 199, 168, 0.15) 0%, rgba(255, 228, 218, 0.15) 100%)',
+                          border: '1px solid rgba(255, 199, 168, 0.3)',
+                          color: '#ffc7a8',
+                        }}
+                        title="Open Build Wizard - Create projects with guided setup"
+                        aria-label="Open Build Wizard"
+                      >
+                        <Hammer className="size-3.5 sm:size-4" />
+                        <span className="hidden sm:inline">Build</span>
                       </button>
                     )}
                   </div>
