@@ -132,8 +132,8 @@ if (!IS_STANDALONE) {
   });
 }
 
-// Find available port starting from 3000
-const DEFAULT_PORT = 3000;
+// Find available port starting from PORT env var or 3000
+const DEFAULT_PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 const availablePort = await findAvailablePort(DEFAULT_PORT);
 
 const server = Bun.serve({
