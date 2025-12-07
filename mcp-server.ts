@@ -1,18 +1,19 @@
 #!/usr/bin/env bun
 /**
  * Agent Girl MCP Server
- * 
+ *
  * Exposes agent-girl functionality as MCP tools for Claude Code integration.
- * 
+ * Includes AUTONOM mode for fully autonomous task execution.
+ *
  * Installation:
- *   claude mcp add agent-girl-local -- bun run mcp-server.ts
- * 
+ *   claude mcp add agent-girl -- bun run /Users/master/agent-girl/mcp-server.ts
+ *
  * Or in claude_desktop_config.json:
  *   {
  *     "mcpServers": {
- *       "agent-girl-local": {
+ *       "agent-girl": {
  *         "command": "bun",
- *         "args": ["run", "/path/to/agent-girl-local/mcp-server.ts"]
+ *         "args": ["run", "/Users/master/agent-girl/mcp-server.ts"]
  *       }
  *     }
  *   }
@@ -24,6 +25,120 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+import { spawn } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
+
+// AUTONOM Mode Configuration
+const AUTONOM_CONFIG = {
+  maxSteps: 100,
+  budgetLimits: {
+    sessionCost: 50, // $50 max
+    perMessage: 5,   // $5 max
+    totalTokens: 2_000_000,
+  },
+  checkpointInterval: 5,
+  qualityThresholds: {
+    minimum: 0.85,
+    target: 0.95,
+  },
+};
+
+// Active autonomous sessions
+const activeSessions = new Map<string, {
+  pid: number;
+  status: 'running' | 'completed' | 'failed';
+  startedAt: Date;
+  task: string;
+  workingDir: string;
+  progress: number;
+}>();
+
+// Helper to run Claude Code autonomously
+async function runClaudeCodeAutonom(
+  task: string,
+  workingDir: string,
+  options: { model?: string; maxSteps?: number } = {}
+): Promise<{ sessionId: string; message: string }> {
+  const sessionId = `autonom-${Date.now()}`;
+  const model = options.model || 'sonnet';
+  const maxSteps = options.maxSteps || AUTONOM_CONFIG.maxSteps;
+
+  // Build the autonomous prompt
+  const autonomPrompt = `[AUTONOM MODE ACTIVE]
+
+You are operating in AUTONOM mode - fully autonomous execution without human intervention.
+
+CORE RULES:
+1. ZERO QUESTIONS - Never ask for clarification, make intelligent decisions
+2. CONTINUOUS EXECUTION - Complete the entire task, chain steps automatically
+3. ERROR RESILIENCE - Catch errors, retry (max 3), try alternatives
+4. COST EFFICIENCY - Use exactly the steps needed (max ${maxSteps})
+5. EARLY EXIT - Stop when goal is achieved
+
+TASK: ${task}
+
+WORKING DIRECTORY: ${workingDir}
+
+Execute this task autonomously. Begin now.`;
+
+  // Create progress file
+  const progressFile = path.join(workingDir, 'PROGRESS.json');
+  const progressData = {
+    session_id: sessionId,
+    mode: 'autonom',
+    started_at: new Date().toISOString(),
+    current_step: 0,
+    total_estimated: maxSteps,
+    task,
+    status: 'running',
+  };
+
+  try {
+    fs.writeFileSync(progressFile, JSON.stringify(progressData, null, 2));
+  } catch {
+    // Ignore if can't write progress file
+  }
+
+  // Spawn Claude Code process
+  const claudeProcess = spawn('claude', [
+    '--print',
+    '--dangerously-skip-permissions',
+    '--model', model,
+    autonomPrompt,
+  ], {
+    cwd: workingDir,
+    env: { ...process.env, CLAUDE_AUTONOM_MODE: 'true' },
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  // Track the session
+  activeSessions.set(sessionId, {
+    pid: claudeProcess.pid || 0,
+    status: 'running',
+    startedAt: new Date(),
+    task,
+    workingDir,
+    progress: 0,
+  });
+
+  // Handle process completion
+  claudeProcess.on('exit', (code) => {
+    const session = activeSessions.get(sessionId);
+    if (session) {
+      session.status = code === 0 ? 'completed' : 'failed';
+    }
+  });
+
+  // Unref to allow parent to exit
+  claudeProcess.unref();
+
+  return {
+    sessionId,
+    message: `AUTONOM session started: ${sessionId}\nTask: ${task}\nWorking directory: ${workingDir}\nPID: ${claudeProcess.pid}`,
+  };
+}
 
 // German automations
 const GERMAN_AUTOMATIONS = {
@@ -76,6 +191,77 @@ const server = new Server(
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
+      // AUTONOM Mode Tools
+      {
+        name: 'autonom_execute',
+        description: 'Execute a task in AUTONOM mode - fully autonomous Claude Code execution without human intervention. The agent will make all decisions, handle errors, and complete the task.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            task: {
+              type: 'string',
+              description: 'The task to execute autonomously (e.g., "Add authentication to my app", "Refactor the database layer")',
+            },
+            working_directory: {
+              type: 'string',
+              description: 'The project directory to work in (absolute path)',
+            },
+            model: {
+              type: 'string',
+              description: 'Model to use: opus (complex), sonnet (balanced), haiku (fast)',
+              default: 'sonnet',
+            },
+            max_steps: {
+              type: 'number',
+              description: 'Maximum steps to execute (1-100)',
+              default: 50,
+            },
+          },
+          required: ['task', 'working_directory'],
+        },
+      },
+      {
+        name: 'autonom_status',
+        description: 'Get status of an active AUTONOM session',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            session_id: {
+              type: 'string',
+              description: 'The session ID to check (or "all" for all sessions)',
+            },
+          },
+          required: ['session_id'],
+        },
+      },
+      {
+        name: 'autonom_stop',
+        description: 'Stop an active AUTONOM session',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            session_id: {
+              type: 'string',
+              description: 'The session ID to stop',
+            },
+          },
+          required: ['session_id'],
+        },
+      },
+      {
+        name: 'autonom_progress',
+        description: 'Read the PROGRESS.json file from an AUTONOM session',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            working_directory: {
+              type: 'string',
+              description: 'The project directory containing PROGRESS.json',
+            },
+          },
+          required: ['working_directory'],
+        },
+      },
       // Chat tools
       {
         name: 'agent_girl_chat',
@@ -206,13 +392,167 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   try {
     switch (name) {
+      // AUTONOM Mode Handlers
+      case 'autonom_execute': {
+        const { task, working_directory, model, max_steps } = args as {
+          task: string;
+          working_directory: string;
+          model?: string;
+          max_steps?: number;
+        };
+
+        // Validate working directory exists
+        if (!fs.existsSync(working_directory)) {
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({ error: `Working directory does not exist: ${working_directory}` }, null, 2),
+            }],
+            isError: true,
+          };
+        }
+
+        const result = await runClaudeCodeAutonom(task, working_directory, {
+          model,
+          maxSteps: max_steps,
+        });
+
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              success: true,
+              ...result,
+              config: AUTONOM_CONFIG,
+            }, null, 2),
+          }],
+        };
+      }
+
+      case 'autonom_status': {
+        const { session_id } = args as { session_id: string };
+
+        if (session_id === 'all') {
+          const sessions = Array.from(activeSessions.entries()).map(([id, session]) => ({
+            id,
+            ...session,
+            startedAt: session.startedAt.toISOString(),
+            runningFor: `${Math.floor((Date.now() - session.startedAt.getTime()) / 1000)}s`,
+          }));
+
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                activeSessions: sessions.length,
+                sessions,
+              }, null, 2),
+            }],
+          };
+        }
+
+        const session = activeSessions.get(session_id);
+        if (!session) {
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({ error: `Session not found: ${session_id}` }, null, 2),
+            }],
+            isError: true,
+          };
+        }
+
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              id: session_id,
+              ...session,
+              startedAt: session.startedAt.toISOString(),
+              runningFor: `${Math.floor((Date.now() - session.startedAt.getTime()) / 1000)}s`,
+            }, null, 2),
+          }],
+        };
+      }
+
+      case 'autonom_stop': {
+        const { session_id } = args as { session_id: string };
+        const session = activeSessions.get(session_id);
+
+        if (!session) {
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({ error: `Session not found: ${session_id}` }, null, 2),
+            }],
+            isError: true,
+          };
+        }
+
+        try {
+          process.kill(session.pid, 'SIGTERM');
+          session.status = 'failed';
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                message: `Session ${session_id} stopped`,
+                pid: session.pid,
+              }, null, 2),
+            }],
+          };
+        } catch (error: any) {
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({ error: `Failed to stop session: ${error.message}` }, null, 2),
+            }],
+            isError: true,
+          };
+        }
+      }
+
+      case 'autonom_progress': {
+        const { working_directory } = args as { working_directory: string };
+        const progressFile = path.join(working_directory, 'PROGRESS.json');
+
+        if (!fs.existsSync(progressFile)) {
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({ error: 'No PROGRESS.json found in working directory' }, null, 2),
+            }],
+            isError: true,
+          };
+        }
+
+        try {
+          const progress = JSON.parse(fs.readFileSync(progressFile, 'utf-8'));
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(progress, null, 2),
+            }],
+          };
+        } catch (error: any) {
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({ error: `Failed to read progress: ${error.message}` }, null, 2),
+            }],
+            isError: true,
+          };
+        }
+      }
+
       case 'agent_girl_chat': {
         // This would integrate with Claude Agent SDK
         return {
           content: [
             {
               type: 'text',
-              text: `[Agent Girl Chat]\n\nTo use chat functionality, run the Agent Girl server:\n  cd agent-girl-local && bun run dev\n\nThen access http://localhost:3001\n\nMessage: ${args?.message}`,
+              text: `[Agent Girl Chat]\n\nTo use chat functionality, run the Agent Girl server:\n  cd agent-girl && bun run dev\n\nThen access http://localhost:3000\n\nMessage: ${args?.message}`,
             },
           ],
         };

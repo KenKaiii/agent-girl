@@ -38,6 +38,7 @@ import { WorkingDirectoryPanel } from './WorkingDirectoryPanel';
 import { CommandQueueDisplay } from '../queue/CommandQueueDisplay';
 import { ActivityProgressBar } from './ActivityProgressBar';
 import { KeyboardShortcuts } from '../ui/KeyboardShortcuts';
+import { AutonomProgressTracker } from './AutonomProgressTracker';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { WorkingDirectoryContext } from '../../hooks/useWorkingDirectory';
 import { GenerationProvider } from '../../context/GenerationContext';
@@ -276,6 +277,19 @@ export function ChatContainer({
     isActive: false,
     status: 'idle',
   });
+
+  // AUTONOM progress tracker state
+  interface AutonomProgressData {
+    stepNumber: number;
+    maxSteps: number;
+    budgetUsed: number;
+    budgetRemaining: string;
+    tokensRemaining: number;
+    totalCost: string;
+    maxCost: number;
+    stepsCompleted: string[];
+  }
+  const [autonomProgress, setAutonomProgress] = useState<AutonomProgressData | null>(null);
 
   // Handler to update activity progress (wraps both local state and prop callback)
   const handleActivityProgress = useCallback((progress: AIProgressState) => {
@@ -1778,6 +1792,30 @@ export function ChatContainer({
       } else if (message.type === 'question_answered') {
         // Clear the question modal when answer is confirmed
         setPendingQuestion(null);
+      } else if (message.type === 'autonom_progress') {
+        // Handle AUTONOM progress updates
+        const progressMsg = message as {
+          type: 'autonom_progress';
+          stepNumber: number;
+          maxSteps: number;
+          budgetUsed: number;
+          budgetRemaining: string;
+          tokensRemaining: number;
+          totalCost: string;
+          maxCost: number;
+          stepsCompleted: string[];
+        };
+        console.log(`🤖 AUTONOM Progress: Step ${progressMsg.stepNumber}/${progressMsg.maxSteps}, Budget: ${(progressMsg.budgetUsed * 100).toFixed(1)}%`);
+        setAutonomProgress({
+          stepNumber: progressMsg.stepNumber,
+          maxSteps: progressMsg.maxSteps,
+          budgetUsed: progressMsg.budgetUsed,
+          budgetRemaining: progressMsg.budgetRemaining,
+          tokensRemaining: progressMsg.tokensRemaining,
+          totalCost: progressMsg.totalCost,
+          maxCost: progressMsg.maxCost,
+          stepsCompleted: progressMsg.stepsCompleted,
+        });
       } else if (message.type === 'keepalive') {
         // Keepalive messages are sent every 30s to prevent WebSocket idle timeout
         // during long-running operations. No action needed - just acknowledge receipt.
@@ -1816,6 +1854,9 @@ export function ChatContainer({
       toast.info('Another chat is in progress. Wait for it to complete first.');
       return;
     }
+
+    // Reset AUTONOM progress when starting a new message
+    setAutonomProgress(null);
 
     try {
       // Create new session if none exists
@@ -2440,6 +2481,13 @@ export function ChatContainer({
                   onChangeDirectory={handleChangeDirectory}
                 />
               )}
+
+              {/* AUTONOM Toggle - Enable/disable autonomous mode */}
+              <AutonomToggle
+                isAutonomMode={isAutonomMode}
+                onToggleAutonomMode={handleToggleAutonomMode}
+              />
+
               {/* About Button - hidden in split-screen mode */}
               {layoutMode !== 'split-screen' && <AboutButton />}
             </div>
@@ -2615,6 +2663,20 @@ export function ChatContainer({
         ) : (
           // Chat Interface
           <>
+            {/* AUTONOM Progress Tracker */}
+            {autonomProgress && (
+              <AutonomProgressTracker
+                stepNumber={autonomProgress.stepNumber}
+                maxSteps={autonomProgress.maxSteps}
+                budgetUsed={autonomProgress.budgetUsed}
+                budgetRemaining={autonomProgress.budgetRemaining}
+                tokensRemaining={autonomProgress.tokensRemaining}
+                totalCost={autonomProgress.totalCost}
+                maxCost={autonomProgress.maxCost}
+                stepsCompleted={autonomProgress.stepsCompleted}
+              />
+            )}
+
             {/* Messages */}
             <GenerationProvider isGenerating={isLoading} onStop={handleStop}>
               <WorkingDirectoryContext.Provider value={{ workingDirectory: sessions.find(s => s.id === currentSessionId)?.working_directory || null }}>
