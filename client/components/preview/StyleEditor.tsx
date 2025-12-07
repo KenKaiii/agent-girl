@@ -521,7 +521,7 @@ export function StyleEditor({ element, iframeRef, onStyleChange, onClose }: Styl
               if (el) {
                 el.removeAttribute('style');
               }
-            } catch {}
+            } catch { /* Ignore - element may not exist */ }
           }}
           className="flex items-center gap-1.5 px-2 py-1 rounded text-xs text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
         >

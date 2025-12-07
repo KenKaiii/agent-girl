@@ -109,7 +109,7 @@ export const UpdateSessionSchema = z.object({
   sessionId: SessionIdSchema,
   title: z.string().min(1).max(500).optional(),
   workingDirectory: z.string().max(4096).optional(),
-  permissionMode: z.enum(['default', 'acceptEdits', 'bypassPermissions', 'plan']).optional(),
+  permissionMode: z.enum(['default', 'acceptEdits', 'bypassPermissions', 'plan', 'autonom']).optional(),
   mode: z.enum(['chat', 'agent', 'code']).optional(),
   model: z.string().optional(),
 });
@@ -154,7 +154,7 @@ export const WebSocketMessageSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('set_permission_mode'),
     sessionId: SessionIdSchema,
-    mode: z.enum(['default', 'acceptEdits', 'bypassPermissions', 'plan']),
+    mode: z.enum(['default', 'acceptEdits', 'bypassPermissions', 'plan', 'autonom']),
   }),
   z.object({
     type: z.literal('kill_background_process'),

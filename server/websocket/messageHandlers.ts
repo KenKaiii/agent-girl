@@ -5,9 +5,10 @@
 
 import type { ServerWebSocket } from "bun";
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import type { HookInput, SDKCompactBoundaryMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { HookInput, SDKCompactBoundaryMessage, PostToolUseHookInput, SessionStartHookInput, PreCompactHookInput, SubagentStartHookInput, SubagentStopHookInput } from "@anthropic-ai/claude-agent-sdk";
 import { sessionDb } from "../database";
 import { getSystemPrompt, injectWorkingDirIntoAgents } from "../systemPrompt";
+import { loadModePrompt } from "../modes";
 import { AVAILABLE_MODELS } from "../../client/config/models";
 import { configureProvider } from "../providers";
 import { getMcpServers } from "../mcpServers";
@@ -22,6 +23,14 @@ import { sessionStreamManager } from "../sessionStreamManager";
 import { expandSlashCommand } from "../slashCommandExpander";
 import { renameSessionFolderFromFirstMessage, updateSessionTitleFromFirstMessage } from "../folderNaming";
 import { getDefaultWorkingDirectory } from "../directoryUtils";
+import {
+  updateSessionBudget,
+  getSessionBudget,
+  resetSessionBudget,
+  getBudgetSummary,
+  AUTONOM_BUDGET_CONFIG,
+  DEFAULT_BUDGET_CONFIG,
+} from "../utils/costTracker";
 import { createAskUserQuestionServer, setQuestionCallback, answerQuestion, cancelQuestion } from "../mcp/askUserQuestion";
 import { wsRateLimiter } from "../utils/rateLimiter";
 import { logger } from "../utils/logger";
@@ -379,7 +388,24 @@ async function handleChatMessage(
 
     // Build query options with provider-specific system prompt (including agent list)
     // Add working directory context to system prompt AND all agent prompts
-    const baseSystemPrompt = getSystemPrompt(providerType, AGENT_REGISTRY, userConfig, timezone as string | undefined, session.mode);
+    let baseSystemPrompt = getSystemPrompt(providerType, AGENT_REGISTRY, userConfig, timezone as string | undefined, session.mode);
+
+    // If autonom mode is active, prepend the autonomous execution prompt and initialize budget
+    if (session.permission_mode === 'autonom') {
+      const autonomPrompt = loadModePrompt('autonom');
+      if (autonomPrompt) {
+        baseSystemPrompt = `${autonomPrompt}\n\n---\n\n${baseSystemPrompt}`;
+        console.log('🚀 AUTONOM MODE ACTIVE - Injecting autonomous execution prompt');
+
+        // Initialize budget with autonom-specific limits ($50 max, 2M tokens)
+        const budget = getSessionBudget(sessionId as string, AUTONOM_BUDGET_CONFIG);
+        console.log(`💰 AUTONOM BUDGET INITIALIZED: $${budget.config.maxCostPerSession} max, ${budget.config.maxTokensPerSession.toLocaleString()} tokens max`);
+      }
+    } else {
+      // Initialize default budget for regular sessions ($10 max)
+      getSessionBudget(sessionId as string, DEFAULT_BUDGET_CONFIG);
+    }
+
     const systemPromptWithContext = `${baseSystemPrompt}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -693,6 +719,131 @@ Run bash commands with the understanding that this is your current working direc
           }
 
           // Not a special command, let it pass through
+          return {};
+        }],
+      }],
+
+      // PostToolUse hook - track tool results for progress and debugging
+      PostToolUse: [{
+        hooks: [async (input: HookInput) => {
+          if (input.hook_event_name !== 'PostToolUse') return {};
+
+          const { tool_name, tool_response } = input as PostToolUseHookInput;
+
+          // Log tool completion
+          console.log(`✅ Tool completed: ${tool_name}`);
+
+          // Track specific tool results for progress updates
+          if (tool_name === 'Write' || tool_name === 'Edit') {
+            sessionDb.updateProgress(sessionId as string, {
+              lastActivity: 'idle',
+              resumeHint: 'File write completed',
+            });
+          } else if (tool_name === 'Bash') {
+            // Check for test results or build output
+            const response = String(tool_response || '');
+            if (response.includes('PASS') || response.includes('passed')) {
+              sessionDb.updateProgress(sessionId as string, {
+                resumeHint: 'Tests passing',
+              });
+            } else if (response.includes('FAIL') || response.includes('failed')) {
+              sessionDb.updateProgress(sessionId as string, {
+                resumeHint: 'Tests failing - needs attention',
+              });
+            }
+          }
+
+          return {};
+        }],
+      }],
+
+      // SessionStart hook - log session initialization
+      SessionStart: [{
+        hooks: [async (input: HookInput) => {
+          if (input.hook_event_name !== 'SessionStart') return {};
+
+          const { source } = input as SessionStartHookInput;
+          console.log(`🚀 Session started (source: ${source}) for ${sessionId.toString().substring(0, 8)}`);
+
+          // Track session start in database
+          sessionDb.updateProgress(sessionId as string, {
+            lastActivity: 'idle',
+            resumeHint: `Session started (${source})`,
+          });
+
+          return {};
+        }],
+      }],
+
+      // PreCompact hook - save progress before auto-compact
+      PreCompact: [{
+        hooks: [async (input: HookInput) => {
+          if (input.hook_event_name !== 'PreCompact') return {};
+
+          const { trigger } = input as PreCompactHookInput;
+          console.log(`🗜️ Pre-compact (${trigger}) - saving progress for ${sessionId.toString().substring(0, 8)}`);
+
+          // Save current progress state before compaction
+          sessionDb.updateProgress(sessionId as string, {
+            resumeHint: trigger === 'auto' ? 'Context auto-compacted' : 'Context manually compacted',
+            lastActivity: 'idle',
+          });
+
+          // Notify client that compact is about to happen
+          sessionStreamManager.safeSend(
+            sessionId as string,
+            JSON.stringify({
+              type: 'pre_compact',
+              trigger,
+              sessionId: sessionId,
+            })
+          );
+
+          return {};
+        }],
+      }],
+
+      // SubagentStart hook - track sub-agent spawning
+      SubagentStart: [{
+        hooks: [async (input: HookInput) => {
+          if (input.hook_event_name !== 'SubagentStart') return {};
+
+          const { agent_id, agent_type } = input as SubagentStartHookInput;
+          console.log(`🤖 Sub-agent started: ${agent_type} (${agent_id.substring(0, 8)})`);
+
+          // Notify client of sub-agent start
+          sessionStreamManager.safeSend(
+            sessionId as string,
+            JSON.stringify({
+              type: 'subagent_start',
+              agentId: agent_id,
+              agentType: agent_type,
+              sessionId: sessionId,
+            })
+          );
+
+          return {};
+        }],
+      }],
+
+      // SubagentStop hook - track sub-agent completion
+      SubagentStop: [{
+        hooks: [async (input: HookInput) => {
+          if (input.hook_event_name !== 'SubagentStop') return {};
+
+          const { agent_id } = input as SubagentStopHookInput;
+          console.log(`✅ Sub-agent completed: ${agent_id.substring(0, 8)}`);
+
+          // Notify client of sub-agent completion
+          sessionStreamManager.safeSend(
+            sessionId as string,
+            JSON.stringify({
+              type: 'subagent_stop',
+              agentId: agent_id,
+              sessionId: sessionId,
+            })
+          );
+
           return {};
         }],
       }],
@@ -1054,6 +1205,45 @@ Run bash commands with the understanding that this is your current working direc
                         sessionId: sessionId,
                       })
                     );
+
+                    // Track budget for autonom mode
+                    const budgetResult = updateSessionBudget(
+                      sessionId as string,
+                      { inputTokens: totalInputTokens, outputTokens: usage.outputTokens },
+                      apiModelId
+                    );
+
+                    // Log budget status
+                    if (budgetResult.warning) {
+                      console.log(`💰 Budget warning: ${budgetResult.warning}`);
+                      sessionStreamManager.safeSend(
+                        sessionId as string,
+                        JSON.stringify({
+                          type: 'budget_warning',
+                          warning: budgetResult.warning,
+                          budget: {
+                            totalCost: budgetResult.budget.totalCost.toFixed(4),
+                            maxCost: budgetResult.budget.config.maxCostPerSession,
+                            percentUsed: ((budgetResult.budget.totalCost / budgetResult.budget.config.maxCostPerSession) * 100).toFixed(1),
+                          },
+                          sessionId: sessionId,
+                        })
+                      );
+                    }
+
+                    // Check if budget exceeded (safety guard)
+                    if (!budgetResult.allowed) {
+                      console.error(`🛑 BUDGET EXCEEDED: ${budgetResult.warning}`);
+                      sessionStreamManager.safeSend(
+                        sessionId as string,
+                        JSON.stringify({
+                          type: 'budget_exceeded',
+                          error: budgetResult.warning,
+                          budget: getBudgetSummary(sessionId as string),
+                          sessionId: sessionId,
+                        })
+                      );
+                    }
                   } else {
                     console.warn(`⚠️  Result message has modelUsage but no model entries`);
                   }
@@ -1575,7 +1765,7 @@ async function handleSetPermissionMode(
     }
 
     // Always update database
-    sessionDb.updatePermissionMode(sessionId as string, mode as 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan');
+    sessionDb.updatePermissionMode(sessionId as string, mode as 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' | 'autonom');
 
     ws.send(JSON.stringify({
       type: 'permission_mode_changed',

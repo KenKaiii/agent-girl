@@ -70,8 +70,8 @@ const MODES: ModeOption[] = [
 ];
 
 interface ModeSelectorProps {
-  selectedMode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified';
-  onSelectMode: (mode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified') => void;
+  selectedMode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified' | 'build';
+  onSelectMode: (mode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified' | 'build') => void;
   onOpenBuildWizard?: () => void;
 }
 
@@ -92,7 +92,7 @@ export function ModeSelector({ selectedMode, onSelectMode, onOpenBuildWizard }: 
     if (mode.isBuildMode) {
       onOpenBuildWizard?.();
     } else {
-      onSelectMode(mode.id as 'general' | 'coder' | 'intense-research' | 'spark' | 'unified');
+      onSelectMode(mode.id as 'general' | 'coder' | 'intense-research' | 'spark' | 'unified' | 'build');
     }
   };
 

@@ -85,10 +85,11 @@ export async function handleStaticFile(
       html = html.replace('/client/index.tsx', '/dist/index.js');
     } else {
       // Inject hot reload script only in dev mode
+      // Uses window.location.host to automatically use the correct port
       const hotReloadScript = `
         <script>
           (function() {
-            const ws = new WebSocket('ws://localhost:3001/hot-reload');
+            const ws = new WebSocket('ws://' + window.location.host + '/hot-reload');
             ws.onmessage = (event) => {
               const data = JSON.parse(event.data);
               if (data.type === 'reload') {
@@ -178,36 +179,37 @@ export async function handleStaticFile(
       });
     }
 
-    // In dev mode, process CSS with PostCSS on-the-fly (lazy-loaded)
+    // In dev mode, serve raw CSS directly (PostCSS/Tailwind v4 hangs on M4 Mac)
+    // Build CSS using `bun run build:css` for full Tailwind support
     if (!isStandalone) {
-      const postcssModules = await getPostCSS();
-      if (postcssModules) {
-        const { postcss, tailwindcss, autoprefixer } = postcssModules;
-        const sourceCssPath = path.join(binaryDir, 'client/globals.css');
-        const sourceCssFile = Bun.file(sourceCssPath);
+      const sourceCssPath = path.join(binaryDir, 'client/globals.css');
+      const sourceCssFile = Bun.file(sourceCssPath);
 
-        if (await sourceCssFile.exists()) {
-          try {
-            const cssContent = await sourceCssFile.text();
-            const result = await postcss([
-              tailwindcss(),
-              autoprefixer,
-            ]).process(cssContent, {
-              from: sourceCssPath,
-              to: undefined
-            });
+      if (await sourceCssFile.exists()) {
+        const cssContent = await sourceCssFile.text();
+        logger.debug('Serving raw CSS (no PostCSS processing)');
 
-            return new Response(result.css, {
-              headers: {
-                'Content-Type': 'text/css',
-              },
-            });
-          } catch (error) {
-            logger.error('CSS processing error', { error });
-            return new Response('CSS processing failed', { status: 500 });
-          }
-        }
+        return new Response(cssContent, {
+          headers: {
+            'Content-Type': 'text/css',
+          },
+        });
       }
+    }
+  }
+
+  // Serve local Tailwind runtime
+  if (url.pathname === '/dist/tailwind.min.js') {
+    const filePath = path.join(binaryDir, 'dist/tailwind.min.js');
+    const file = Bun.file(filePath);
+
+    if (await file.exists()) {
+      return new Response(file, {
+        headers: {
+          'Content-Type': 'application/javascript',
+          'Cache-Control': 'public, max-age=31536000', // Cache for 1 year
+        },
+      });
     }
   }
 

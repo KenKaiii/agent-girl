@@ -532,7 +532,7 @@ describe('Session Export/Import API', () => {
     it('should reject invalid import format', () => {
       const invalidData = { foo: 'bar' };
 
-      const isValid = invalidData.hasOwnProperty('session') && invalidData.hasOwnProperty('messages');
+      const isValid = Object.hasOwn(invalidData, 'session') && Object.hasOwn(invalidData, 'messages');
       expect(isValid).toBe(false);
     });
 

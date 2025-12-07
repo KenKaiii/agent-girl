@@ -18,7 +18,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import React, { useState, memo, useCallback } from 'react';
+import React, { useState, memo } from 'react';
 import { UserMessage as UserMessageType, UserToolResultMessage } from './types';
 import { showError } from '../../utils/errorMessages';
 import { CommandTextRenderer } from './CommandTextRenderer';

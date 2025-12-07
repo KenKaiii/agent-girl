@@ -19,9 +19,10 @@
  */
 
 import React, { useRef, useState, useEffect, memo, useCallback, useMemo, useLayoutEffect } from 'react';
-import { Send, Plus, X, Square, Palette, List, ListOrdered, Hammer, Monitor, Link } from 'lucide-react';
+import { Send, Plus, X, Square, Palette, List, ListOrdered, Hammer, Monitor, Link, ChevronDown, ChevronUp, Pencil, Type, Sparkles } from 'lucide-react';
 import type { FileAttachment } from '../message/types';
 import type { BackgroundProcess } from '../process/BackgroundProcessMonitor';
+import type { SelectedElement } from '../preview/ElementSelector';
 import { ModeIndicator } from './ModeIndicator';
 import type { SlashCommand } from '../../hooks/useWebSocket';
 import { CommandTextRenderer } from '../message/CommandTextRenderer';
@@ -29,6 +30,7 @@ import { StyleConfigModal } from './StyleConfigModal';
 import { FeaturesModal } from './FeaturesModal';
 import { getModelConfig } from '../../config/models';
 import { useMessageQueue } from '../../hooks/useMessageQueue';
+import { AutonomToggle } from '../header/AutonomToggle';
 
 // Regex for detecting slash commands - compiled once
 const COMMAND_REGEX = /(^|\s)(\/([a-z-]+))(?=\s|$)/m;
@@ -36,17 +38,19 @@ const COMMAND_REGEX = /(^|\s)(\/([a-z-]+))(?=\s|$)/m;
 interface ChatInputProps {
   value: string;
   onChange: (value: string) => void;
-  onSubmit: (files?: FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified') => void;
+  onSubmit: (files?: FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified' | 'build') => void;
   onStop?: () => void;
   disabled?: boolean;
   isGenerating?: boolean;
   placeholder?: string;
   isPlanMode?: boolean;
   onTogglePlanMode?: () => void;
+  isAutonomMode?: boolean;
+  onToggleAutonomMode?: () => void;
   backgroundProcesses?: BackgroundProcess[];
   onKillProcess?: (bashId: string) => void;
-  mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified';
-  onModeChange?: (mode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified') => void;
+  mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified' | 'build';
+  onModeChange?: (mode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified' | 'build') => void;
   availableCommands?: SlashCommand[];
   contextUsage?: {
     inputTokens: number;
@@ -57,16 +61,21 @@ interface ChatInputProps {
   layoutMode?: 'chat-only' | 'split-screen';
   onOpenBuildWizard?: () => void;
   previewUrl?: string | null;
+  selectedElements?: SelectedElement[];
+  onClearSelection?: () => void;
 }
 
-export const ChatInput = memo(function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGenerating, placeholder, isPlanMode, onTogglePlanMode, backgroundProcesses: _backgroundProcesses = [], onKillProcess: _onKillProcess, mode, onModeChange, availableCommands = [], contextUsage, selectedModel, layoutMode = 'chat-only', onOpenBuildWizard, previewUrl }: ChatInputProps) {
+export const ChatInput = memo(function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGenerating, placeholder, isPlanMode, onTogglePlanMode, isAutonomMode, onToggleAutonomMode, backgroundProcesses: _backgroundProcesses = [], onKillProcess: _onKillProcess, mode, onModeChange, availableCommands = [], contextUsage, selectedModel, layoutMode = 'chat-only', onOpenBuildWizard, previewUrl, selectedElements = [], onClearSelection }: ChatInputProps) {
   const isCompact = layoutMode === 'split-screen';
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const editInputRef = useRef<HTMLInputElement>(null);
   const [attachedFiles, setAttachedFiles] = useState<FileAttachment[]>([]);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [isStyleConfigOpen, setIsStyleConfigOpen] = useState(false);
   const [isFeaturesModalOpen, setIsFeaturesModalOpen] = useState(false);
+  const [isSelectionExpanded, setIsSelectionExpanded] = useState(false);
+  const [editedText, setEditedText] = useState('');
 
   // Queue management
   const { queue } = useMessageQueue();
@@ -107,6 +116,19 @@ export const ChatInput = memo(function ChatInput({ value, onChange, onSubmit, on
     }, 100);
     return () => clearTimeout(timer);
   }, []);
+
+  // Sync editedText with selected element and auto-expand
+  useEffect(() => {
+    if (selectedElements.length > 0) {
+      setEditedText(selectedElements[0].textContent || '');
+      setIsSelectionExpanded(true); // Auto-expand when element is selected
+      // Focus edit input after expansion
+      setTimeout(() => editInputRef.current?.focus(), 100);
+    } else {
+      setEditedText('');
+      setIsSelectionExpanded(false);
+    }
+  }, [selectedElements]);
 
   // Auto-resize textarea based on content
   // OPTIMIZED: Use useLayoutEffect + requestAnimationFrame for smoother resize
@@ -155,6 +177,11 @@ export const ChatInput = memo(function ChatInput({ value, onChange, onSubmit, on
       window.removeEventListener('dragover', preventDragDefaults);
     };
   }, []);
+
+  // Memoized textarea onChange handler to prevent new function creation on every render
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    onChange(e.target.value);
+  }, [onChange]);
 
   // Handle paste events for images (screenshots)
   const handlePaste = async (e: React.ClipboardEvent) => {
@@ -352,6 +379,59 @@ export const ChatInput = memo(function ChatInput({ value, onChange, onSubmit, on
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }, []);
 
+  // Handle applying the text edit - generates a smart prompt
+  const handleApplyEdit = useCallback(() => {
+    if (!selectedElements.length || !editedText.trim()) return;
+    const element = selectedElements[0];
+    const originalText = element.textContent || '';
+
+    if (editedText === originalText) {
+      // No change - just clear selection
+      onClearSelection?.();
+      return;
+    }
+
+    // Generate intelligent prompt
+    const prompt = `Change the <${element.tagName.toLowerCase()}> element text from "${originalText}" to "${editedText}"`;
+    onChange(prompt);
+    onClearSelection?.();
+
+    // Focus textarea and submit
+    setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 50);
+  }, [selectedElements, editedText, onChange, onClearSelection]);
+
+  // Handle quick action buttons
+  const handleQuickAction = useCallback((action: 'improve' | 'shorten' | 'expand' | 'translate') => {
+    if (!selectedElements.length) return;
+    const element = selectedElements[0];
+    const text = element.textContent || '';
+
+    const prompts: Record<string, string> = {
+      improve: `Improve this <${element.tagName.toLowerCase()}> text: "${text}" - make it more engaging and professional`,
+      shorten: `Shorten this <${element.tagName.toLowerCase()}> text: "${text}" - keep the core message but make it more concise`,
+      expand: `Expand this <${element.tagName.toLowerCase()}> text: "${text}" - add more detail while keeping the same tone`,
+      translate: `Translate this <${element.tagName.toLowerCase()}> text to German: "${text}"`,
+    };
+
+    onChange(prompts[action]);
+    onClearSelection?.();
+    setTimeout(() => textareaRef.current?.focus(), 50);
+  }, [selectedElements, onChange, onClearSelection]);
+
+  // Handle enter key in edit input
+  const handleEditKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleApplyEdit();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setIsSelectionExpanded(false);
+      onClearSelection?.();
+    }
+  }, [handleApplyEdit, onClearSelection]);
+
   return (
     <div
       className="input-container"
@@ -399,31 +479,181 @@ export const ChatInput = memo(function ChatInput({ value, onChange, onSubmit, on
         <div className={`input-field-wrapper ${isDraggingOver ? 'ring-2 ring-blue-500 ring-opacity-50' : ''}`}>
           {/* Preview Context Indicator - shows when split-screen is active */}
           {layoutMode === 'split-screen' && previewUrl && (
-            <div
-              className="flex items-center gap-2 mx-2 mt-2 px-2.5 py-1.5 rounded-lg"
-              style={{
-                background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(139, 92, 246, 0.15))',
-                border: '1px solid rgba(59, 130, 246, 0.25)',
-              }}
-            >
-              <div className="flex items-center gap-1.5">
-                <Monitor size={14} style={{ color: '#3b82f6' }} />
-                <Link size={10} style={{ color: '#8b5cf6' }} />
-              </div>
-              <span style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.7)' }}>
-                Linked to Preview
-              </span>
-              <span
-                className="truncate"
+            <div className="mx-2 mt-2">
+              {/* Header row - always visible */}
+              <div
+                className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg cursor-pointer transition-all"
                 style={{
-                  fontSize: '10px',
-                  color: 'rgba(255, 255, 255, 0.4)',
-                  maxWidth: '150px',
+                  background: selectedElements.length > 0
+                    ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(59, 130, 246, 0.15))'
+                    : 'linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(139, 92, 246, 0.15))',
+                  border: selectedElements.length > 0
+                    ? '1px solid rgba(16, 185, 129, 0.35)'
+                    : '1px solid rgba(59, 130, 246, 0.25)',
+                  borderRadius: isSelectionExpanded && selectedElements.length > 0 ? '8px 8px 0 0' : '8px',
                 }}
-                title={previewUrl}
+                onClick={() => selectedElements.length > 0 && setIsSelectionExpanded(!isSelectionExpanded)}
               >
-                {previewUrl.replace(/^https?:\/\//, '')}
-              </span>
+                <div className="flex items-center gap-1.5">
+                  <Monitor size={14} style={{ color: selectedElements.length > 0 ? '#10b981' : '#3b82f6' }} />
+                  <Link size={10} style={{ color: selectedElements.length > 0 ? '#10b981' : '#8b5cf6' }} />
+                </div>
+
+                {selectedElements.length > 0 ? (
+                  <>
+                    <span style={{ fontSize: '11px', color: 'rgba(16, 185, 129, 0.9)', fontWeight: 500 }}>
+                      Editing
+                    </span>
+                    <code
+                      className="px-1.5 py-0.5 rounded"
+                      style={{
+                        fontSize: '10px',
+                        color: '#10b981',
+                        background: 'rgba(16, 185, 129, 0.15)',
+                        fontFamily: 'monospace',
+                      }}
+                    >
+                      &lt;{selectedElements[0].tagName.toLowerCase()}&gt;
+                    </code>
+                    {!isSelectionExpanded && selectedElements[0].textContent && (
+                      <span
+                        className="truncate"
+                        style={{
+                          fontSize: '10px',
+                          color: 'rgba(255, 255, 255, 0.5)',
+                          maxWidth: '120px',
+                          fontStyle: 'italic',
+                        }}
+                        title={selectedElements[0].textContent}
+                      >
+                        "{selectedElements[0].textContent.slice(0, 30)}{selectedElements[0].textContent.length > 30 ? '...' : ''}"
+                      </span>
+                    )}
+                    <div className="ml-auto flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setIsSelectionExpanded(!isSelectionExpanded); }}
+                        className="p-0.5 rounded hover:bg-white/10 transition-colors"
+                        title={isSelectionExpanded ? 'Collapse' : 'Expand to edit'}
+                      >
+                        {isSelectionExpanded ? <ChevronUp size={14} style={{ color: 'rgba(255, 255, 255, 0.5)' }} /> : <ChevronDown size={14} style={{ color: 'rgba(255, 255, 255, 0.5)' }} />}
+                      </button>
+                      {onClearSelection && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); onClearSelection(); }}
+                          className="p-0.5 rounded hover:bg-white/10 transition-colors"
+                          title="Clear selection (Esc)"
+                        >
+                          <X size={12} style={{ color: 'rgba(255, 255, 255, 0.5)' }} />
+                        </button>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <span style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.7)' }}>
+                      Linked to Preview
+                    </span>
+                    <span
+                      className="truncate"
+                      style={{
+                        fontSize: '10px',
+                        color: 'rgba(255, 255, 255, 0.4)',
+                        maxWidth: '150px',
+                      }}
+                      title={previewUrl}
+                    >
+                      {previewUrl.replace(/^https?:\/\//, '')}
+                    </span>
+                  </>
+                )}
+              </div>
+
+              {/* Expanded edit panel */}
+              {isSelectionExpanded && selectedElements.length > 0 && (
+                <div
+                  className="px-3 py-2.5 space-y-2"
+                  style={{
+                    background: 'rgba(16, 185, 129, 0.08)',
+                    border: '1px solid rgba(16, 185, 129, 0.25)',
+                    borderTop: 'none',
+                    borderRadius: '0 0 8px 8px',
+                  }}
+                >
+                  {/* Editable text input */}
+                  <div className="flex items-center gap-2">
+                    <Pencil size={12} style={{ color: '#10b981', flexShrink: 0 }} />
+                    <input
+                      ref={editInputRef}
+                      type="text"
+                      value={editedText}
+                      onChange={(e) => setEditedText(e.target.value)}
+                      onKeyDown={handleEditKeyDown}
+                      placeholder="Edit text content..."
+                      className="flex-1 px-2 py-1.5 text-sm bg-black/30 border border-white/10 rounded-md outline-none focus:border-emerald-500/50 transition-colors text-white placeholder:text-white/30"
+                      style={{ fontSize: '12px' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleApplyEdit}
+                      disabled={!editedText.trim() || editedText === (selectedElements[0]?.textContent || '')}
+                      className="px-2.5 py-1.5 text-xs font-medium rounded-md transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                      style={{
+                        background: 'linear-gradient(135deg, #10b981, #059669)',
+                        color: 'white',
+                      }}
+                      title="Apply change (Enter)"
+                    >
+                      Apply
+                    </button>
+                  </div>
+
+                  {/* Quick action buttons */}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span style={{ fontSize: '10px', color: 'rgba(255, 255, 255, 0.4)', marginRight: '4px' }}>Quick:</span>
+                    <button
+                      type="button"
+                      onClick={() => handleQuickAction('improve')}
+                      className="flex items-center gap-1 px-2 py-1 text-xs rounded-md bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
+                      style={{ color: 'rgba(255, 255, 255, 0.7)' }}
+                    >
+                      <Sparkles size={10} />
+                      Improve
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleQuickAction('shorten')}
+                      className="flex items-center gap-1 px-2 py-1 text-xs rounded-md bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
+                      style={{ color: 'rgba(255, 255, 255, 0.7)' }}
+                    >
+                      Shorten
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleQuickAction('expand')}
+                      className="flex items-center gap-1 px-2 py-1 text-xs rounded-md bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
+                      style={{ color: 'rgba(255, 255, 255, 0.7)' }}
+                    >
+                      Expand
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleQuickAction('translate')}
+                      className="flex items-center gap-1 px-2 py-1 text-xs rounded-md bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
+                      style={{ color: 'rgba(255, 255, 255, 0.7)' }}
+                    >
+                      <Type size={10} />
+                      Translate
+                    </button>
+                  </div>
+
+                  {/* Hint */}
+                  <div style={{ fontSize: '10px', color: 'rgba(255, 255, 255, 0.3)' }}>
+                    Press Enter to apply • Esc to cancel
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -511,7 +741,7 @@ export const ChatInput = memo(function ChatInput({ value, onChange, onSubmit, on
               id="chat-input"
               dir="auto"
               value={value}
-              onChange={(e) => onChange(e.target.value)}
+              onChange={handleInputChange}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
               placeholder={placeholder || "Send a Message"}
@@ -567,6 +797,15 @@ export const ChatInput = memo(function ChatInput({ value, onChange, onSubmit, on
                   >
                     {isCompact ? 'Plan' : 'Plan Mode'}
                   </button>
+                )}
+
+                {/* AUTONOM Mode toggle button - autonomous execution with smart step chaining */}
+                {onToggleAutonomMode && (
+                  <AutonomToggle
+                    isActive={isAutonomMode || false}
+                    onToggle={onToggleAutonomMode}
+                    isCompact={isCompact}
+                  />
                 )}
 
                 {/* Build Mode button */}

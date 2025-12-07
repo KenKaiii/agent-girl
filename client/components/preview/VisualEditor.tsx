@@ -107,29 +107,29 @@ export interface EditContext {
 // Quick AI actions based on element type
 const QUICK_AI_ACTIONS: Record<string, { icon: React.ReactNode; label: string; prompt: string }[]> = {
   text: [
-    { icon: <Wand2 size={12} />, label: 'Verbessern', prompt: 'Verbessere diesen Text für mehr Klarheit und Wirkung' },
-    { icon: <Type size={12} />, label: 'Kürzen', prompt: 'Kürze diesen Text auf das Wesentliche' },
-    { icon: <Sparkles size={12} />, label: 'Übersetzen', prompt: 'Übersetze diesen Text ins Englische' },
+    { icon: <Wand2 size={12} />, label: 'Improve', prompt: 'Improve this text for clarity and impact' },
+    { icon: <Type size={12} />, label: 'Shorten', prompt: 'Shorten this text to its essentials' },
+    { icon: <Sparkles size={12} />, label: 'Expand', prompt: 'Expand this text with more details' },
   ],
   heading: [
-    { icon: <Wand2 size={12} />, label: 'Optimieren', prompt: 'Optimiere diese Überschrift für mehr Aufmerksamkeit' },
-    { icon: <Zap size={12} />, label: 'Kürzer', prompt: 'Mache diese Überschrift prägnanter' },
-    { icon: <Sparkles size={12} />, label: 'SEO', prompt: 'Optimiere diese Überschrift für SEO' },
+    { icon: <Wand2 size={12} />, label: 'Optimize', prompt: 'Optimize this heading for more attention' },
+    { icon: <Zap size={12} />, label: 'Shorter', prompt: 'Make this heading more concise' },
+    { icon: <Sparkles size={12} />, label: 'SEO', prompt: 'Optimize this heading for SEO' },
   ],
   button: [
-    { icon: <Wand2 size={12} />, label: 'CTA verbessern', prompt: 'Verbessere diesen Call-to-Action für mehr Klicks' },
-    { icon: <Palette size={12} />, label: 'Stil', prompt: 'Mache diesen Button auffälliger' },
+    { icon: <Wand2 size={12} />, label: 'Better CTA', prompt: 'Improve this call-to-action for more clicks' },
+    { icon: <Palette size={12} />, label: 'Style', prompt: 'Make this button more prominent' },
   ],
   image: [
-    { icon: <Image size={12} />, label: 'Alt-Text', prompt: 'Generiere einen SEO-optimierten Alt-Text für dieses Bild' },
-    { icon: <Sparkles size={12} />, label: 'Optimieren', prompt: 'Optimiere dieses Bild für bessere Performance' },
+    { icon: <Image size={12} />, label: 'Alt Text', prompt: 'Generate an SEO-optimized alt text for this image' },
+    { icon: <Sparkles size={12} />, label: 'Optimize', prompt: 'Optimize this image for better performance' },
   ],
   container: [
-    { icon: <Box size={12} />, label: 'Layout', prompt: 'Verbessere das Layout dieses Containers' },
-    { icon: <Palette size={12} />, label: 'Styling', prompt: 'Verbessere das visuelle Styling dieses Bereichs' },
+    { icon: <Box size={12} />, label: 'Layout', prompt: 'Improve the layout of this container' },
+    { icon: <Palette size={12} />, label: 'Styling', prompt: 'Improve the visual styling of this section' },
   ],
   link: [
-    { icon: <Wand2 size={12} />, label: 'Verbessern', prompt: 'Verbessere diesen Link-Text' },
+    { icon: <Wand2 size={12} />, label: 'Improve', prompt: 'Improve this link text' },
   ],
 };
 
@@ -202,10 +202,10 @@ function ModeToggle({
             ? 'bg-green-500/20 text-green-400 shadow-sm shadow-green-500/10'
             : 'text-gray-400 hover:text-white hover:bg-white/10'
         }`}
-        title="Direkt bearbeiten"
+        title="Direct editing"
       >
         <MousePointer2 size={12} />
-        Direkt
+        Direct
       </button>
       <button
         onClick={() => onModeChange('ai')}
@@ -214,10 +214,10 @@ function ModeToggle({
             ? 'bg-gradient-to-r from-blue-500/20 to-purple-500/20 text-blue-400 shadow-sm shadow-blue-500/10'
             : 'text-gray-400 hover:text-white hover:bg-white/10'
         }`}
-        title="Mit KI bearbeiten"
+        title="Edit with AI"
       >
         <Sparkles size={12} />
-        KI
+        AI
       </button>
       <button
         onClick={() => onModeChange('hybrid')}
@@ -226,7 +226,7 @@ function ModeToggle({
             ? 'bg-gradient-to-r from-green-500/20 via-blue-500/20 to-purple-500/20 text-white shadow-sm'
             : 'text-gray-400 hover:text-white hover:bg-white/10'
         }`}
-        title="Hybrid: Direkt + KI Vorschläge"
+        title="Hybrid: Direct + AI suggestions"
       >
         <Zap size={12} />
         Hybrid
@@ -247,7 +247,7 @@ function QuickAIActions({
 
   return (
     <div className="space-y-1">
-      <div className="text-[10px] text-gray-500 uppercase tracking-wider px-1">Schnellaktionen</div>
+      <div className="text-[10px] text-gray-500 uppercase tracking-wider px-1">Quick Actions</div>
       <div className="flex flex-wrap gap-1">
         {actions.map((action, i) => (
           <button
@@ -298,7 +298,7 @@ function AIPromptInput({
             handleSubmit();
           }
         }}
-        placeholder={placeholder || 'Beschreibe die Änderung...'}
+        placeholder={placeholder || 'Describe the change...'}
         rows={2}
         className="w-full px-3 py-2 rounded-lg text-sm resize-none outline-none transition-all focus:ring-2 focus:ring-blue-500/30 bg-white/5 border border-white/10 text-white placeholder-gray-600"
       />
@@ -316,7 +316,7 @@ function AIPromptInput({
           }}
         >
           <Sparkles size={12} />
-          Mit KI ändern
+          Edit with AI
         </button>
       </div>
     </div>
@@ -378,7 +378,7 @@ function AISuggestions({
     return (
       <div className="flex items-center justify-center py-4">
         <RefreshCw size={16} className="text-blue-400 animate-spin" />
-        <span className="ml-2 text-xs text-gray-400">KI analysiert...</span>
+        <span className="ml-2 text-xs text-gray-400">AI analyzing...</span>
       </div>
     );
   }
@@ -387,7 +387,7 @@ function AISuggestions({
     return (
       <div className="text-center py-4 text-xs text-gray-500">
         <Lightbulb size={16} className="mx-auto mb-1 opacity-50" />
-        Keine Vorschläge verfügbar
+        No suggestions available
       </div>
     );
   }
@@ -396,7 +396,7 @@ function AISuggestions({
     <div className="space-y-2">
       <div className="text-[10px] text-gray-500 uppercase tracking-wider px-1 flex items-center gap-1">
         <Lightbulb size={10} />
-        KI-Vorschläge
+        AI Suggestions
       </div>
       {suggestions.map((suggestion) => (
         <button
@@ -484,8 +484,8 @@ export function VisualEditor({
           mockSuggestions.push({
             id: '1',
             type: 'content',
-            title: 'Text verbessern',
-            description: 'Optimiere für bessere Lesbarkeit und SEO',
+            title: 'Improve text',
+            description: 'Optimize for better readability and SEO',
             confidence: 0.85,
           });
         }
@@ -494,8 +494,8 @@ export function VisualEditor({
           mockSuggestions.push({
             id: '2',
             type: 'style',
-            title: 'Kontrast erhöhen',
-            description: 'Verbessere die Lesbarkeit durch höheren Kontrast',
+            title: 'Increase contrast',
+            description: 'Improve readability with higher contrast',
             confidence: 0.72,
           });
         }
@@ -504,8 +504,8 @@ export function VisualEditor({
           mockSuggestions.push({
             id: '3',
             type: 'style',
-            title: 'Button auffälliger',
-            description: 'Mache den CTA-Button prominent',
+            title: 'Make button prominent',
+            description: 'Make the CTA button more eye-catching',
             confidence: 0.9,
           });
         }
@@ -580,7 +580,7 @@ export function VisualEditor({
     [onDirectEdit]
   );
 
-  // Enable inline text editing
+  // Enable inline text editing with file sync
   const handleTextEdit = useCallback(() => {
     if (!iframeRef.current || !element.isEditable) return;
 
@@ -590,6 +590,7 @@ export function VisualEditor({
 
       const el = iframeDoc.querySelector(element.selector) as HTMLElement;
       if (el) {
+        const originalText = el.textContent || '';
         el.setAttribute('contenteditable', 'true');
         el.focus();
 
@@ -599,11 +600,59 @@ export function VisualEditor({
         const selection = iframeDoc.getSelection();
         selection?.removeAllRanges();
         selection?.addRange(range);
+
+        // Handle blur (when editing is done)
+        const handleBlur = async () => {
+          el.removeAttribute('contenteditable');
+          el.removeEventListener('blur', handleBlur);
+
+          const newText = el.textContent || '';
+
+          // If text changed and we have a source file, sync to file
+          if (newText !== originalText && sourceFilePath && projectPath) {
+            setFileSyncStatus('saving');
+            try {
+              const result = await changeText(sourceFilePath, originalText.trim(), newText.trim());
+              if (result.changes > 0) {
+                setFileSyncStatus('saved');
+                onFileSaved?.(sourceFilePath);
+                // NOTE: We skip HMR trigger for inline text edits because:
+                // 1. The DOM is already updated via contenteditable
+                // 2. HMR would cause a reload and lose the visual state
+                // 3. The file is saved, framework will pick up changes naturally
+                setTimeout(() => setFileSyncStatus('idle'), 2000);
+              } else {
+                // Text not found in file, might need broader search
+                console.warn('Text not found in source file, trying fuzzy match...');
+                setFileSyncStatus('error');
+              }
+            } catch (err) {
+              console.error('Failed to sync text edit:', err);
+              setFileSyncStatus('error');
+            }
+          }
+        };
+
+        // Handle Enter key to finish editing
+        const handleKeyDown = (e: KeyboardEvent) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            el.blur();
+          }
+          if (e.key === 'Escape') {
+            // Revert changes
+            el.textContent = originalText;
+            el.blur();
+          }
+        };
+
+        el.addEventListener('blur', handleBlur);
+        el.addEventListener('keydown', handleKeyDown);
       }
     } catch {
       // Cross-origin
     }
-  }, [iframeRef, element]);
+  }, [iframeRef, element, sourceFilePath, projectPath, changeText, onFileSaved]);
 
   // Render sub-panels
   if (activePanel === 'style') {
@@ -673,7 +722,7 @@ export function VisualEditor({
         }}
         onAIEdit={async (filePath, prompt, content) => {
           // For now, trigger AI edit via the existing handler
-          handleAIEdit(`Bearbeite ${filePath.split('/').pop()}: ${prompt}`);
+          handleAIEdit(`Edit ${filePath.split('/').pop()}: ${prompt}`);
           // Return original content - actual AI response would come via WebSocket
           return content;
         }}
@@ -761,7 +810,7 @@ export function VisualEditor({
               <div className="pt-2 border-t border-white/5">
                 <AIPromptInput
                   onSubmit={handleAIEdit}
-                  placeholder={`Was soll mit <${element.tagName}> passieren?`}
+                  placeholder={`What should happen to <${element.tagName}>?`}
                 />
               </div>
             )}
@@ -795,10 +844,10 @@ export function VisualEditor({
                   <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-pink-500"></span>
                 </span>
                 <span className="text-xs font-medium text-pink-300">
-                  {aiProgress.status === 'analyzing' && 'Analysiere...'}
-                  {aiProgress.status === 'editing' && 'Bearbeite...'}
-                  {aiProgress.status === 'completed' && 'Fertig!'}
-                  {aiProgress.status === 'error' && 'Fehler'}
+                  {aiProgress.status === 'analyzing' && 'Analyzing...'}
+                  {aiProgress.status === 'editing' && 'Editing...'}
+                  {aiProgress.status === 'completed' && 'Done!'}
+                  {aiProgress.status === 'error' && 'Error'}
                 </span>
               </div>
 
@@ -860,7 +909,7 @@ export function VisualEditor({
         <div className="flex items-center gap-2">
           {elements.length > 1 && (
             <span className="text-[10px] text-gray-500">
-              +{elements.length - 1} weitere
+              +{elements.length - 1} more
             </span>
           )}
           {/* Source code button with ⌘. shortcut */}
@@ -868,7 +917,7 @@ export function VisualEditor({
             <button
               onClick={() => setActivePanel('source')}
               className="flex items-center gap-1 px-2 py-1 rounded text-[10px] text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
-              title="Source Code bearbeiten (⌘.)"
+              title="Edit source code (⌘.)"
             >
               <FileCode size={12} />
               Source

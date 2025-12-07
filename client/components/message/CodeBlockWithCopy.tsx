@@ -146,11 +146,6 @@ interface CodeBlockWithCopyProps {
 
 export const CodeBlockWithCopy = memo(function CodeBlockWithCopy({ code, language, customStyle, wrapperClassName }: CodeBlockWithCopyProps) {
   const { showCode } = useCodeVisibility();
-
-  // If code visibility is disabled globally, don't render the code block
-  if (!showCode) {
-    return null;
-  }
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(async () => {
@@ -163,6 +158,11 @@ export const CodeBlockWithCopy = memo(function CodeBlockWithCopy({ code, languag
       showError('COPY_FAILED', errorMsg);
     }
   }, [code]);
+
+  // If code visibility is disabled globally, don't render the code block
+  if (!showCode) {
+    return null;
+  }
 
   const codeStyle: { [key: string]: React.CSSProperties } = vscDarkPlus as unknown as { [key: string]: React.CSSProperties };
 

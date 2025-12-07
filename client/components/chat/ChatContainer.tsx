@@ -28,6 +28,7 @@ import { ModelSelector } from '../header/ModelSelector';
 import { WorkingDirectoryDisplay } from '../header/WorkingDirectoryDisplay';
 import { AboutButton } from '../header/AboutButton';
 import { RadioPlayer } from '../header/RadioPlayer';
+import { AutonomToggle } from '../header/AutonomToggle';
 import { PlanApprovalModal } from '../plan/PlanApprovalModal';
 import { QuestionModal, type Question } from '../question/QuestionModal';
 import { BuildLauncher, type Template } from '../preview/BuildLauncher';
@@ -35,13 +36,16 @@ import { BuildWizard } from '../build-wizard/BuildWizard';
 import { ScrollButton } from './ScrollButton';
 import { WorkingDirectoryPanel } from './WorkingDirectoryPanel';
 import { CommandQueueDisplay } from '../queue/CommandQueueDisplay';
+import { ActivityProgressBar } from './ActivityProgressBar';
 import { KeyboardShortcuts } from '../ui/KeyboardShortcuts';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { WorkingDirectoryContext } from '../../hooks/useWorkingDirectory';
+import { GenerationProvider } from '../../context/GenerationContext';
 import { useSessionAPI, type Session } from '../../hooks/useSessionAPI';
 import { useResponsive } from '../../hooks/useResponsive';
 import { Menu, Edit3, ChevronLeft, ChevronRight, History, ExternalLink, Eye, EyeOff, Code2, Monitor, MessageSquare, Search, X, ChevronUp, ChevronDown, Rocket, Hammer } from 'lucide-react';
 import type { Message, SystemMessage, PreviewActionMetadata, PreviewElement } from '../message/types';
+import type { SelectedElement } from '../preview/ElementSelector';
 import { toast } from '../../utils/toast';
 import { showError } from '../../utils/errorMessages';
 import type { BackgroundProcess } from '../process/BackgroundProcessMonitor';
@@ -168,6 +172,13 @@ interface ChatContainerProps {
   onDetectPreviewUrl?: () => void;
   onAIEditRequestHandler?: (handler: (request: AIEditRequest) => void) => void;
   onAIProgressChange?: (progress: AIProgressState) => void;
+  // Expose setInputValue so preview selection can load context into chat
+  onInputValueSetter?: (setter: (value: string) => void) => void;
+  // Selected elements from preview for displaying in chat
+  selectedElements?: SelectedElement[];
+  onClearSelection?: () => void;
+  // BUILD MODE: Auto-start preview with specific URL
+  onBuildPreviewStart?: (url: string) => void;
 }
 
 export function ChatContainer({
@@ -177,7 +188,11 @@ export function ChatContainer({
   onSetPreviewUrl: _onSetPreviewUrl,
   onDetectPreviewUrl,
   onAIEditRequestHandler,
-  onAIProgressChange
+  onAIProgressChange,
+  onInputValueSetter,
+  selectedElements = [],
+  onClearSelection,
+  onBuildPreviewStart,
 }: ChatContainerProps = {}) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState(() => {
@@ -203,7 +218,7 @@ export function ChatContainer({
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [_isLoadingSessions, setIsLoadingSessions] = useState(true);
-  const [currentSessionMode, setCurrentSessionMode] = useState<'general' | 'coder' | 'intense-research' | 'spark' | 'unified'>('general');
+  const [currentSessionMode, setCurrentSessionMode] = useState<'general' | 'coder' | 'intense-research' | 'spark' | 'unified' | 'build'>('general');
 
   // Pagination state for lazy loading
   const [hasMoreSessions, setHasMoreSessions] = useState(true);
@@ -255,6 +270,20 @@ export function ChatContainer({
 
   // Display mode for compact/full message rendering
   const [displayMode, setDisplayMode] = useState<'full' | 'compact'>('full');
+
+  // Activity progress state for progress bar
+  const [activityProgress, setActivityProgress] = useState<AIProgressState>({
+    isActive: false,
+    status: 'idle',
+  });
+
+  // Handler to update activity progress (wraps both local state and prop callback)
+  const handleActivityProgress = useCallback((progress: AIProgressState) => {
+    setActivityProgress(progress);
+    if (onAIProgressChange) {
+      onAIProgressChange(progress);
+    }
+  }, [onAIProgressChange]);
 
   // Global code visibility toggle
   const [showCode, setShowCode] = useState(true);
@@ -322,6 +351,7 @@ export function ChatContainer({
 
   // Permission mode (simplified to just plan mode on/off)
   const [isPlanMode, setIsPlanMode] = useState<boolean>(false);
+  const [isAutonomMode, setIsAutonomMode] = useState<boolean>(false);
 
   // Plan approval
   const [pendingPlan, setPendingPlan] = useState<string | null>(null);
@@ -362,7 +392,7 @@ export function ChatContainer({
   const sessionAPI = useSessionAPI();
 
   // Responsive hooks
-  const { isMobile, isTablet } = useResponsive();
+  const { isMobile, isTablet: _isTablet } = useResponsive();
   const sidebarWidth = useSidebarWidth(isSidebarOpen);
 
   // Per-session loading state helpers
@@ -927,8 +957,37 @@ export function ChatContainer({
     // If no session exists yet, the mode will be applied when session is created
   };
 
-  // Handle session mode change (general, coder, intense-research, spark, unified)
-  const handleModeChange = async (newMode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified') => {
+  // Handle autonom mode toggle
+  const handleToggleAutonomMode = async () => {
+    const newAutonomMode = !isAutonomMode;
+    const mode = newAutonomMode ? 'autonom' : 'bypassPermissions';
+
+    // Update local state
+    setIsAutonomMode(newAutonomMode);
+
+    // If turning on autonom mode, turn off plan mode
+    if (newAutonomMode && isPlanMode) {
+      setIsPlanMode(false);
+    }
+
+    // If session exists, update it in the database
+    if (currentSessionId) {
+      const result = await sessionAPI.updatePermissionMode(currentSessionId, mode);
+
+      // If query is active, send WebSocket message to switch mode mid-stream
+      if (result.success && isSessionLoading(currentSessionId)) {
+        sendMessage({
+          type: 'set_permission_mode',
+          sessionId: currentSessionId,
+          mode
+        });
+      }
+    }
+    // If no session exists yet, the mode will be applied when session is created
+  };
+
+  // Handle session mode change (general, coder, intense-research, spark, unified, build)
+  const handleModeChange = async (newMode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified' | 'build') => {
     // Always update local state immediately
     setCurrentSessionMode(newMode);
     console.log('🎭 Mode changed to:', newMode);
@@ -1091,13 +1150,11 @@ export function ChatContainer({
       if (message.type === 'assistant_message' && 'content' in message) {
         const assistantContent = message.content as string;
         // Report writing state to preview (only on first message)
-        if (onAIProgressChange) {
-          onAIProgressChange({
-            isActive: true,
-            status: 'writing',
-            toolDisplayName: 'Responding...',
-          });
-        }
+        handleActivityProgress({
+          isActive: true,
+          status: 'writing',
+          toolDisplayName: 'Responding...',
+        });
         setMessages((prev) => {
           const lastMessage = prev[prev.length - 1];
 
@@ -1145,14 +1202,12 @@ export function ChatContainer({
         });
       } else if (message.type === 'thinking_start') {
         console.log('💭 Thinking block started');
-        // Report thinking state to preview
-        if (onAIProgressChange) {
-          onAIProgressChange({
-            isActive: true,
-            status: 'thinking',
-            toolDisplayName: 'Thinking...',
-          });
-        }
+        // Report thinking state to progress bar and preview
+        handleActivityProgress({
+          isActive: true,
+          status: 'thinking',
+          toolDisplayName: 'Thinking...',
+        });
         // Create a new thinking block when thinking starts
         setMessages((prev) => {
           const lastMessage = prev[prev.length - 1];
@@ -1208,48 +1263,46 @@ export function ChatContainer({
         // Handle tool use messages
         const toolUseMsg = message as { type: 'tool_use'; toolId: string; toolName: string; toolInput: Record<string, unknown> };
 
-        // Report AI progress to preview panel with action history
-        if (onAIProgressChange) {
-          const filePath = (toolUseMsg.toolInput.file_path as string) || (toolUseMsg.toolInput.path as string);
-          const toolName = toolUseMsg.toolName;
-          const isFileEdit = FILE_EDIT_TOOLS.includes(toolName);
-          const displayName = getToolDisplayName(toolName);
+        // Report AI progress to progress bar and preview panel
+        const filePath = (toolUseMsg.toolInput.file_path as string) || (toolUseMsg.toolInput.path as string);
+        const toolName = toolUseMsg.toolName;
+        const isFileEdit = FILE_EDIT_TOOLS.includes(toolName);
+        const displayName = getToolDisplayName(toolName);
 
-          // Extract additional context based on tool type
-          let contextInfo = filePath;
-          if (toolName === 'Bash' && toolUseMsg.toolInput.command) {
-            // Show first part of command
-            const cmd = String(toolUseMsg.toolInput.command);
-            contextInfo = cmd.length > 50 ? cmd.substring(0, 47) + '...' : cmd;
-          } else if (toolName === 'WebFetch' && toolUseMsg.toolInput.url) {
-            contextInfo = String(toolUseMsg.toolInput.url);
-          } else if (toolName === 'WebSearch' && toolUseMsg.toolInput.query) {
-            contextInfo = String(toolUseMsg.toolInput.query);
-          } else if (toolName === 'Grep' && toolUseMsg.toolInput.pattern) {
-            contextInfo = `/${toolUseMsg.toolInput.pattern}/`;
-          }
-
-          // Create new action history entry
-          const newAction: ActionHistoryEntry = {
-            id: toolUseMsg.toolId,
-            timestamp: Date.now(),
-            tool: toolName,
-            toolDisplayName: displayName,
-            file: contextInfo,
-            status: 'running',
-          };
-
-          onAIProgressChange({
-            isActive: true,
-            currentTool: toolName,
-            currentFile: filePath,
-            status: 'tool_use',
-            toolDisplayName: displayName,
-            isFileEdit,
-            currentToolId: toolUseMsg.toolId,
-            newAction, // Signal to add this action to history
-          } as AIProgressState & { newAction: ActionHistoryEntry });
+        // Extract additional context based on tool type
+        let contextInfo = filePath;
+        if (toolName === 'Bash' && toolUseMsg.toolInput.command) {
+          // Show first part of command
+          const cmd = String(toolUseMsg.toolInput.command);
+          contextInfo = cmd.length > 50 ? cmd.substring(0, 47) + '...' : cmd;
+        } else if (toolName === 'WebFetch' && toolUseMsg.toolInput.url) {
+          contextInfo = String(toolUseMsg.toolInput.url);
+        } else if (toolName === 'WebSearch' && toolUseMsg.toolInput.query) {
+          contextInfo = String(toolUseMsg.toolInput.query);
+        } else if (toolName === 'Grep' && toolUseMsg.toolInput.pattern) {
+          contextInfo = `/${toolUseMsg.toolInput.pattern}/`;
         }
+
+        // Create new action history entry
+        const newAction: ActionHistoryEntry = {
+          id: toolUseMsg.toolId,
+          timestamp: Date.now(),
+          tool: toolName,
+          toolDisplayName: displayName,
+          file: contextInfo,
+          status: 'running',
+        };
+
+        handleActivityProgress({
+          isActive: true,
+          currentTool: toolName,
+          currentFile: filePath,
+          status: 'tool_use',
+          toolDisplayName: displayName,
+          isFileEdit,
+          currentToolId: toolUseMsg.toolId,
+          newAction, // Signal to add this action to history
+        } as AIProgressState & { newAction: ActionHistoryEntry });
 
         // Use flushSync to prevent React batching from causing tools to be lost
         // When multiple tool_use messages arrive rapidly, React batches setState calls
@@ -1367,13 +1420,11 @@ export function ChatContainer({
           console.log(`[Message Cache] Cleared cache for session ${currentSessionId} (stream completed)`);
           // Clear live token count when response completes
           setLiveTokenCount(0);
-          // Reset AI progress for preview panel
-          if (onAIProgressChange) {
-            onAIProgressChange({
-              isActive: false,
-              status: 'completed',
-            });
-          }
+          // Reset AI progress for progress bar and preview panel
+          handleActivityProgress({
+            isActive: false,
+            status: 'completed',
+          });
         }
       } else if (message.type === 'timeout_warning') {
         // Handle timeout warning (60s elapsed)
@@ -1394,13 +1445,11 @@ export function ChatContainer({
         if (currentSessionId) setSessionLoading(currentSessionId, false);
         // Clear live token count on error
         setLiveTokenCount(0);
-        // Reset AI progress for preview panel with error status
-        if (onAIProgressChange) {
-          onAIProgressChange({
-            isActive: false,
-            status: 'error',
-          });
-        }
+        // Reset AI progress for progress bar and preview panel with error status
+        handleActivityProgress({
+          isActive: false,
+          status: 'error',
+        });
 
         // Get error type and message
         const errorType = 'errorType' in message ? (message.errorType as string) : undefined;
@@ -1457,8 +1506,13 @@ export function ChatContainer({
       } else if (message.type === 'session_title_updated' && 'newTitle' in message) {
         // Handle session title update from server
         console.log(`📝 Session title updated to: ${message.newTitle}`);
-        // Reload sessions to reflect the title change in sidebar
-        loadSessions();
+        // Update only the specific session instead of reloading all (prevents UI flash)
+        const updatedSessionId = 'sessionId' in message ? message.sessionId : currentSessionId;
+        if (updatedSessionId && message.newTitle) {
+          setSessions(prev => prev.map(s =>
+            s.id === updatedSessionId ? { ...s, title: message.newTitle as string } : s
+          ));
+        }
       } else if (message.type === 'mode_changed' && 'mode' in message) {
         // Handle session mode change confirmation from server
         const newMode = message.mode as 'general' | 'coder' | 'intense-research' | 'spark';
@@ -1751,7 +1805,7 @@ export function ChatContainer({
     });
   };
 
-  const handleSubmit = async (files?: import('../message/types').FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified', messageOverride?: string) => {
+  const handleSubmit = async (files?: import('../message/types').FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified' | 'build', messageOverride?: string) => {
     const messageText = messageOverride || inputValue;
     if (!messageText.trim()) return;
 
@@ -1786,9 +1840,9 @@ export function ChatContainer({
         const permissionMode = isPlanMode ? 'plan' : 'bypassPermissions';
         await sessionAPI.updatePermissionMode(sessionId, permissionMode);
 
-        // Update state and load sessions
+        // Update state immediately, load sessions in background (non-blocking)
         setCurrentSessionId(sessionId);
-        await loadSessions();
+        loadSessions(); // Don't await - prevents UI blocking
       }
 
       const userMessage: Message = {
@@ -1887,16 +1941,41 @@ export function ChatContainer({
     setIsBuildWizardOpen(false);
   };
 
-  // Handle template selection from BuildLauncher
-  const handleSelectTemplate = (template: Template) => {
+  // Handle template selection from BuildLauncher - FULLY AUTOMATED
+  const handleSelectTemplate = async (template: Template) => {
     setIsBuildWizardOpen(false);
     setCurrentSessionId(null);
-    setCurrentSessionMode('coder');
+    setCurrentSessionMode('build');
     setMessages([]);
 
-    // Submit the template command (e.g., "/new landing-modern")
+    // AUTO-START BUILD WORKFLOW: Create project, start dev server, show preview
+    try {
+      const projectName = template.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+
+      const response = await fetch('/api/build/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          templateId: template.id,
+          projectName,
+          workingDir: '/Users/master/Projects'
+        })
+      });
+
+      const buildResult = await response.json();
+
+      if (buildResult.success && onBuildPreviewStart) {
+        // Trigger split-screen layout with live preview
+        onBuildPreviewStart(buildResult.previewUrl);
+        console.log('[BUILD] Auto-started project:', buildResult.projectPath, 'Preview:', buildResult.previewUrl);
+      }
+    } catch (error) {
+      console.error('[BUILD] Auto-start failed:', error);
+    }
+
+    // Continue with normal flow - submit template command to AI
     setTimeout(() => {
-      handleSubmit(undefined, 'coder', template.command);
+      handleSubmit(undefined, 'build', template.command);
     }, 100);
   };
 
@@ -1908,13 +1987,13 @@ export function ChatContainer({
         prompt = `/clone ${input || ''}`;
         break;
       case 'ai':
-        prompt = input || 'Create a modern Astro 5 website';
+        prompt = input || 'Create a modern Astro 5 website with landing page, about, and contact sections';
         break;
       case 'blank':
-        prompt = '/new blank';
+        prompt = '/new my-project';
         break;
       case 'niche':
-        prompt = `/new ${input || 'business'}-optimized`;
+        prompt = `/landing ${input || 'saas'} "My Project"`;
         break;
       default:
         prompt = action;
@@ -1923,11 +2002,11 @@ export function ChatContainer({
     if (prompt) {
       setIsBuildWizardOpen(false);
       setCurrentSessionId(null);
-      setCurrentSessionMode('coder');
+      setCurrentSessionMode('build');
       setMessages([]);
 
       setTimeout(() => {
-        handleSubmit(undefined, 'coder', prompt);
+        handleSubmit(undefined, 'build', prompt);
       }, 100);
     }
   };
@@ -2083,6 +2162,13 @@ export function ChatContainer({
       onAIEditRequestHandler(handleAIEditRequest);
     }
   }, [onAIEditRequestHandler, handleAIEditRequest]);
+
+  // Expose setInputValue to parent for preview selection → chat integration
+  useEffect(() => {
+    if (onInputValueSetter) {
+      onInputValueSetter(setInputValue);
+    }
+  }, [onInputValueSetter]);
 
   return (
     <div className={`flex h-screen ${layoutMode === 'split-screen' ? 'relative' : ''}`} style={{ overflow: 'visible' }}>
@@ -2530,17 +2616,19 @@ export function ChatContainer({
           // Chat Interface
           <>
             {/* Messages */}
-            <WorkingDirectoryContext.Provider value={{ workingDirectory: sessions.find(s => s.id === currentSessionId)?.working_directory || null }}>
-              <MessageList
-                messages={messages}
-                isLoading={isCurrentSessionLoading}
-                liveTokenCount={liveTokenCount}
-                scrollContainerRef={scrollContainerRef}
-                displayMode={displayMode}
-                showCode={showCode}
-                onRemoveMessage={handleRemoveMessage}
-              />
-            </WorkingDirectoryContext.Provider>
+            <GenerationProvider isGenerating={isLoading} onStop={handleStop}>
+              <WorkingDirectoryContext.Provider value={{ workingDirectory: sessions.find(s => s.id === currentSessionId)?.working_directory || null }}>
+                <MessageList
+                  messages={messages}
+                  isLoading={isCurrentSessionLoading}
+                  liveTokenCount={liveTokenCount}
+                  scrollContainerRef={scrollContainerRef}
+                  displayMode={displayMode}
+                  showCode={showCode}
+                  onRemoveMessage={handleRemoveMessage}
+                />
+              </WorkingDirectoryContext.Provider>
+            </GenerationProvider>
 
             {/* Command Queue Display */}
             <CommandQueueDisplay
@@ -2550,7 +2638,7 @@ export function ChatContainer({
               }}
             />
 
-            {/* Input */}
+            {/* Input - with integrated selection display */}
             <ChatInput
               key={currentSessionId || 'new-chat'}
               value={inputValue}
@@ -2561,6 +2649,8 @@ export function ChatContainer({
               isGenerating={isLoading}
               isPlanMode={isPlanMode}
               onTogglePlanMode={handleTogglePlanMode}
+              isAutonomMode={isAutonomMode}
+              onToggleAutonomMode={handleToggleAutonomMode}
               backgroundProcesses={backgroundProcesses.get(currentSessionId || '') || []}
               onKillProcess={handleKillProcess}
               mode={currentSessionMode}
@@ -2571,6 +2661,14 @@ export function ChatContainer({
               layoutMode={layoutMode}
               onOpenBuildWizard={handleOpenBuildWizard}
               previewUrl={previewUrl}
+              selectedElements={selectedElements}
+              onClearSelection={onClearSelection}
+            />
+
+            {/* Activity Progress Bar - below chat input with nice effects */}
+            <ActivityProgressBar
+              progress={activityProgress}
+              isGenerating={isLoading}
             />
 
             {/* Working Directory Panel */}

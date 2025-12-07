@@ -21,12 +21,11 @@
 import React, { useState, memo, useCallback, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { AssistantMessage as AssistantMessageType, ToolUseBlock, TextBlock, TodoItem, LongRunningCommandBlock } from './types';
+import { AssistantMessage as AssistantMessageType, ToolUseBlock, TextBlock, LongRunningCommandBlock } from './types';
 import { ThinkingBlock } from './ThinkingBlock';
 import { CodeBlockWithCopy } from './CodeBlockWithCopy';
 import { URLBadge } from './URLBadge';
 import { MermaidDiagram } from './MermaidDiagram';
-import { DiffViewer } from './DiffViewer';
 import { Shield, FileText, FolderOpen, Copy, Trash2, Eye, EyeOff, Code2, ChevronUp } from 'lucide-react';
 import { showError } from '../../utils/errorMessages';
 import { useWorkingDirectory } from '../../hooks/useWorkingDirectory';
@@ -571,6 +570,9 @@ function ExitPlanModeComponent({ toolUse }: { toolUse: ToolUseBlock }) {
 }
 
 function ToolUseComponent({ toolUse }: { toolUse: ToolUseBlock }) {
+  // Declare hooks at the top level before any conditional returns
+  const [isExpanded, setIsExpanded] = useState(false);
+
   // Use ExitPlanModeComponent for ExitPlanMode tool
   if (toolUse.name === 'ExitPlanMode') {
     return <ExitPlanModeComponent toolUse={toolUse} />;
@@ -635,8 +637,6 @@ function ToolUseComponent({ toolUse }: { toolUse: ToolUseBlock }) {
   if (toolUse.name === 'NotebookEdit') {
     return <NotebookEditToolComponent toolUse={toolUse} />;
   }
-
-  const [isExpanded, setIsExpanded] = useState(false);
 
   // Format tool parameters based on tool type
   const formatToolDisplay = () => {

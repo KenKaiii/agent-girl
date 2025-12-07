@@ -1,0 +1,315 @@
+#!/usr/bin/env bun
+/**
+ * Agent Girl CLI - Control Agent Girl from the command line
+ *
+ * Usage:
+ *   ./ag chat "Your prompt here" [options]
+ *   ./ag summarize /path/to/folder
+ *   ./ag agents
+ *   ./ag sessions
+ *   ./ag new --mode coder --dir /path/to/project
+ *
+ * Options:
+ *   --mode <mode>     Session mode: general, coder, intense-research, spark
+ *   --dir <path>      Working directory for the session
+ *   --model <model>   Model to use: sonnet, opus, haiku
+ *   --agent <name>    Spawn specific agent(s), comma-separated
+ *   --session <id>    Use existing session
+ *   --json            Output as JSON
+ */
+
+const API_BASE = 'http://localhost:3001';
+
+interface CLIResponse {
+  success: boolean;
+  data?: unknown;
+  error?: string;
+}
+
+async function apiCall(action: string, params: Record<string, unknown> = {}): Promise<CLIResponse> {
+  try {
+    const response = await fetch(`${API_BASE}/api/cli`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, ...params }),
+    });
+
+    if (!response.ok) {
+      return { success: false, error: `HTTP ${response.status}: ${response.statusText}` };
+    }
+
+    return await response.json();
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('ECONNREFUSED')) {
+      return { success: false, error: 'Agent Girl server not running. Start with: bun run dev' };
+    }
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
+function parseArgs(args: string[]): {
+  command: string;
+  positional: string[];
+  options: Record<string, string>;
+} {
+  const command = args[0] || 'help';
+  const positional: string[] = [];
+  const options: Record<string, string> = {};
+
+  for (let i = 1; i < args.length; i++) {
+    const arg = args[i];
+    if (arg.startsWith('--')) {
+      const key = arg.slice(2);
+      const nextArg = args[i + 1];
+      if (nextArg && !nextArg.startsWith('--')) {
+        options[key] = nextArg;
+        i++;
+      } else {
+        options[key] = 'true';
+      }
+    } else if (!arg.startsWith('-')) {
+      positional.push(arg);
+    }
+  }
+
+  return { command, positional, options };
+}
+
+async function listAgents(json: boolean): Promise<void> {
+  const result = await apiCall('list-agents');
+
+  if (!result.success) {
+    console.error(`Error: ${result.error}`);
+    process.exit(1);
+  }
+
+  if (json) {
+    console.log(JSON.stringify(result.data, null, 2));
+    return;
+  }
+
+  const agents = (result.data as { agents: Array<{ id: string; description: string; model: string }> }).agents;
+  console.log('\n Available Agents:\n');
+  for (const agent of agents) {
+    console.log(`  ${agent.id}`);
+    console.log(`    ${agent.description.slice(0, 80)}...`);
+    console.log(`    Model: ${agent.model}\n`);
+  }
+}
+
+async function listSessions(json: boolean): Promise<void> {
+  const result = await apiCall('list-sessions');
+
+  if (!result.success) {
+    console.error(`Error: ${result.error}`);
+    process.exit(1);
+  }
+
+  if (json) {
+    console.log(JSON.stringify(result.data, null, 2));
+    return;
+  }
+
+  const data = result.data as { sessions: Array<{
+    id: string;
+    title: string;
+    mode: string;
+    workingDirectory: string;
+    messageCount: number;
+    updatedAt: string;
+  }>; total: number };
+
+  console.log(`\n Sessions (${data.total} total):\n`);
+  for (const session of data.sessions) {
+    const shortId = session.id.slice(0, 8);
+    const title = session.title.slice(0, 40);
+    const msgs = session.messageCount;
+    console.log(`  [${shortId}] ${title}${title.length >= 40 ? '...' : ''}`);
+    console.log(`           Mode: ${session.mode} | Messages: ${msgs}`);
+    if (session.workingDirectory) {
+      console.log(`           Dir: ${session.workingDirectory}`);
+    }
+    console.log('');
+  }
+}
+
+async function summarizeFolder(path: string, sessionId?: string, json = false): Promise<void> {
+  const result = await apiCall('summarize', {
+    workingDirectory: path,
+    sessionId,
+  });
+
+  if (!result.success) {
+    console.error(`Error: ${result.error}`);
+    process.exit(1);
+  }
+
+  if (json) {
+    console.log(JSON.stringify(result.data, null, 2));
+    return;
+  }
+
+  const data = result.data as {
+    title: string;
+    folderSummary: {
+      files: string[];
+      folders: string[];
+      projectType: string | null;
+      mainLanguage: string | null;
+    };
+    action?: string;
+    sessionId?: string;
+  };
+
+  console.log(`\n Folder Summary: ${path}\n`);
+  console.log(`  Generated Title: ${data.title}`);
+  if (data.folderSummary.projectType) {
+    console.log(`  Project Type: ${data.folderSummary.projectType}`);
+  }
+  if (data.folderSummary.mainLanguage) {
+    console.log(`  Main Language: ${data.folderSummary.mainLanguage}`);
+  }
+  console.log(`  Files: ${data.folderSummary.files.length}`);
+  console.log(`  Folders: ${data.folderSummary.folders.length}`);
+
+  if (data.sessionId) {
+    console.log(`\n  Session ${data.sessionId.slice(0, 8)} updated with new title`);
+  }
+}
+
+async function createSession(options: Record<string, string>, json: boolean): Promise<void> {
+  const result = await apiCall('create-session', {
+    workingDirectory: options.dir,
+    mode: options.mode || 'general',
+  });
+
+  if (!result.success) {
+    console.error(`Error: ${result.error}`);
+    process.exit(1);
+  }
+
+  if (json) {
+    console.log(JSON.stringify(result.data, null, 2));
+    return;
+  }
+
+  const data = result.data as {
+    sessionId: string;
+    title: string;
+    mode: string;
+    workingDirectory: string;
+  };
+
+  console.log(`\n New Session Created:\n`);
+  console.log(`  ID: ${data.sessionId}`);
+  console.log(`  Mode: ${data.mode}`);
+  if (data.workingDirectory) {
+    console.log(`  Directory: ${data.workingDirectory}`);
+  }
+  console.log(`\n  Open in browser: ${API_BASE}/#${data.sessionId}`);
+}
+
+async function handleChat(prompt: string, options: Record<string, string>, json: boolean): Promise<void> {
+  const result = await apiCall('chat', {
+    prompt,
+    sessionId: options.session,
+    workingDirectory: options.dir,
+    mode: options.mode,
+    agents: options.agent?.split(','),
+    model: options.model,
+  });
+
+  if (!result.success) {
+    console.error(`Error: ${result.error}`);
+    process.exit(1);
+  }
+
+  if (json) {
+    console.log(JSON.stringify(result.data, null, 2));
+    return;
+  }
+
+  const data = result.data as { message: string; websocketUrl: string; payloadFormat: unknown };
+
+  console.log(`\n Chat Request Prepared:\n`);
+  console.log(`  ${data.message}`);
+  console.log(`\n  WebSocket URL: ${data.websocketUrl}`);
+  console.log(`\n  Payload Format:`);
+  console.log(JSON.stringify(data.payloadFormat, null, 4));
+  console.log(`\n  Open in browser: ${API_BASE} to send the message interactively`);
+}
+
+function showHelp(): void {
+  console.log(`
+ Agent Girl CLI
+
+ Usage:
+   ag <command> [options]
+
+ Commands:
+   agents                    List available agents
+   sessions                  List recent sessions
+   new                       Create new session
+   summarize <path>          Summarize folder contents
+   chat "<prompt>"           Prepare chat request
+
+ Options:
+   --mode <mode>             Session mode: general, coder, intense-research, spark
+   --dir <path>              Working directory
+   --model <model>           Model: sonnet, opus, haiku
+   --agent <name>            Spawn agent(s), comma-separated
+   --session <id>            Use existing session ID
+   --json                    Output as JSON
+
+ Examples:
+   ag agents
+   ag sessions --json
+   ag new --mode coder --dir ~/projects/myapp
+   ag summarize ~/projects/myapp
+   ag summarize ~/projects/myapp --session abc123
+   ag chat "Fix the bug in auth.ts" --mode coder --dir ~/projects/myapp
+
+ Note: Agent Girl server must be running (bun run dev)
+`);
+}
+
+// Main execution
+const { command, positional, options } = parseArgs(process.argv.slice(2));
+const json = options.json === 'true';
+
+switch (command) {
+  case 'agents':
+    await listAgents(json);
+    break;
+
+  case 'sessions':
+    await listSessions(json);
+    break;
+
+  case 'new':
+    await createSession(options, json);
+    break;
+
+  case 'summarize':
+    if (!positional[0]) {
+      console.error('Error: Path required. Usage: ag summarize /path/to/folder');
+      process.exit(1);
+    }
+    await summarizeFolder(positional[0], options.session, json);
+    break;
+
+  case 'chat':
+    if (!positional[0]) {
+      console.error('Error: Prompt required. Usage: ag chat "Your message"');
+      process.exit(1);
+    }
+    await handleChat(positional[0], options, json);
+    break;
+
+  case 'help':
+  case '--help':
+  case '-h':
+  default:
+    showHelp();
+    break;
+}

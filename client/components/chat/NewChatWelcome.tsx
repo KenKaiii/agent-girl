@@ -28,7 +28,7 @@ import { CommandTextRenderer } from '../message/CommandTextRenderer';
 interface NewChatWelcomeProps {
   inputValue: string;
   onInputChange: (value: string) => void;
-  onSubmit: (files?: FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified') => void;
+  onSubmit: (files?: FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified' | 'build') => void;
   onStop?: () => void;
   disabled?: boolean;
   isGenerating?: boolean;
@@ -36,8 +36,8 @@ interface NewChatWelcomeProps {
   onTogglePlanMode?: () => void;
   availableCommands?: SlashCommand[];
   onOpenBuildWizard?: () => void;
-  mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified';
-  onModeChange?: (mode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified') => void;
+  mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified' | 'build';
+  onModeChange?: (mode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified' | 'build') => void;
 }
 
 const CAPABILITIES = [
@@ -108,7 +108,7 @@ export const NewChatWelcome = memo(function NewChatWelcome({ inputValue, onInput
   const [isFocused, setIsFocused] = useState(false);
 
   // Mode selection state (synchronized with parent via props)
-  const [selectedMode, setSelectedMode] = useState<'general' | 'coder' | 'intense-research' | 'spark' | 'unified'>(mode || 'general');
+  const [selectedMode, setSelectedMode] = useState<'general' | 'coder' | 'intense-research' | 'spark' | 'unified' | 'build'>(mode || 'general');
 
   // Sync local mode state with prop when it changes
   useEffect(() => {
@@ -118,7 +118,7 @@ export const NewChatWelcome = memo(function NewChatWelcome({ inputValue, onInput
   }, [mode]);
 
   // Handle mode change from indicator - memoized
-  const handleModeIndicatorChange = useCallback((newMode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified') => {
+  const handleModeIndicatorChange = useCallback((newMode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified' | 'build') => {
     setSelectedMode(newMode);
     onModeChange?.(newMode);
   }, [onModeChange]);

@@ -8,20 +8,16 @@
  * Features: Template gallery, instant preview, zero-config start
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import {
   Rocket,
   Globe,
   FileText,
   ShoppingCart,
   Briefcase,
-  Image,
   Code,
   Sparkles,
   ArrowRight,
-  Check,
-  Loader2,
-  ExternalLink,
   Palette,
   Layout,
   Zap,
@@ -62,7 +58,7 @@ const TEMPLATES: Template[] = [
     icon: <Rocket size={24} />,
     gradient: 'from-blue-500 to-purple-600',
     features: ['Hero Section', 'Feature Grid', 'Testimonials', 'CTA Buttons', 'SEO Ready'],
-    command: '/new landing-modern',
+    command: '/landing saas "Modern Landing Page"',
     popular: true,
   },
   {
@@ -73,7 +69,7 @@ const TEMPLATES: Template[] = [
     icon: <Palette size={24} />,
     gradient: 'from-pink-500 to-rose-600',
     features: ['Projekt Galerie', 'About Section', 'Kontaktformular', 'Responsive'],
-    command: '/new portfolio-minimal',
+    command: '/landing creative "Portfolio Website"',
   },
   {
     id: 'blog-starter',
@@ -83,7 +79,7 @@ const TEMPLATES: Template[] = [
     icon: <FileText size={24} />,
     gradient: 'from-green-500 to-emerald-600',
     features: ['MDX Support', 'Tag System', 'Suche', 'RSS Feed', 'Dark Mode'],
-    command: '/new blog-starter',
+    command: 'Create a blog with Astro 5, MDX support, tag system, search functionality, RSS feed, and dark mode. Use Content Collections for posts.',
   },
   {
     id: 'business-pro',
@@ -93,7 +89,7 @@ const TEMPLATES: Template[] = [
     icon: <Briefcase size={24} />,
     gradient: 'from-indigo-500 to-blue-600',
     features: ['Team Section', 'Services', 'Testimonials', 'Kontakt', 'Google Maps'],
-    command: '/new business-pro',
+    command: '/landing fintech "Business Pro Website"',
     popular: true,
   },
   {
@@ -104,7 +100,7 @@ const TEMPLATES: Template[] = [
     icon: <ShoppingCart size={24} />,
     gradient: 'from-orange-500 to-amber-600',
     features: ['Produktkatalog', 'Warenkorb', 'Checkout', 'Stripe Ready'],
-    command: '/new shop-starter',
+    command: '/landing ecommerce "Shop Starter"',
   },
   {
     id: 'docs-starlight',

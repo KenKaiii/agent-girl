@@ -274,7 +274,7 @@ export async function handleSessionRoutes(
   const modeSessionId = extractSessionId(pathname, ROUTE_PATTERNS.SESSION_MODE);
   if (modeSessionId && method === 'PATCH') {
     const sessionId = modeSessionId;
-    const body = await req.json() as { mode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' };
+    const body = await req.json() as { mode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' | 'autonom' };
 
     const success = sessionDb.updatePermissionMode(sessionId, body.mode);
 

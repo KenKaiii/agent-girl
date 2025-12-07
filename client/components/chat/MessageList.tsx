@@ -18,7 +18,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import React, { useEffect, useRef, useState, memo, useCallback, useMemo } from 'react';
+import React, { useEffect, useRef, useState, memo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { MessageRenderer } from '../message/MessageRenderer';
 import { Zap, Clock } from 'lucide-react';
@@ -50,7 +50,8 @@ interface MessageListProps {
 }
 
 export const MessageList = memo(function MessageList({ messages, isLoading, liveTokenCount = 0, scrollContainerRef, displayMode, showCode = true, onRemoveMessage }: MessageListProps) {
-  const parentRef = scrollContainerRef || useRef<HTMLDivElement>(null);
+  const internalRef = useRef<HTMLDivElement>(null);
+  const parentRef = scrollContainerRef || internalRef;
   const bottomRef = useRef<HTMLDivElement>(null);
 
   // Elapsed time tracking

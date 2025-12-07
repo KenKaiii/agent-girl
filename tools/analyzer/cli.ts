@@ -62,6 +62,7 @@ function parseArgs(): CLIOptions {
       case '--help':
         printHelp();
         process.exit(0);
+        break;
       case '--report':
         options.output = 'all';
         break;

@@ -44,6 +44,7 @@ if (oauthFlag) {
 }
 
 import { watch } from "fs";
+import { createServer } from "net";
 import { getDefaultWorkingDirectory, ensureDirectory } from "./directoryUtils";
 import { handleStaticFile } from "./staticFileServer";
 import { initializeStartup, checkNodeAvailability } from "./startup";
@@ -51,10 +52,41 @@ import { handleSessionRoutes } from "./routes/sessions";
 import { handleDirectoryRoutes } from "./routes/directory";
 import { handleUserConfigRoutes } from "./routes/userConfig";
 import { handleCommandRoutes } from "./routes/commands";
+import { handleCLIRequest } from "./routes/cli";
+import { handleProxyRoutes } from "./routes/proxy";
+import { handleBuildRoutes } from "./routes/build";
 import { handleWebSocketMessage } from "./websocket/messageHandlers";
 import { handleHealthCheck, handleLivenessProbe, handleReadinessProbe, updateWsStats } from "./routes/health";
 import { logger } from "./utils/logger";
 import type { ServerWebSocket, Server as ServerType } from "bun";
+
+/**
+ * Check if a port is available
+ */
+function isPortAvailable(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const tester = createServer()
+      .once('error', () => resolve(false))
+      .once('listening', () => {
+        tester.close(() => resolve(true));
+      })
+      .listen(port, '0.0.0.0');
+  });
+}
+
+/**
+ * Find the first available port starting from the given port
+ */
+async function findAvailablePort(startPort: number, maxAttempts = 10): Promise<number> {
+  for (let i = 0; i < maxAttempts; i++) {
+    const port = startPort + i;
+    if (await isPortAvailable(port)) {
+      return port;
+    }
+    logger.info(`Port ${port} is in use, trying next...`);
+  }
+  throw new Error(`No available port found in range ${startPort}-${startPort + maxAttempts - 1}`);
+}
 
 // Initialize startup configuration (loads env vars)
 // NOTE: PostCSS is lazy-loaded in staticFileServer.ts on first CSS request
@@ -100,8 +132,12 @@ if (!IS_STANDALONE) {
   });
 }
 
+// Find available port starting from 3000
+const DEFAULT_PORT = 3000;
+const availablePort = await findAvailablePort(DEFAULT_PORT);
+
 const server = Bun.serve({
-  port: 3001,
+  port: availablePort,
   idleTimeout: 255, // 4.25 minutes (Bun's maximum) - keepalive messages every 30s prevent timeout
 
   websocket: {
@@ -182,6 +218,23 @@ const server = Bun.serve({
       return commandResponse;
     }
 
+    // Try proxy routes (for cross-origin preview embedding)
+    const proxyResponse = await handleProxyRoutes(req, url);
+    if (proxyResponse) {
+      return proxyResponse;
+    }
+
+    // Try build routes (for auto project creation and dev server management)
+    const buildResponse = await handleBuildRoutes(req);
+    if (buildResponse) {
+      return buildResponse;
+    }
+
+    // CLI API endpoint for external control
+    if (url.pathname === '/api/cli' && req.method === 'POST') {
+      return handleCLIRequest(req);
+    }
+
     // Try to handle as static file
     const staticResponse = await handleStaticFile(req, {
       binaryDir: BINARY_DIR,
@@ -206,6 +259,9 @@ console.log(' ██║  ██║╚██████╔╝██████�
 console.log(' ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝        ╚═════╝ ╚═╝╚═╝  ╚═╝╚══════╝');
 console.log('\n');
 console.log(`  👉 Open here: http://localhost:${server.port}`);
+if (server.port !== DEFAULT_PORT) {
+  console.log(`  ⚠️  Port ${DEFAULT_PORT} was in use, using ${server.port} instead`);
+}
 console.log('\n');
 console.log('  ═══════════════════════════════════════════════════════════════════════════');
 console.log('\n');

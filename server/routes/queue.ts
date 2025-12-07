@@ -83,7 +83,7 @@ export async function handleQueueRoutes(req: Request, url: URL): Promise<Respons
   }
 
   // GET /api/queue/tasks/:taskId - Get task by ID
-  if (url.pathname.match(/^\/api\/queue\/tasks\/[^\/]+$/) && req.method === 'GET') {
+  if (url.pathname.match(/^\/api\/queue\/tasks\/[^/]+$/) && req.method === 'GET') {
     const taskId = url.pathname.split('/').pop();
     const task = queueSystem.taskQueue.getTask(taskId!);
 
@@ -119,7 +119,7 @@ export async function handleQueueRoutes(req: Request, url: URL): Promise<Respons
   }
 
   // PUT /api/queue/tasks/:taskId/cancel - Cancel a task
-  if (url.pathname.match(/^\/api\/queue\/tasks\/[^\/]+\/cancel$/) && req.method === 'PUT') {
+  if (url.pathname.match(/^\/api\/queue\/tasks\/[^/]+\/cancel$/) && req.method === 'PUT') {
     const taskId = url.pathname.split('/')[4];
     const success = queueSystem.taskQueue.cancelTask(taskId);
 
@@ -129,7 +129,7 @@ export async function handleQueueRoutes(req: Request, url: URL): Promise<Respons
   }
 
   // PUT /api/queue/tasks/:taskId/pause - Pause a task
-  if (url.pathname.match(/^\/api\/queue\/tasks\/[^\/]+\/pause$/) && req.method === 'PUT') {
+  if (url.pathname.match(/^\/api\/queue\/tasks\/[^/]+\/pause$/) && req.method === 'PUT') {
     const taskId = url.pathname.split('/')[4];
     const success = queueSystem.taskQueue.pauseTask(taskId);
 
@@ -139,7 +139,7 @@ export async function handleQueueRoutes(req: Request, url: URL): Promise<Respons
   }
 
   // PUT /api/queue/tasks/:taskId/resume - Resume a task
-  if (url.pathname.match(/^\/api\/queue\/tasks\/[^\/]+\/resume$/) && req.method === 'PUT') {
+  if (url.pathname.match(/^\/api\/queue\/tasks\/[^/]+\/resume$/) && req.method === 'PUT') {
     const taskId = url.pathname.split('/')[4];
     const success = queueSystem.taskQueue.resumeTask(taskId);
 
@@ -200,7 +200,7 @@ export async function handleQueueRoutes(req: Request, url: URL): Promise<Respons
   }
 
   // POST /api/queue/triggers/:triggerId/fire - Manually fire a trigger
-  if (url.pathname.match(/^\/api\/queue\/triggers\/[^\/]+\/fire$/) && req.method === 'POST') {
+  if (url.pathname.match(/^\/api\/queue\/triggers\/[^/]+\/fire$/) && req.method === 'POST') {
     const triggerId = url.pathname.split('/')[4];
     const task = await queueSystem.triggerEngine.manuallyFireTrigger(triggerId);
 

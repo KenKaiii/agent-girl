@@ -5,6 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Agent Girl</title>
     <link rel="icon" type="image/svg+xml" href="/client/agent-boy.svg">
+    <script src="/dist/tailwind.min.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                },
+            },
+        }
+    </script>
     <link rel="stylesheet" href="/dist/globals.css">
 </head>
 <body>

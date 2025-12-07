@@ -22,6 +22,7 @@ import type { ProviderType } from '../client/config/models';
 import type { AgentDefinition } from './agents';
 import type { UserConfig } from './userConfig';
 import { getUserDisplayName } from './userConfig';
+import { loadModePrompt } from './modes';
 
 /**
  * Format current date and time for the given timezone (compact version)
@@ -50,11 +51,20 @@ function formatCurrentDateTime(timezone?: string): string {
 
 /**
  * Build mode-specific base prompt with tailored personality
+ * First tries to load from modes/*.txt files, then falls back to hardcoded prompts
  */
 function buildModePrompt(mode: string, userConfig?: UserConfig): string {
   const userName = userConfig ? getUserDisplayName(userConfig) : null;
 
-  // Mode-specific personalities
+  // Try to load mode from .txt file first (build, unified, etc.)
+  const filePrompt = loadModePrompt(mode);
+  if (filePrompt) {
+    // For file-based modes, prepend user context if available
+    const userContext = userName ? `You are Agent Girl working with ${userName}.\n\n` : '';
+    return userContext + filePrompt;
+  }
+
+  // Fallback: Mode-specific personalities for modes without .txt files
   const modePrompts: Record<string, string> = {
     'general': `You are Agent Girl${userName ? ` talking to ${userName}` : ''}, a versatile AI assistant.
 

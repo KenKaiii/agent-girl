@@ -2,8 +2,12 @@
  * Task tool component - Sub-agent execution display with original styling
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import type { ToolUseBlock } from './types';
+import { useGeneration } from '../../../context/GenerationContext';
+
+// Timeout threshold for showing "stuck" indicator (30 seconds)
+const STUCK_THRESHOLD_MS = 30000;
 
 // Robot icon for agents
 const RobotIcon = () => (
@@ -138,13 +142,25 @@ function NestedToolDisplay({ toolUse }: { toolUse: ToolUseBlock }) {
   );
 }
 
-export function TaskToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
-  const [isExpanded, setIsExpanded] = useState(false);
+interface TaskToolProps {
+  toolUse: ToolUseBlock;
+}
 
-  let input: Record<string, unknown>;
-  let nestedToolsCount: number;
-  let agentName: string;
-  let gradientClass: string;
+export function TaskToolComponent({ toolUse }: TaskToolProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [isStuck, setIsStuck] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const startTimeRef = useRef(Date.now());
+
+  // Get generation state from context
+  const { isGenerating, onStop } = useGeneration();
+
+  // Parse tool data - compute values that will be used (handle errors gracefully)
+  let input: Record<string, unknown> = {};
+  let nestedToolsCount = 0;
+  let agentName = 'Unknown Agent';
+  let gradientClass = 'from-purple-500/20 to-blue-500/20';
+  let parseError: Error | null = null;
 
   try {
     input = toolUse.input || {};
@@ -152,18 +168,55 @@ export function TaskToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
     agentName = String(input.subagent_type || 'Unknown Agent');
     gradientClass = getAgentGradientClass(toolUse.id || 'default');
   } catch (e) {
+    parseError = e as Error;
+  }
+
+  // Live timer for elapsed seconds (updates every second while running)
+  useEffect(() => {
+    const isRunning = nestedToolsCount === 0 && isGenerating;
+    if (!isRunning) return;
+
+    const timer = setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - startTimeRef.current) / 1000));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [nestedToolsCount, isGenerating]);
+
+  // Detect stuck state (no nested tools after threshold)
+  useEffect(() => {
+    if (nestedToolsCount > 0) {
+      setIsStuck(false);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      if (nestedToolsCount === 0 && isGenerating) {
+        setIsStuck(true);
+      }
+    }, STUCK_THRESHOLD_MS);
+
+    return () => clearTimeout(timer);
+  }, [nestedToolsCount, isGenerating]);
+
+  // Handle parse error after hooks
+  if (parseError) {
     return (
       <div className="w-full border border-red-500/30 rounded-xl my-3 p-4 bg-red-900/20">
         <div className="text-sm text-red-400">
-          <strong>Task Tool Error:</strong> {(e as Error).message}
+          <strong>Task Tool Error:</strong> {parseError.message}
         </div>
       </div>
     );
   }
 
+  const _isRunning = nestedToolsCount === 0 && isGenerating;
+
   const summary = nestedToolsCount > 0
     ? `Used ${nestedToolsCount} tool${nestedToolsCount !== 1 ? 's' : ''}`
-    : 'Running...';
+    : isStuck
+      ? `Stuck (${elapsedSeconds}s) - No response`
+      : `Running... (${elapsedSeconds}s)`;
 
   return (
     <div className="w-full border border-white/10 rounded-xl my-3 overflow-hidden">
@@ -178,6 +231,16 @@ export function TaskToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
           </span>
         </div>
         <div className="flex gap-1 items-center whitespace-nowrap">
+          {/* Stop button when stuck */}
+          {isStuck && (
+            <button
+              onClick={onStop}
+              className="px-2 py-1 text-xs bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors"
+              title="Stop generation"
+            >
+              Stop
+            </button>
+          )}
           <button
             onClick={() => setIsExpanded(!isExpanded)}
             data-collapsed={!isExpanded}

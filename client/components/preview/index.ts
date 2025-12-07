@@ -38,3 +38,5 @@ export { MultiSelectEditor } from './MultiSelectEditor';
 export { ContextMenu } from './ContextMenu';
 export { QuickToolbar } from './QuickToolbar';
 export { SourceCodeEditor } from './SourceCodeEditor';
+export { SmartEditToolbar, useEditHistory } from './SmartEditToolbar';
+export type { EditHistoryEntry } from './SmartEditToolbar';

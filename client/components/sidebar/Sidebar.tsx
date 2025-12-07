@@ -95,7 +95,8 @@ interface Chat {
 
 // Format kebab-case folder names to readable display titles
 // e.g., "agent-girl-research" -> "Agent Girl Research"
-function formatDisplayTitle(title: string): string {
+function formatDisplayTitle(title: string | undefined | null): string {
+  if (!title) return 'New Chat';
   // Only transform pure kebab-case folder names (lowercase + dashes + numbers)
   if (/^[a-z0-9-]+$/.test(title)) {
     return title

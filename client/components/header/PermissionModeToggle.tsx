@@ -19,9 +19,9 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { ChevronDown, Check, Zap, Shield } from 'lucide-react';
+import { ChevronDown, Check, Zap, Shield, Rocket } from 'lucide-react';
 
-type PermissionMode = 'bypassPermissions' | 'plan';
+type PermissionMode = 'bypassPermissions' | 'plan' | 'autonom';
 
 interface PermissionModeToggleProps {
   selectedMode: PermissionMode;
@@ -40,6 +40,12 @@ const MODES = [
     name: 'Plan Mode',
     icon: Shield,
     description: 'Review changes before execution',
+  },
+  {
+    id: 'autonom' as const,
+    name: 'Autonom Mode',
+    icon: Rocket,
+    description: '100-step autonomous execution, no questions',
   },
 ];
 

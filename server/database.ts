@@ -33,7 +33,7 @@ export interface Session {
   updated_at: string;
   message_count: number;
   working_directory: string;
-  permission_mode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
+  permission_mode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' | 'autonom';
   mode: 'general' | 'coder' | 'intense-research' | 'spark';
   sdk_session_id?: string; // SDK's internal session ID for resume functionality
   context_input_tokens?: number;
@@ -638,7 +638,7 @@ class SessionDatabase {
     }
   }
 
-  updatePermissionMode(sessionId: string, mode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan'): boolean {
+  updatePermissionMode(sessionId: string, mode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' | 'autonom'): boolean {
     try {
       const result = this.db.run(
         "UPDATE sessions SET permission_mode = ?, updated_at = ? WHERE id = ?",
@@ -657,7 +657,7 @@ class SessionDatabase {
     }
   }
 
-  updateSessionMode(sessionId: string, mode: 'general' | 'coder' | 'intense-research' | 'spark'): boolean {
+  updateSessionMode(sessionId: string, mode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified' | 'build'): boolean {
     try {
       const result = this.db.run(
         "UPDATE sessions SET mode = ?, updated_at = ? WHERE id = ?",

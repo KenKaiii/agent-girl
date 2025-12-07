@@ -11,9 +11,6 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ChatContainer, type AIEditRequest, type AIProgressState, type ActionHistoryEntry } from '../chat/ChatContainer';
 import {
   ElementSelector,
-  ModeSelector,
-  SelectionToolbar,
-  FloatingPrompt,
   AIEditPanel,
   LocalDataManager,
   useLocalData,
@@ -22,6 +19,7 @@ import {
   PortFinder,
 } from '../preview';
 import type { SelectedElement, SelectionMode } from '../preview';
+import { SmartEditToolbar, useEditHistory, type EditHistoryEntry, type PageSection } from '../preview/SmartEditToolbar';
 import {
   Monitor,
   Smartphone,
@@ -31,7 +29,6 @@ import {
   Minimize2,
   Globe,
   Tablet,
-  Pencil,
   Database,
   Laptop,
   ChevronDown,
@@ -45,6 +42,7 @@ import {
   ChevronRight,
   CheckCircle2,
   XCircle,
+  PenTool,
 } from 'lucide-react';
 
 // Extended device types with real device presets
@@ -80,6 +78,79 @@ const DEVICE_PRESETS: DevicePreset[] = [
   { id: 'android-small', name: 'Android Small (360×640)', width: 360, height: 640, category: 'mobile', icon: 'smartphone' },
 ];
 
+// Section detection patterns for common page structures
+const SECTION_PATTERNS: Array<{
+  selector: string;
+  name: string;
+  icon: PageSection['icon'];
+  priority: number;
+}> = [
+  { selector: 'header, [role="banner"]', name: 'Header', icon: 'header', priority: 1 },
+  { selector: 'nav, [role="navigation"]', name: 'Navigation', icon: 'nav', priority: 2 },
+  { selector: '.hero, #hero, [class*="hero"], section:first-of-type', name: 'Hero', icon: 'hero', priority: 3 },
+  { selector: 'main, [role="main"]', name: 'Main Content', icon: 'content', priority: 4 },
+  { selector: 'section', name: 'Section', icon: 'section', priority: 5 },
+  { selector: 'aside, [role="complementary"]', name: 'Sidebar', icon: 'sidebar', priority: 6 },
+  { selector: 'footer, [role="contentinfo"]', name: 'Footer', icon: 'footer', priority: 7 },
+];
+
+// Detect page sections from iframe document
+function detectPageSections(doc: Document): PageSection[] {
+  const sections: PageSection[] = [];
+  const processed = new Set<Element>();
+
+  for (const pattern of SECTION_PATTERNS) {
+    try {
+      const elements = doc.querySelectorAll(pattern.selector);
+      elements.forEach((el, index) => {
+        if (processed.has(el)) return;
+        processed.add(el);
+
+        const rect = el.getBoundingClientRect();
+        // Skip tiny or hidden elements
+        if (rect.width < 50 || rect.height < 50) return;
+
+        // Generate unique selector
+        let selector = el.tagName.toLowerCase();
+        if (el.id) {
+          selector = `#${el.id}`;
+        } else if (el.className && typeof el.className === 'string') {
+          const firstClass = el.className.split(' ')[0];
+          if (firstClass) selector = `.${firstClass}`;
+        }
+
+        // Determine section name from content or pattern
+        let name = pattern.name;
+        const heading = el.querySelector('h1, h2, h3');
+        if (heading?.textContent) {
+          const headingText = heading.textContent.trim().slice(0, 20);
+          if (headingText) name = headingText;
+        }
+
+        // For generic sections, add index
+        if (pattern.name === 'Section' && elements.length > 1) {
+          name = `${name} ${index + 1}`;
+        }
+
+        sections.push({
+          id: `section-${sections.length}`,
+          name,
+          tag: el.tagName.toLowerCase(),
+          selector,
+          bounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+          elementCount: el.querySelectorAll('*').length,
+          icon: pattern.icon,
+        });
+      });
+    } catch {
+      // Selector might fail, skip
+    }
+  }
+
+  // Sort by vertical position (top to bottom)
+  return sections.sort((a, b) => a.bounds.y - b.bounds.y);
+}
+
 export function SplitScreenLayout() {
   // Preview panel state
   const [showPreview, setShowPreview] = useState(() => {
@@ -106,18 +177,24 @@ export function SplitScreenLayout() {
   // Is preview maximized (full width)
   const [isPreviewMaximized, setIsPreviewMaximized] = useState(false);
 
-  // Element selection mode state
-  const [isSelectionMode, setIsSelectionMode] = useState(false);
-  const [selectionMode, setSelectionMode] = useState<SelectionMode>('element');
+  // Element selection mode state - always enabled for smart editing
+  const [isSelectionMode, setIsSelectionMode] = useState(true);
+  const [selectionMode, setSelectionMode] = useState<SelectionMode>('smart');
+
+  // Edit history for undo/redo (50 steps max)
+  const editHistoryHook = useEditHistory(50);
   const [selectedElements, setSelectedElements] = useState<SelectedElement[]>([]);
   const [isAIEditPanelOpen, setIsAIEditPanelOpen] = useState(false);
   const [isLocalDataManagerOpen, setIsLocalDataManagerOpen] = useState(false);
   const [showFloatingPrompt, setShowFloatingPrompt] = useState(false);
-  const [floatingPromptPosition, setFloatingPromptPosition] = useState({ x: 0, y: 0 });
+  const [_floatingPromptPosition, _setFloatingPromptPosition] = useState({ x: 0, y: 0 });
   const { fields: localDataFields, setFields: setLocalDataFields } = useLocalData();
 
   // AI Edit handler from ChatContainer
   const aiEditHandlerRef = useRef<((request: AIEditRequest) => void) | null>(null);
+
+  // Input value setter from ChatContainer for direct prompt loading
+  const setInputValueRef = useRef<((value: string) => void) | null>(null);
 
   // AI progress state for showing tool usage in preview header
   const [aiProgress, setAIProgress] = useState<AIProgressState>({
@@ -151,6 +228,10 @@ export function SplitScreenLayout() {
   const [showActionHistory, setShowActionHistory] = useState(false);
   const actionHistoryRef = useRef<HTMLDivElement>(null);
 
+  // Page sections for navigation
+  const [pageSections, setPageSections] = useState<PageSection[]>([]);
+  const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
+
   // Persist action history to localStorage
   useEffect(() => {
     try {
@@ -163,6 +244,25 @@ export function SplitScreenLayout() {
   // Refs for drag handling - use refs for immediate access without re-renders
   const containerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  // Convert external localhost URLs to proxy URLs for cross-origin iframe access
+  const proxiedPreviewUrl = React.useMemo(() => {
+    if (!previewUrl) return null;
+    try {
+      const url = new URL(previewUrl);
+      const currentPort = window.location.port || '3000';
+      // If it's localhost but on a different port, use proxy
+      if (
+        (url.hostname === 'localhost' || url.hostname === '127.0.0.1') &&
+        url.port !== currentPort
+      ) {
+        return `/api/proxy?url=${encodeURIComponent(previewUrl)}`;
+      }
+    } catch {
+      // Invalid URL, use as-is
+    }
+    return previewUrl;
+  }, [previewUrl]);
 
   // Live reload hook - auto-refresh on file changes
   const { refresh: refreshPreview, isReloading } = useLiveReload(
@@ -432,25 +532,423 @@ export function SplitScreenLayout() {
       const x = Math.min(lastElement.bounds.x + lastElement.bounds.width + 20, containerRect.width - 320);
       const y = Math.max(lastElement.bounds.y, 60);
 
-      setFloatingPromptPosition({ x: Math.max(20, x), y });
+      _setFloatingPromptPosition({ x: Math.max(20, x), y });
       setShowFloatingPrompt(true);
     } else {
       setShowFloatingPrompt(false);
     }
   }, []);
 
-  const handleClearSelection = useCallback(() => {
+  const _handleClearSelection = useCallback(() => {
     setSelectedElements([]);
     setShowFloatingPrompt(false);
   }, []);
 
-  const handleSubmitToAI = useCallback(() => {
+  const _handleSubmitToAI = useCallback(() => {
     setShowFloatingPrompt(false);
     setIsAIEditPanelOpen(true);
   }, []);
 
-  // Handle floating prompt submission
-  const handleFloatingPromptSubmit = useCallback((prompt: string) => {
+  // Load selection directly into chat input as a prompt template
+  const handleLoadToChat = useCallback(() => {
+    if (!setInputValueRef.current || selectedElements.length === 0) return;
+
+    const el = selectedElements[0];
+
+    // Build a smart prompt based on element type and content
+    let promptTemplate = '';
+
+    if (el.tagName.toLowerCase() === 'img') {
+      promptTemplate = `Bild bearbeiten: [${el.selector}]\nAktuell: src="${el.textContent || 'keine Quelle'}"\n\nWas soll geändert werden? `;
+    } else if (el.tagName.toLowerCase() === 'a') {
+      promptTemplate = `Link bearbeiten: [${el.selector}]\nText: "${el.textContent?.trim() || ''}"\n\nWas soll geändert werden? `;
+    } else if (el.tagName.match(/^h[1-6]$/i)) {
+      promptTemplate = `Überschrift bearbeiten:\n"${el.textContent?.trim() || ''}"\n\nNeuer Text: `;
+    } else if (el.tagName.toLowerCase() === 'button') {
+      promptTemplate = `Button bearbeiten:\n"${el.textContent?.trim() || ''}"\n\nWas soll geändert werden? `;
+    } else if (el.textContent && el.textContent.trim().length > 0) {
+      const text = el.textContent.trim();
+      const truncated = text.length > 100 ? text.substring(0, 100) + '...' : text;
+      promptTemplate = `Text bearbeiten:\n"${truncated}"\n\nNeuer Text: `;
+    } else {
+      // Generic element with styles
+      promptTemplate = `Element bearbeiten: <${el.tagName.toLowerCase()}>\nSelector: ${el.selector}\n${el.className ? `Klassen: ${el.className}\n` : ''}\nWas soll geändert werden? `;
+    }
+
+    // Add context for multiple selections
+    if (selectedElements.length > 1) {
+      promptTemplate = `${selectedElements.length} Elemente ausgewählt:\n` +
+        selectedElements.map((e, i) => `${i + 1}. <${e.tagName.toLowerCase()}> "${e.textContent?.trim().substring(0, 30) || ''}..."`).join('\n') +
+        '\n\nWas soll geändert werden? ';
+    }
+
+    // Set the input value and hide floating prompt
+    setInputValueRef.current(promptTemplate);
+    setShowFloatingPrompt(false);
+    setIsSelectionMode(false);
+  }, [selectedElements]);
+
+  // Handle inline text edit from SmartEditToolbar
+  const handleSmartTextEdit = useCallback((selector: string, newText: string) => {
+    if (selectedElements.length === 0) return;
+    const oldText = selectedElements[0].textContent || '';
+
+    // Add to history
+    editHistoryHook.addEntry({
+      selector,
+      type: 'text',
+      oldValue: oldText,
+      newValue: newText,
+      element: selectedElements[0],
+    });
+
+    // Apply edit via iframe
+    if (iframeRef.current?.contentDocument) {
+      try {
+        const el = iframeRef.current.contentDocument.querySelector(selector);
+        if (el) {
+          el.textContent = newText;
+        }
+      } catch {
+        console.error('Failed to apply text edit');
+      }
+    }
+  }, [selectedElements, editHistoryHook]);
+
+  // Handle AI edit from SmartEditToolbar
+  const handleSmartAIEdit = useCallback((prompt: string, elements: SelectedElement[]) => {
+    if (aiEditHandlerRef.current) {
+      // Build element context for the AI
+      const elementContext = elements.map((el, i) => ({
+        id: i + 1,
+        tagName: el.tagName,
+        selector: el.selector,
+        className: el.className,
+        textContent: el.textContent?.substring(0, 200),
+        path: el.path.join(' > '),
+      }));
+
+      aiEditHandlerRef.current({
+        prompt,
+        elements: elementContext,
+        previewUrl: previewUrl || '',
+      });
+    }
+  }, [previewUrl]);
+
+  // Handle undo from SmartEditToolbar (reserved for future use)
+  const _handleSmartUndo = useCallback((entry: EditHistoryEntry) => {
+    if (iframeRef.current?.contentDocument) {
+      try {
+        const el = iframeRef.current.contentDocument.querySelector(entry.selector);
+        if (el) {
+          el.textContent = entry.oldValue;
+        }
+      } catch {
+        console.error('Failed to undo edit');
+      }
+    }
+    editHistoryHook.undo();
+  }, [editHistoryHook]);
+
+  // Handle redo from SmartEditToolbar (reserved for future use)
+  const _handleSmartRedo = useCallback((entry: EditHistoryEntry) => {
+    if (iframeRef.current?.contentDocument) {
+      try {
+        const el = iframeRef.current.contentDocument.querySelector(entry.selector);
+        if (el) {
+          el.textContent = entry.newValue;
+        }
+      } catch {
+        console.error('Failed to redo edit');
+      }
+    }
+    editHistoryHook.redo();
+  }, [editHistoryHook]);
+
+  // Find element in source code without AI - uses text/class search
+  const handleFindInCode = useCallback(async (element: SelectedElement) => {
+    // Build search patterns based on element content
+    const searchPatterns: string[] = [];
+
+    // Use text content if available (most reliable)
+    if (element.textContent && element.textContent.length > 3 && element.textContent.length < 100) {
+      searchPatterns.push(element.textContent.trim());
+    }
+
+    // Use class names
+    if (element.className) {
+      const classes = element.className.split(' ').filter(c => c.length > 2);
+      classes.slice(0, 2).forEach(cls => {
+        searchPatterns.push(`className="${cls}`);
+        searchPatterns.push(`class="${cls}`);
+        searchPatterns.push(`"${cls}"`);
+      });
+    }
+
+    // Use element ID
+    if (element.elementId) {
+      searchPatterns.push(`id="${element.elementId}"`);
+    }
+
+    // Build a search prompt for the chat
+    const searchQuery = searchPatterns.slice(0, 3).join('" oder "');
+    const prompt = `Finde im Code wo dieses Element definiert ist:
+- Tag: <${element.tagName}>
+- Klassen: ${element.className || 'keine'}
+- Text: "${element.textContent?.substring(0, 50) || 'kein Text'}"
+- Selector: ${element.selector}
+
+Suche nach: "${searchQuery}"
+
+Zeige mir die Datei und Zeile wo dieses Element ist.`;
+
+    // Load into chat
+    if (setInputValueRef.current) {
+      setInputValueRef.current(prompt);
+    }
+  }, []);
+
+  // Replace image - show dialog or directly load into chat
+  const handleReplaceImage = useCallback((element: SelectedElement) => {
+    // Get image src from innerHTML
+    const srcMatch = element.innerHTML?.match(/src=["']([^"']+)["']/);
+    const imgSrc = srcMatch?.[1] || '';
+
+    const prompt = `Ersetze dieses Bild:
+- Aktueller Pfad: ${imgSrc}
+- Selector: ${element.selector}
+- Klassen: ${element.className || 'keine'}
+
+Was soll das neue Bild sein?`;
+
+    // Load into chat
+    if (setInputValueRef.current) {
+      setInputValueRef.current(prompt);
+    }
+  }, []);
+
+  // Send prompt to chat for review/editing (onSendToChat callback for SmartEditToolbar)
+  const handleSendToChat = useCallback((prompt: string) => {
+    if (setInputValueRef.current) {
+      setInputValueRef.current(prompt);
+    }
+  }, []);
+
+  // Delete element in preview
+  const handleDeleteElement = useCallback((element: SelectedElement) => {
+    if (iframeRef.current?.contentDocument) {
+      try {
+        const el = iframeRef.current.contentDocument.querySelector(element.selector);
+        if (el) {
+          el.remove();
+          setSelectedElements([]);
+        }
+      } catch {
+        console.error('Failed to delete element');
+      }
+    }
+  }, []);
+
+  // Toggle element visibility
+  const handleToggleVisibility = useCallback((element: SelectedElement) => {
+    if (iframeRef.current?.contentDocument) {
+      try {
+        const el = iframeRef.current.contentDocument.querySelector(element.selector) as HTMLElement;
+        if (el) {
+          const isHidden = el.style.display === 'none' || el.style.visibility === 'hidden';
+          if (isHidden) {
+            el.style.display = '';
+            el.style.visibility = '';
+          } else {
+            el.style.visibility = 'hidden';
+          }
+        }
+      } catch {
+        console.error('Failed to toggle visibility');
+      }
+    }
+  }, []);
+
+  // Select parent element
+  const handleSelectParent = useCallback((element: SelectedElement) => {
+    if (iframeRef.current?.contentDocument) {
+      try {
+        const el = iframeRef.current.contentDocument.querySelector(element.selector);
+        const parent = el?.parentElement;
+        if (parent && parent.tagName !== 'BODY' && parent.tagName !== 'HTML') {
+          // Build selector for parent
+          const parentSelector = parent.id
+            ? `#${parent.id}`
+            : parent.className
+              ? `.${parent.className.split(' ')[0]}`
+              : parent.tagName.toLowerCase();
+
+          // Get bounds
+          const rect = parent.getBoundingClientRect();
+
+          // Determine element type
+          const tag = parent.tagName.toUpperCase();
+          const elementType = ['H1', 'H2', 'H3', 'H4', 'H5', 'H6'].includes(tag) ? 'heading' as const
+            : ['P', 'SPAN', 'LABEL'].includes(tag) ? 'text' as const
+            : tag === 'IMG' ? 'image' as const
+            : tag === 'BUTTON' ? 'button' as const
+            : tag === 'A' ? 'link' as const
+            : ['INPUT', 'TEXTAREA', 'SELECT'].includes(tag) ? 'input' as const
+            : ['UL', 'OL', 'LI'].includes(tag) ? 'list' as const
+            : ['DIV', 'SECTION', 'ARTICLE', 'NAV', 'HEADER', 'FOOTER', 'MAIN', 'ASIDE'].includes(tag) ? 'container' as const
+            : 'unknown' as const;
+
+          const newElement: SelectedElement = {
+            id: crypto.randomUUID(),
+            selector: parentSelector,
+            tagName: parent.tagName.toLowerCase(),
+            className: parent.className,
+            elementId: parent.id,
+            textContent: parent.textContent?.substring(0, 100) || '',
+            innerHTML: parent.innerHTML.substring(0, 200),
+            bounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+            path: [...element.path.slice(0, -1)],
+            elementType,
+            isEditable: ['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'SPAN', 'A', 'BUTTON', 'LABEL', 'LI'].includes(parent.tagName),
+          };
+          setSelectedElements([newElement]);
+        }
+      } catch {
+        console.error('Failed to select parent');
+      }
+    }
+  }, [setSelectedElements]);
+
+  // Select first child element
+  const handleSelectChild = useCallback((element: SelectedElement) => {
+    if (iframeRef.current?.contentDocument) {
+      try {
+        const el = iframeRef.current.contentDocument.querySelector(element.selector);
+        const child = el?.firstElementChild as HTMLElement;
+        if (child) {
+          const childSelector = child.id
+            ? `#${child.id}`
+            : child.className
+              ? `.${child.className.split(' ')[0]}`
+              : `${element.selector} > ${child.tagName.toLowerCase()}`;
+
+          // Get bounds
+          const rect = child.getBoundingClientRect();
+
+          // Determine element type
+          const tag = child.tagName.toUpperCase();
+          const elementType = ['H1', 'H2', 'H3', 'H4', 'H5', 'H6'].includes(tag) ? 'heading' as const
+            : ['P', 'SPAN', 'LABEL'].includes(tag) ? 'text' as const
+            : tag === 'IMG' ? 'image' as const
+            : tag === 'BUTTON' ? 'button' as const
+            : tag === 'A' ? 'link' as const
+            : ['INPUT', 'TEXTAREA', 'SELECT'].includes(tag) ? 'input' as const
+            : ['UL', 'OL', 'LI'].includes(tag) ? 'list' as const
+            : ['DIV', 'SECTION', 'ARTICLE', 'NAV', 'HEADER', 'FOOTER', 'MAIN', 'ASIDE'].includes(tag) ? 'container' as const
+            : 'unknown' as const;
+
+          const newElement: SelectedElement = {
+            id: crypto.randomUUID(),
+            selector: childSelector,
+            tagName: child.tagName.toLowerCase(),
+            className: child.className,
+            elementId: child.id,
+            textContent: child.textContent?.substring(0, 100) || '',
+            innerHTML: child.innerHTML.substring(0, 200),
+            bounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+            path: [...element.path, child.tagName.toLowerCase()],
+            elementType,
+            isEditable: ['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'SPAN', 'A', 'BUTTON', 'LABEL', 'LI'].includes(child.tagName),
+          };
+          setSelectedElements([newElement]);
+        }
+      } catch {
+        console.error('Failed to select child');
+      }
+    }
+  }, [setSelectedElements]);
+
+  // Detect page sections when iframe loads
+  const detectSections = useCallback(() => {
+    if (iframeRef.current?.contentDocument) {
+      try {
+        const sections = detectPageSections(iframeRef.current.contentDocument);
+        setPageSections(sections);
+        setCurrentSectionIndex(0);
+      } catch {
+        console.error('Failed to detect sections');
+      }
+    }
+  }, []);
+
+  // Navigate between sections
+  const handleNavigateSection = useCallback((direction: 'prev' | 'next' | number) => {
+    let newIndex = currentSectionIndex;
+
+    if (typeof direction === 'number') {
+      newIndex = direction;
+    } else if (direction === 'prev') {
+      newIndex = Math.max(0, currentSectionIndex - 1);
+    } else {
+      newIndex = Math.min(pageSections.length - 1, currentSectionIndex + 1);
+    }
+
+    setCurrentSectionIndex(newIndex);
+
+    // Scroll to section in iframe
+    const section = pageSections[newIndex];
+    if (section && iframeRef.current?.contentDocument) {
+      try {
+        const el = iframeRef.current.contentDocument.querySelector(section.selector);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      } catch {
+        // Ignore scroll errors
+      }
+    }
+  }, [currentSectionIndex, pageSections]);
+
+  // Select a section
+  const handleSelectSection = useCallback((section: PageSection) => {
+    if (iframeRef.current?.contentDocument) {
+      try {
+        const el = iframeRef.current.contentDocument.querySelector(section.selector) as HTMLElement;
+        if (el) {
+          // Scroll to section
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+          // Select the section element
+          const rect = el.getBoundingClientRect();
+          const tag = el.tagName.toUpperCase();
+          const elementType = ['DIV', 'SECTION', 'ARTICLE', 'NAV', 'HEADER', 'FOOTER', 'MAIN', 'ASIDE'].includes(tag)
+            ? 'container' as const
+            : 'unknown' as const;
+
+          const newElement: SelectedElement = {
+            id: crypto.randomUUID(),
+            selector: section.selector,
+            tagName: el.tagName.toLowerCase(),
+            className: typeof el.className === 'string' ? el.className : '',
+            elementId: el.id,
+            textContent: el.textContent?.substring(0, 100) || '',
+            innerHTML: el.innerHTML.substring(0, 200),
+            bounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+            path: [el.tagName.toLowerCase()],
+            elementType,
+            isEditable: false,
+          };
+          setSelectedElements([newElement]);
+        }
+      } catch {
+        console.error('Failed to select section');
+      }
+    }
+  }, []);
+
+  // Handle floating prompt submission (reserved for future use)
+  const _handleFloatingPromptSubmit = useCallback((prompt: string) => {
     // Build context and submit
     const elementContext = selectedElements.map((el, i) => ({
       id: i + 1,
@@ -541,14 +1039,19 @@ export function SplitScreenLayout() {
     setIsSelectionMode(false);
   }, [selectedElements, previewUrl, previewDevice, previewDimensions]);
 
+  // Clear selection
+  const clearSelection = useCallback(() => {
+    setSelectedElements([]);
+  }, []);
+
   // Toggle selection mode
   const toggleSelectionMode = useCallback(() => {
     setIsSelectionMode(prev => !prev);
     if (isSelectionMode) {
       // Clear selection when exiting
-      setSelectedElements([]);
+      clearSelection();
     }
-  }, [isSelectionMode]);
+  }, [isSelectionMode, clearSelection]);
 
   // Set preview URL manually
   const handleSetPreviewUrl = () => {
@@ -696,6 +1199,17 @@ export function SplitScreenLayout() {
             aiEditHandlerRef.current = handler;
           }}
           onAIProgressChange={handleAIProgressChange}
+          onInputValueSetter={(setter) => {
+            setInputValueRef.current = setter;
+          }}
+          selectedElements={selectedElements}
+          onClearSelection={() => setSelectedElements([])}
+          onBuildPreviewStart={(url) => {
+            // BUILD MODE: Auto-activate split-screen with dev server preview
+            setPreviewUrl(url);
+            setShowPreview(true);
+            console.log('[BUILD] Split-screen activated with preview:', url);
+          }}
         />
       </div>
 
@@ -754,6 +1268,20 @@ export function SplitScreenLayout() {
               borderBottom: '1px solid #222',
             }}
           >
+            {/* Editor Toggle Button - Top Left */}
+            <button
+              onClick={toggleSelectionMode}
+              className="p-1.5 rounded transition-all flex-shrink-0"
+              style={{
+                background: isSelectionMode ? 'rgba(139, 92, 246, 0.2)' : 'transparent',
+                color: isSelectionMode ? '#a78bfa' : '#666',
+                border: isSelectionMode ? '1px solid rgba(139, 92, 246, 0.4)' : '1px solid transparent',
+              }}
+              title={isSelectionMode ? 'Exit Edit Mode' : 'Enter Edit Mode'}
+            >
+              <PenTool size={14} />
+            </button>
+
             {/* URL Bar with Port Finder */}
             <PortFinder
               currentUrl={previewUrl}
@@ -889,28 +1417,6 @@ export function SplitScreenLayout() {
 
             {/* Right: Actions */}
             <div className="flex items-center gap-0.5">
-              {/* Selection Mode Selector - Only show when selection is active */}
-              {isSelectionMode && (
-                <ModeSelector
-                  mode={selectionMode}
-                  onModeChange={setSelectionMode}
-                />
-              )}
-
-              {/* Selection Mode Toggle */}
-              <button
-                onClick={toggleSelectionMode}
-                className="p-1.5 rounded transition-all"
-                style={{
-                  background: isSelectionMode ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
-                  color: isSelectionMode ? '#3b82f6' : '#666',
-                  boxShadow: isSelectionMode ? '0 0 0 1px rgba(59, 130, 246, 0.3)' : 'none',
-                }}
-                title={isSelectionMode ? 'Auswahl beenden (Esc)' : 'Elemente auswählen'}
-              >
-                <Pencil size={14} />
-              </button>
-
               {/* Local Data Manager */}
               <button
                 onClick={() => setIsLocalDataManagerOpen(true)}
@@ -1132,6 +1638,38 @@ export function SplitScreenLayout() {
             </div>
           </div>
 
+          {/* Second Toolbar Row - Edit Mode Tools */}
+          {isSelectionMode && (
+            <div
+              className="flex items-center justify-center px-3 flex-shrink-0"
+              style={{
+                height: '36px',
+                background: 'linear-gradient(to bottom, #0d0d0f 0%, #0a0a0c 100%)',
+                borderBottom: '1px solid #222',
+              }}
+            >
+              <SmartEditToolbar
+                isActive={isSelectionMode}
+                selectedElements={selectedElements}
+                onClearSelection={clearSelection}
+                onTextEdit={handleSmartTextEdit}
+                onAIEdit={handleSmartAIEdit}
+                onSendToChat={handleSendToChat}
+                onLoadToChat={handleLoadToChat}
+                onFindInCode={handleFindInCode}
+                onReplaceImage={handleReplaceImage}
+                onDeleteElement={handleDeleteElement}
+                onToggleVisibility={handleToggleVisibility}
+                onSelectParent={handleSelectParent}
+                onSelectChild={handleSelectChild}
+                sections={pageSections}
+                currentSectionIndex={currentSectionIndex}
+                onNavigateSection={handleNavigateSection}
+                onSelectSection={handleSelectSection}
+              />
+            </div>
+          )}
+
           {/* Preview Content */}
           <div
             ref={previewContentRef}
@@ -1178,11 +1716,14 @@ export function SplitScreenLayout() {
 
                 <iframe
                   ref={iframeRef}
-                  src={previewUrl}
+                  src={proxiedPreviewUrl || ''}
                   className="w-full h-full border-none"
                   style={{ background: '#fff' }}
                   title="Preview"
-                  sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
+                  onLoad={() => {
+                    // Detect page sections after iframe loads
+                    setTimeout(detectSections, 500);
+                  }}
                 />
 
                 {/* Element Selector Overlay */}
@@ -1194,7 +1735,7 @@ export function SplitScreenLayout() {
                   onSelectionChange={handleSelectionChange}
                   onModeChange={setSelectionMode}
                   onOpenPrompt={(element, pos) => {
-                    setFloatingPromptPosition(pos);
+                    _setFloatingPromptPosition(pos);
                     setShowFloatingPrompt(true);
                   }}
                   onInlineEdit={(element, newText) => {
@@ -1235,28 +1776,8 @@ export function SplitScreenLayout() {
               </div>
             )}
 
-            {/* Selection Toolbar - Floating at bottom */}
-            {isSelectionMode && previewUrl && (
-              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20">
-                <SelectionToolbar
-                  selectedElements={selectedElements}
-                  selectionMode={selectionMode}
-                  onModeChange={setSelectionMode}
-                  onClearSelection={handleClearSelection}
-                  onSubmitToAI={handleSubmitToAI}
-                />
-              </div>
-            )}
-
-            {/* Floating Prompt - Next to selection */}
-            {showFloatingPrompt && selectedElements.length > 0 && (
-              <FloatingPrompt
-                element={selectedElements[selectedElements.length - 1]}
-                position={floatingPromptPosition}
-                onSubmit={handleFloatingPromptSubmit}
-                onClose={() => setShowFloatingPrompt(false)}
-              />
-            )}
+            {/* Selection Toolbar removed - SmartEditToolbar handles everything now */}
+            {/* FloatingPrompt removed - editing is handled in ChatInput now */}
 
             {/* AI Edit Panel */}
             <AIEditPanel

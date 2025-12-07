@@ -20,7 +20,7 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Press+Start+2P&display=swap');
 
-@import "tailwindcss";
+/* Tailwind loaded via CDN in index.html */
 
 /* Sidebar responsive styles */
 .sidebar-new-chat-btn {
@@ -448,6 +448,167 @@
 
 .stop-button-active:hover {
   opacity: 0.9;
+}
+
+/* Smart Edit Toolbar - Amber-themed edit mode toolbar */
+.toolbar-gradient {
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.12), rgba(245, 158, 11, 0.08));
+  border: 1px solid rgba(251, 191, 36, 0.25);
+  box-shadow:
+    0 2px 12px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(8px);
+}
+
+.toolbar-gradient:hover {
+  border-color: rgba(251, 191, 36, 0.35);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* Activity Progress Bar - Slim status indicator */
+.activity-progress-bar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  margin: 0.5rem 1rem 0.75rem 1rem;
+  padding: 0.625rem 0.875rem;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(24, 26, 30, 0.98), rgba(30, 32, 38, 0.98));
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  overflow: hidden;
+  backdrop-filter: blur(12px);
+  box-shadow:
+    0 4px 20px rgba(99, 102, 241, 0.15),
+    0 0 40px rgba(139, 92, 246, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  animation: progress-bar-glow 2s ease-in-out infinite;
+}
+
+@keyframes progress-bar-glow {
+  0%, 100% { box-shadow: 0 4px 20px rgba(99, 102, 241, 0.15), 0 0 40px rgba(139, 92, 246, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.05); }
+  50% { box-shadow: 0 4px 30px rgba(99, 102, 241, 0.25), 0 0 60px rgba(139, 92, 246, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.08); }
+}
+
+.activity-progress-gradient {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(59, 130, 246, 0.05) 0%,
+    rgba(139, 92, 246, 0.08) 50%,
+    rgba(59, 130, 246, 0.05) 100%
+  );
+  animation: gradient-shift 3s ease infinite;
+  pointer-events: none;
+}
+
+@keyframes gradient-shift {
+  0%, 100% { transform: translateX(-100%); }
+  50% { transform: translateX(100%); }
+}
+
+.activity-progress-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.activity-progress-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.activity-progress-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+}
+
+.activity-progress-icon.spinning svg {
+  animation: spin 1s linear infinite;
+}
+
+.activity-progress-icon.done {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+
+.activity-progress-text {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+  letter-spacing: -0.01em;
+}
+
+.activity-progress-file {
+  font-size: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  color: rgba(139, 92, 246, 0.8);
+  background: rgba(139, 92, 246, 0.1);
+  padding: 0.125rem 0.375rem;
+  border-radius: 4px;
+}
+
+.activity-progress-time {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  color: rgba(99, 102, 241, 0.9);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.1));
+  padding: 0.3rem 0.625rem;
+  border-radius: 6px;
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  animation: time-pulse 1.5s ease-in-out infinite;
+  text-shadow: 0 0 10px rgba(99, 102, 241, 0.3);
+}
+
+@keyframes time-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.85; transform: scale(1.02); }
+}
+
+.activity-progress-line {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+}
+
+.activity-progress-line-inner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 30%;
+  background: linear-gradient(90deg, transparent, #3b82f6, #8b5cf6, transparent);
+  animation: progress-slide 1.5s ease-in-out infinite;
+}
+
+@keyframes progress-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 /* Plan mode gradient border with shimmer */

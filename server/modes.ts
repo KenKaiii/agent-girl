@@ -59,6 +59,11 @@ const MODE_CONFIGS: Record<string, ModeConfig> = {
     name: 'Unified',
     description: 'All-in-one mode with full capabilities',
   },
+  'autonom': {
+    id: 'autonom',
+    name: 'Autonom',
+    description: 'Dynamic 100-step autonomous execution for any task',
+  },
 };
 
 const modePromptCache = new Map<string, string>();

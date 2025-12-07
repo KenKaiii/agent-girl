@@ -396,7 +396,7 @@ function UnifiedDiffView({ lines, language, onCopyLine, copiedLine, filePath }: 
   );
 }
 
-function SplitDiffView({ lines, language, onCopyLine, copiedLine, filePath }: DiffViewProps) {
+function SplitDiffView({ lines, language, onCopyLine, copiedLine, filePath: _filePath }: DiffViewProps) {
   // Pair up removed/added lines for side-by-side display
   const pairs: Array<{ left: DiffLine | null; right: DiffLine | null }> = [];
   let i = 0;

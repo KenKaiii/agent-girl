@@ -36,13 +36,13 @@ import {
 } from 'lucide-react';
 import {
   ElementSelector,
-  ModeSelector,
-  SelectionToolbar,
   type SelectedElement,
   type SelectionMode,
 } from './ElementSelector';
 import { VisualEditor, type EditContext } from './VisualEditor';
 import { useLiveReload, detectFramework } from './PreviewIntelligence';
+import { usePreviewEditing } from '../../hooks/useProjectDiscovery';
+import { useFileSync } from '../../hooks/useFileSync';
 
 type DeviceMode = 'desktop' | 'tablet' | 'mobile';
 
@@ -90,6 +90,9 @@ export function BuildPreviewPanel({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Source file resolution state
+  const [resolvedSourceFile, setResolvedSourceFile] = useState<string | null>(null);
+
   // Live reload hook
   const { refresh, isReloading, lastReloadTime } = useLiveReload(
     iframeRef,
@@ -102,24 +105,55 @@ export function BuildPreviewPanel({
   // Detect framework
   const framework = previewUrl ? detectFramework(previewUrl) : null;
 
+  // Use preview editing hook for intelligent file routing
+  const {
+    projectPath: resolvedProjectPath,
+    sourceFile,
+    resolveElement,
+    framework: detectedFramework,
+  } = usePreviewEditing(previewUrl);
+
+  // Use the resolved or prop-provided project path
+  const activeProjectPath = resolvedProjectPath || workingDirectory || null;
+
+  // File sync hook for real file operations
+  const {
+    searchReplace,
+    applyStyle,
+    writeFile,
+    readFile,
+    searchFiles,
+    isLoading: isSyncing,
+    error: syncError,
+  } = useFileSync(activeProjectPath || undefined);
+
+  // Resolve source file when element is selected
+  useEffect(() => {
+    if (selectedElements.length > 0 && activeProjectPath) {
+      const el = selectedElements[0];
+      resolveElement(el.selector, el.tagName, el.className || '')
+        .then((match) => {
+          if (match) {
+            setResolvedSourceFile(match.path);
+          }
+        });
+    }
+  }, [selectedElements, activeProjectPath, resolveElement]);
+
   // Handle element selection change
   const handleSelectionChange = useCallback((elements: SelectedElement[]) => {
     setSelectedElements(elements);
     if (elements.length > 0) {
       setShowEditor(true);
-      // Position editor near the selected element
-      const el = elements[0];
-      setEditorPosition({
-        x: Math.min(el.bounds.x + el.bounds.width + 20, window.innerWidth - 340),
-        y: Math.min(el.bounds.y, window.innerHeight - 400),
-      });
+      // Dock editor to fixed position on the right side - no repositioning
+      // Only set position once, not on every selection change
     }
   }, []);
 
-  // Handle floating prompt open
-  const handleOpenPrompt = useCallback((element: SelectedElement, position: { x: number; y: number }) => {
+  // Handle floating prompt open - no longer repositions, editor stays docked
+  const handleOpenPrompt = useCallback((_element: SelectedElement, _position: { x: number; y: number }) => {
     setShowEditor(true);
-    setEditorPosition(position);
+    // Editor stays docked to the right side - no repositioning
   }, []);
 
   // Handle inline edit
@@ -136,12 +170,49 @@ export function BuildPreviewPanel({
     }
   }, [onAIEdit]);
 
-  // Handle direct edit
-  const handleDirectEdit = useCallback((selector: string, changes: Record<string, string>) => {
+  // Handle direct edit - syncs to both preview and source file
+  const handleDirectEdit = useCallback(async (selector: string, changes: Record<string, string>) => {
+    // Apply to preview immediately via callback
     if (onDirectEdit) {
       onDirectEdit(selector, changes);
     }
-  }, [onDirectEdit]);
+
+    // If we have a source file, sync the change to the actual file
+    const targetFile = resolvedSourceFile || sourceFile;
+    if (targetFile && activeProjectPath) {
+      try {
+        // For text content changes
+        if (changes.textContent) {
+          const oldText = selectedElements[0]?.textContent || '';
+          if (oldText) {
+            await searchReplace(targetFile, oldText.trim(), changes.textContent.trim());
+            // NO HMR trigger for text edits:
+            // - DOM already updated via contenteditable
+            // - HMR would cause reload and lose visual state
+            // - File is saved, framework picks up changes naturally
+          }
+        }
+
+        // For style changes
+        if (Object.keys(changes).some(k => k !== 'textContent' && k !== 'src')) {
+          const styleChanges = { ...changes };
+          delete styleChanges.textContent;
+          delete styleChanges.src;
+          if (Object.keys(styleChanges).length > 0) {
+            await applyStyle(targetFile, selector, styleChanges);
+            // Trigger HMR
+            await fetch('/api/preview/hmr-trigger', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ filePath: targetFile }),
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Failed to sync edit to file:', err);
+      }
+    }
+  }, [onDirectEdit, resolvedSourceFile, sourceFile, activeProjectPath, selectedElements, searchReplace, applyStyle]);
 
   // Clear selection
   const clearSelection = useCallback(() => {
@@ -363,9 +434,7 @@ export function BuildPreviewPanel({
             {selectionEnabled ? 'Auswahl aktiv' : 'Auswählen'}
           </button>
 
-          {selectionEnabled && (
-            <ModeSelector mode={selectionMode} onModeChange={setSelectionMode} />
-          )}
+          {/* ModeSelector removed - only Smart mode */}
         </div>
 
         {/* Right: Actions */}
@@ -441,18 +510,7 @@ export function BuildPreviewPanel({
         </div>
       </div>
 
-      {/* Selection Toolbar (when elements selected) */}
-      {selectionEnabled && selectedElements.length > 0 && (
-        <div className="px-3 py-2 flex justify-center" style={{ background: 'rgba(0, 0, 0, 0.3)' }}>
-          <SelectionToolbar
-            selectedElements={selectedElements}
-            selectionMode={selectionMode}
-            onModeChange={setSelectionMode}
-            onClearSelection={clearSelection}
-            onSubmitToAI={() => setShowEditor(true)}
-          />
-        </div>
-      )}
+      {/* SelectionToolbar removed - SmartEditToolbar in SplitScreenLayout handles this */}
 
       {/* Preview Area */}
       <div
@@ -508,13 +566,14 @@ export function BuildPreviewPanel({
           </div>
         )}
 
-        {/* Visual Editor Panel */}
+        {/* Visual Editor Panel - Docked to right side */}
         {showEditor && selectedElements.length > 0 && (
           <div
-            className="fixed z-50"
+            className="absolute z-50"
             style={{
-              left: editorPosition.x,
-              top: editorPosition.y,
+              right: 16,
+              top: 64,
+              maxHeight: 'calc(100% - 80px)',
             }}
           >
             <VisualEditor
@@ -526,26 +585,17 @@ export function BuildPreviewPanel({
               onAIEdit={handleAIEdit}
               onDirectEdit={handleDirectEdit}
               onClose={() => setShowEditor(false)}
-              position={editorPosition}
+              position={{ x: 0, y: 0 }}
+              projectPath={activeProjectPath || undefined}
+              sourceFilePath={resolvedSourceFile || sourceFile || undefined}
+              onFileSaved={(filePath) => {
+                console.log('File saved:', filePath);
+                // Optionally refresh preview
+              }}
             />
           </div>
         )}
 
-        {/* Quick tip overlay (when selection enabled but nothing selected) */}
-        {selectionEnabled && selectedElements.length === 0 && (
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 pointer-events-none">
-            <div
-              className="px-4 py-2 rounded-full text-xs font-medium"
-              style={{
-                background: 'rgba(17, 17, 20, 0.9)',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-                color: '#888',
-              }}
-            >
-              Klicke auf ein Element zum Bearbeiten • ESC zum Beenden • Shift+Klick für Mehrfachauswahl
-            </div>
-          </div>
-        )}
 
         {/* Live reload indicator */}
         {lastReloadTime && (
