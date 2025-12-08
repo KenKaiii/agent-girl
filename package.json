@@ -1,6 +1,6 @@
 {
   "name": "agent-chat",
-  "version": "9.1.0",
+  "version": "9.3.0",
   "type": "module",
   "main": "index.js",
   "scripts": {
@@ -22,7 +22,7 @@
   "license": "AGPL-3.0-or-later",
   "description": "Clean chat UI for Claude Agent SDK",
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.1.55",
+    "@anthropic-ai/claude-agent-sdk": "^0.1.61",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
     "@radix-ui/react-scroll-area": "^1.2.10",
