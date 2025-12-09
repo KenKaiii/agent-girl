@@ -1,9 +1,11 @@
 /**
  * CodeVisibilityContext - Provides global code visibility state
  * Allows code blocks throughout the app to respect the global show/hide toggle
+ *
+ * PERFORMANCE: Uses useMemo to prevent unnecessary re-renders of consumers
  */
 
-import React, { createContext, useContext } from 'react';
+import React, { createContext, useContext, useMemo } from 'react';
 
 interface CodeVisibilityContextType {
   showCode: boolean;
@@ -18,8 +20,11 @@ export function CodeVisibilityProvider({
   children: React.ReactNode;
   showCode: boolean;
 }) {
+  // PERFORMANCE: Memoize context value to prevent unnecessary re-renders
+  const value = useMemo(() => ({ showCode }), [showCode]);
+
   return (
-    <CodeVisibilityContext.Provider value={{ showCode }}>
+    <CodeVisibilityContext.Provider value={value}>
       {children}
     </CodeVisibilityContext.Provider>
   );

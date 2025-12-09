@@ -13,7 +13,7 @@ export const ChatMessageSchema = z.object({
   type: z.literal('chat'),
   content: z.union([
     z.string().min(1).max(100000),
-    z.array(z.record(z.unknown())),
+    z.array(z.record(z.string(), z.unknown())),
   ]),
   sessionId: z.string().uuid(),
   model: z.string().optional(),
@@ -215,8 +215,8 @@ export function validateInput<T>(
     return { success: true, data: result.data };
   }
 
-  const errors = result.error.errors.map((err) => {
-    const path = err.path.join('.');
+  const errors = result.error.issues.map((err) => {
+    const path = err.path.map(String).join('.');
     return path ? `${path}: ${err.message}` : err.message;
   });
 

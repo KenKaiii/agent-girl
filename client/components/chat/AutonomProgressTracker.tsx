@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle2, Clock, Zap } from 'lucide-react';
+import { CheckCircle2, Clock, Zap, AlertTriangle, Cpu } from 'lucide-react';
 
 interface AutonomProgressTrackerProps {
   stepNumber: number;
@@ -10,6 +10,9 @@ interface AutonomProgressTrackerProps {
   totalCost: string;
   maxCost: number;
   stepsCompleted: string[];
+  selectedModel?: string;
+  errorCount?: number;
+  problematicSteps?: string[];
 }
 
 export const AutonomProgressTracker: React.FC<AutonomProgressTrackerProps> = ({
@@ -21,6 +24,9 @@ export const AutonomProgressTracker: React.FC<AutonomProgressTrackerProps> = ({
   totalCost,
   maxCost,
   stepsCompleted,
+  selectedModel = 'haiku',
+  errorCount = 0,
+  problematicSteps = [],
 }) => {
   const progressPercent = (stepNumber / maxSteps) * 100;
   const budgetPercent = budgetUsed * 100;
@@ -37,6 +43,31 @@ export const AutonomProgressTracker: React.FC<AutonomProgressTrackerProps> = ({
     if (progressPercent >= 90) return 'from-blue-500 to-blue-600';
     if (progressPercent >= 50) return 'from-purple-500 to-purple-600';
     return 'from-cyan-500 to-cyan-600';
+  };
+
+  // Model color and badge styling
+  const getModelColor = () => {
+    switch (selectedModel?.toLowerCase()) {
+      case 'opus':
+        return 'bg-purple-900/50 border-purple-600 text-purple-300';
+      case 'sonnet':
+        return 'bg-blue-900/50 border-blue-600 text-blue-300';
+      case 'haiku':
+      default:
+        return 'bg-cyan-900/50 border-cyan-600 text-cyan-300';
+    }
+  };
+
+  const getModelLabel = () => {
+    switch (selectedModel?.toLowerCase()) {
+      case 'opus':
+        return 'Opus 4.5 (Max Power)';
+      case 'sonnet':
+        return 'Sonnet 4.5 (Escalation)';
+      case 'haiku':
+      default:
+        return 'Haiku 4.5 (Cost Optimized)';
+    }
   };
 
   return (
@@ -109,6 +140,51 @@ export const AutonomProgressTracker: React.FC<AutonomProgressTrackerProps> = ({
           <div className="text-lg font-bold text-yellow-400 mt-1">{budgetPercent.toFixed(1)}%</div>
         </div>
       </div>
+
+      {/* Model Selection & Error Status */}
+      <div className="grid grid-cols-2 gap-3 mb-6">
+        <div className={`rounded-lg p-3 border ${getModelColor()}`}>
+          <div className="flex items-center gap-2">
+            <Cpu className="w-4 h-4" />
+            <div>
+              <div className="text-xs opacity-75 uppercase tracking-wider">Active Model</div>
+              <div className="text-sm font-bold mt-1">{getModelLabel()}</div>
+            </div>
+          </div>
+        </div>
+        {errorCount > 0 && (
+          <div className="bg-amber-900/50 border border-amber-600 text-amber-300 rounded-lg p-3">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4" />
+              <div>
+                <div className="text-xs opacity-75 uppercase tracking-wider">Errors on Step</div>
+                <div className="text-sm font-bold mt-1">{errorCount} attempt{errorCount !== 1 ? 's' : ''}</div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Problematic Steps */}
+      {problematicSteps.length > 0 && (
+        <div className="border-t border-slate-700 pt-4 mb-4">
+          <div className="text-sm font-semibold text-amber-300 mb-3 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-400" />
+            Problematic Steps ({problematicSteps.length})
+          </div>
+          <div className="space-y-1 max-h-24 overflow-y-auto">
+            {problematicSteps.map((step, idx) => (
+              <div
+                key={idx}
+                className="text-xs text-amber-200 bg-amber-900/20 rounded px-3 py-1.5 border border-amber-700/50 flex items-start gap-2"
+              >
+                <AlertTriangle className="w-3 h-3 text-amber-400 mt-0.5 flex-shrink-0" />
+                <span className="font-mono">{step}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Timeline of Completed Steps */}
       {stepsCompleted.length > 0 && (

@@ -3,9 +3,11 @@
  * Copyright (C) 2025 KenKai
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * PERFORMANCE: Wrapped in React.memo to prevent unnecessary re-renders
  */
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, memo } from 'react';
 import { Monitor, Smartphone, RefreshCw, Settings, Home, ArrowRight, X, ExternalLink } from 'lucide-react';
 
 type DeviceMode = 'desktop' | 'mobile';
@@ -18,7 +20,7 @@ interface PreviewPanelProps {
   onClose?: () => void;
 }
 
-export function PreviewPanel({
+export const PreviewPanel = memo(function PreviewPanel({
   previewUrl,
   isLoading = false,
   workingDirectory,
@@ -319,4 +321,4 @@ export function PreviewPanel({
       </div>
     </div>
   );
-}
+});

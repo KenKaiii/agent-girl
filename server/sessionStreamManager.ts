@@ -91,6 +91,17 @@ export class SessionStreamManager {
   }
 
   /**
+   * Clear WebSocket reference for session (MEMORY LEAK FIX)
+   * Call this when WebSocket disconnects to allow GC
+   */
+  clearWebSocket(sessionId: string): void {
+    const stream = this.streams.get(sessionId);
+    if (stream) {
+      stream.activeWebSocket = null;
+    }
+  }
+
+  /**
    * Get active WebSocket for session
    */
   getWebSocket(sessionId: string): ServerWebSocket<unknown> | null {
@@ -157,6 +168,7 @@ export class SessionStreamManager {
 
   /**
    * Clean up session stream
+   * MEMORY LEAK FIX: Explicitly clear all references before deletion
    */
   cleanupSession(sessionId: string, _reason: string = 'manual'): void {
     const stream = this.streams.get(sessionId);
@@ -167,6 +179,10 @@ export class SessionStreamManager {
 
     // Complete message queue (stops iteration)
     stream.messageQueue.complete();
+
+    // MEMORY LEAK FIX: Clear all references to allow GC
+    stream.activeWebSocket = null;
+    stream.sdkQuery = null;
 
     // Remove from registry
     this.streams.delete(sessionId);

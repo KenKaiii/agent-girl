@@ -58,6 +58,7 @@ import { handleBuildRoutes } from "./routes/build";
 import { handleWebSocketMessage } from "./websocket/messageHandlers";
 import { handleHealthCheck, handleLivenessProbe, handleReadinessProbe, updateWsStats } from "./routes/health";
 import { logger } from "./utils/logger";
+import { sessionStreamManager } from "./sessionStreamManager";
 import type { ServerWebSocket, Server as ServerType } from "bun";
 
 /**
@@ -157,6 +158,8 @@ const server = Bun.serve({
         hotReloadClients.delete(ws);
       } else if (ws.data?.type === 'chat' && ws.data?.sessionId) {
         logger.debug('WebSocket disconnected', { sessionId: ws.data.sessionId.substring(0, 8) });
+        // MEMORY LEAK FIX: Clear WebSocket reference to allow GC
+        sessionStreamManager.clearWebSocket(ws.data.sessionId);
       }
       // Update health check stats (count remaining connections)
       updateWsStats(hotReloadClients.size);

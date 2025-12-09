@@ -18,14 +18,25 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import React, { useState, memo, useCallback, useMemo } from 'react';
+import React, { useState, memo, useCallback, useMemo, lazy, Suspense } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AssistantMessage as AssistantMessageType, ToolUseBlock, TextBlock, LongRunningCommandBlock } from './types';
 import { ThinkingBlock } from './ThinkingBlock';
 import { CodeBlockWithCopy } from './CodeBlockWithCopy';
 import { URLBadge } from './URLBadge';
-import { MermaidDiagram } from './MermaidDiagram';
+
+// PERFORMANCE: Lazy load heavy Mermaid component (~600KB)
+const MermaidDiagram = lazy(() => import('./MermaidDiagram').then(m => ({ default: m.MermaidDiagram })));
+
+// Loading placeholder for Mermaid diagrams
+const MermaidLoadingPlaceholder = () => (
+  <div className="my-3 p-4 border border-white/10 rounded-lg bg-black/20 animate-pulse">
+    <div className="h-32 flex items-center justify-center text-white/30 text-sm">
+      Loading diagram...
+    </div>
+  </div>
+);
 import { Shield, FileText, FolderOpen, Copy, Trash2, Eye, EyeOff, Code2, ChevronUp } from 'lucide-react';
 import { showError } from '../../utils/errorMessages';
 import { useWorkingDirectory } from '../../hooks/useWorkingDirectory';
@@ -200,9 +211,13 @@ const MarkdownCodeBlock = memo(function MarkdownCodeBlock({ className, children 
   const language = match ? match[1] : '';
   const inline = !className;
 
-  // Render mermaid diagrams
+  // Render mermaid diagrams with lazy loading
   if (!inline && language === 'mermaid') {
-    return <MermaidDiagram chart={String(children).replace(/\n$/, '')} />;
+    return (
+      <Suspense fallback={<MermaidLoadingPlaceholder />}>
+        <MermaidDiagram chart={String(children).replace(/\n$/, '')} />
+      </Suspense>
+    );
   }
 
   // For code blocks
@@ -273,9 +288,13 @@ function PlanModeCodeBlock({ className, children }: { className?: string; childr
   const language = match ? match[1] : '';
   const inline = !className;
 
-  // Render mermaid diagrams
+  // Render mermaid diagrams with lazy loading
   if (!inline && language === 'mermaid') {
-    return <MermaidDiagram chart={String(children).replace(/\n$/, '')} />;
+    return (
+      <Suspense fallback={<MermaidLoadingPlaceholder />}>
+        <MermaidDiagram chart={String(children).replace(/\n$/, '')} />
+      </Suspense>
+    );
   }
 
   if (!inline) {

@@ -53,134 +53,13 @@ import type { BackgroundProcess } from '../process/BackgroundProcessMonitor';
 import type { SlashCommand } from '../../hooks/useWebSocket';
 import { useMessageQueue } from '../../hooks/useMessageQueue';
 
-// AI Edit request from preview element selection
-export interface AIEditRequest {
-  prompt: string;
-  elements: Array<{
-    id: number;
-    tagName: string;
-    selector: string;
-    className?: string;
-    elementId?: string;
-    textContent?: string;
-    path?: string;
-    bounds?: { x: number; y: number; width: number; height: number };
-    styles?: {
-      color: string;
-      backgroundColor: string;
-      fontSize: string;
-      fontFamily: string;
-    };
-  }>;
-  previewUrl: string;
-  screenshot?: string; // base64 data URL
-  localData?: Record<string, string>;
-  // Enhanced file path context for finding source files
-  fileContext?: {
-    framework: string | null;
-    possibleFiles: string[];
-    componentHints: string[];
-    routePattern: string;
-  };
-  // Viewport info for responsive context
-  viewport?: {
-    width: number;
-    height: number;
-    device: string;
-  };
-}
+// Import refactored types and hooks
+import type { AIEditRequest, AIProgressState, ActionHistoryEntry, AutonomProgressData, ChatContainerProps } from './types';
+import { useWebSocketMessageHandler, useKeyboardShortcuts, FILE_EDIT_TOOLS, getToolDisplayName } from './hooks';
+import { createSessionHandlers } from './handlers';
 
-// Action history entry for tracking AI tool usage
-export interface ActionHistoryEntry {
-  id: string;
-  timestamp: number;
-  tool: string;
-  toolDisplayName: string;
-  file?: string;
-  status: 'running' | 'success' | 'error';
-  duration?: number; // ms
-  errorMessage?: string;
-}
-
-// AI progress state for preview integration
-export interface AIProgressState {
-  isActive: boolean;
-  currentTool?: string;
-  currentFile?: string;
-  status: 'idle' | 'thinking' | 'writing' | 'tool_use' | 'completed' | 'error';
-  toolDisplayName?: string; // Human-readable tool name
-  isFileEdit?: boolean; // True when Edit/Write tool is used (trigger refresh)
-  completedAction?: string; // Last completed action for brief display
-  editedFilesCount?: number; // Number of files edited in this session
-  startTime?: number; // Timestamp when AI started working
-  errorMessage?: string; // Error message if status is 'error'
-  actionHistory?: ActionHistoryEntry[]; // Recent actions for history log
-  currentToolId?: string; // Track current tool for result matching
-}
-
-// Human-readable tool names for display
-const TOOL_DISPLAY_NAMES: Record<string, string> = {
-  // File operations
-  Read: 'Reading',
-  Edit: 'Editing',
-  Write: 'Writing',
-  Glob: 'Finding files',
-  Grep: 'Searching code',
-  // Shell & system
-  Bash: 'Running command',
-  BashOutput: 'Reading output',
-  KillShell: 'Stopping process',
-  // Navigation & research
-  Task: 'Spawning agent',
-  WebFetch: 'Fetching URL',
-  WebSearch: 'Searching web',
-  // Project management
-  TodoWrite: 'Updating tasks',
-  NotebookEdit: 'Editing notebook',
-  // User interaction
-  AskUserQuestion: 'Asking question',
-  // MCP tools (common prefixes)
-  mcp__github: 'GitHub',
-  mcp__browser: 'Browser',
-  mcp__lancedb: 'Vector DB',
-  mcp__session: 'Session',
-};
-
-// Get display name for a tool (handles MCP prefixes)
-const getToolDisplayName = (toolName: string): string => {
-  // Direct match
-  if (TOOL_DISPLAY_NAMES[toolName]) {
-    return TOOL_DISPLAY_NAMES[toolName];
-  }
-  // Check MCP prefixes
-  for (const [prefix, name] of Object.entries(TOOL_DISPLAY_NAMES)) {
-    if (toolName.startsWith(prefix)) {
-      return name;
-    }
-  }
-  // Fallback: clean up tool name
-  return toolName.replace(/^mcp__\w+__/, '').replace(/_/g, ' ');
-};
-
-// Tools that modify files (should trigger preview refresh)
-const FILE_EDIT_TOOLS = ['Edit', 'Write', 'NotebookEdit'];
-
-interface ChatContainerProps {
-  layoutMode?: 'chat-only' | 'split-screen';
-  onLayoutModeChange?: (mode: 'chat-only' | 'split-screen') => void;
-  previewUrl?: string | null;
-  onSetPreviewUrl?: () => void;
-  onDetectPreviewUrl?: () => void;
-  onAIEditRequestHandler?: (handler: (request: AIEditRequest) => void) => void;
-  onAIProgressChange?: (progress: AIProgressState) => void;
-  // Expose setInputValue so preview selection can load context into chat
-  onInputValueSetter?: (setter: (value: string) => void) => void;
-  // Selected elements from preview for displaying in chat
-  selectedElements?: SelectedElement[];
-  onClearSelection?: () => void;
-  // BUILD MODE: Auto-start preview with specific URL
-  onBuildPreviewStart?: (url: string) => void;
-}
+// Re-export types for backwards compatibility
+export type { AIEditRequest, AIProgressState, ActionHistoryEntry };
 
 export function ChatContainer({
   layoutMode = 'chat-only',
@@ -288,6 +167,9 @@ export function ChatContainer({
     totalCost: string;
     maxCost: number;
     stepsCompleted: string[];
+    selectedModel?: string;
+    errorCount?: number;
+    problematicSteps?: string[];
   }
   const [autonomProgress, setAutonomProgress] = useState<AutonomProgressData | null>(null);
 
@@ -1793,7 +1675,7 @@ export function ChatContainer({
         // Clear the question modal when answer is confirmed
         setPendingQuestion(null);
       } else if (message.type === 'autonom_progress') {
-        // Handle AUTONOM progress updates
+        // Handle AUTONOM progress updates (including model selection and error tracking)
         const progressMsg = message as {
           type: 'autonom_progress';
           stepNumber: number;
@@ -1804,8 +1686,11 @@ export function ChatContainer({
           totalCost: string;
           maxCost: number;
           stepsCompleted: string[];
+          selectedModel?: string;
+          errorCount?: number;
+          problematicSteps?: string[];
         };
-        console.log(`🤖 AUTONOM Progress: Step ${progressMsg.stepNumber}/${progressMsg.maxSteps}, Budget: ${(progressMsg.budgetUsed * 100).toFixed(1)}%`);
+        console.log(`🤖 AUTONOM Progress: Step ${progressMsg.stepNumber}/${progressMsg.maxSteps}, Model: ${progressMsg.selectedModel || 'haiku'}, Errors: ${progressMsg.errorCount || 0}, Budget: ${(progressMsg.budgetUsed * 100).toFixed(1)}%`);
         setAutonomProgress({
           stepNumber: progressMsg.stepNumber,
           maxSteps: progressMsg.maxSteps,
@@ -1815,6 +1700,9 @@ export function ChatContainer({
           totalCost: progressMsg.totalCost,
           maxCost: progressMsg.maxCost,
           stepsCompleted: progressMsg.stepsCompleted,
+          selectedModel: progressMsg.selectedModel || 'haiku',
+          errorCount: progressMsg.errorCount || 0,
+          problematicSteps: progressMsg.problematicSteps || [],
         });
       } else if (message.type === 'keepalive') {
         // Keepalive messages are sent every 30s to prevent WebSocket idle timeout
@@ -1951,6 +1839,7 @@ export function ChatContainer({
         sessionId: sessionId,
         model: selectedModel,
         timezone: userTimezone,
+        isAutonomMode: isAutonomMode,
       });
 
       setInputValue('');
@@ -2483,10 +2372,12 @@ export function ChatContainer({
               )}
 
               {/* AUTONOM Toggle - Enable/disable autonomous mode */}
-              <AutonomToggle
-                isAutonomMode={isAutonomMode}
-                onToggleAutonomMode={handleToggleAutonomMode}
-              />
+              <div style={{ display: 'flex', alignItems: 'center', padding: '0 6px' }}>
+                <AutonomToggle
+                  isActive={isAutonomMode}
+                  onToggle={handleToggleAutonomMode}
+                />
+              </div>
 
               {/* About Button - hidden in split-screen mode */}
               {layoutMode !== 'split-screen' && <AboutButton />}

@@ -18,7 +18,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { ProjectTypeSelector } from './ProjectTypeSelector';
@@ -34,7 +34,11 @@ interface BuildWizardProps {
   onClose: () => void;
 }
 
-export function BuildWizard({ onComplete, onClose }: BuildWizardProps) {
+/**
+ * PERFORMANCE: Wrapped in React.memo to prevent unnecessary re-renders
+ * when parent components update but props haven't changed
+ */
+export const BuildWizard = memo(function BuildWizard({ onComplete, onClose }: BuildWizardProps) {
   const [currentStep, setCurrentStep] = useState<WizardStep>('project-type');
   const [selectedTemplate, setSelectedTemplate] = useState<ProjectTemplate | null>(null);
   const [selectedFeatures, setSelectedFeatures] = useState<Set<string>>(new Set());
@@ -384,4 +388,4 @@ export function BuildWizard({ onComplete, onClose }: BuildWizardProps) {
     </div>,
     document.body
   );
-}
+});

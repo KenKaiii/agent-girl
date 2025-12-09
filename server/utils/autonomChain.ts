@@ -14,14 +14,47 @@ export interface AutonomState {
   messagesSentInTurn: number;
   lastStepTimestamp: number;
   stepsCompleted: string[]; // Track what was completed
+  stepErrorCounts: Map<number, number>; // Track error count per step
+  problematicSteps: string[]; // Steps that couldn't be resolved
+  selectedModel: string; // Current model for this step
 }
 
 const MAX_STEPS_PER_SESSION = 100;
 const SAFETY_MARGIN = 0.90; // Stop at 90% to avoid overage
 const SESSION_STEP_TIMEOUT_MS = 15 * 60 * 1000; // 15 min per step max
+const ERROR_THRESHOLD_FOR_ESCALATION = 5; // Escalate to Sonnet after 5 errors
 
 // Track autonomous state per session
 const autonomStates = new Map<string, AutonomState>();
+
+/**
+ * Model selection strategy for AUTONOM mode:
+ * Step 0 (planning): Opus 4.5 (orchestrator)
+ * Steps 1-100 (execution): Haiku 4.5 (cost-efficient default)
+ * Error escalation:
+ *   1-5 errors: Keep Haiku (retry strategy)
+ *   5+ errors: Use Sonnet 4.5 (middle ground)
+ *   10+ errors: Use Opus 4.5 (final attempt)
+ *   Can't resolve: Mark as problematic and continue
+ */
+function selectModel(stepNumber: number, errorCount: number): string {
+  // Step 0 is always planning with Opus
+  if (stepNumber === 0) {
+    return 'opus';
+  }
+
+  // Escalation strategy based on error count
+  if (errorCount >= 10) {
+    return 'opus'; // Final attempt with strongest model
+  }
+
+  if (errorCount > ERROR_THRESHOLD_FOR_ESCALATION) {
+    return 'sonnet'; // Middle-ground model for escalation
+  }
+
+  // Default to Haiku for cost efficiency
+  return 'haiku';
+}
 
 /**
  * Get or initialize autonomous state for a session
@@ -34,6 +67,9 @@ export function getAutonomState(sessionId: string): AutonomState {
       messagesSentInTurn: 0,
       lastStepTimestamp: Date.now(),
       stepsCompleted: [],
+      stepErrorCounts: new Map(),
+      problematicSteps: [],
+      selectedModel: 'haiku', // Default model for regular tasks
     };
     autonomStates.set(sessionId, state);
   }
@@ -119,6 +155,24 @@ export async function handleAutonomContinuation(
 
   const stepNumber = autonState.turnCount;
 
+  // ✅ FIX #11: Implement intelligent model selection with error escalation
+  const errorCount = getStepErrorCount(sessionId, stepNumber);
+  const selectedModel = selectModel(stepNumber, errorCount);
+  autonState.selectedModel = selectedModel;
+
+  // Log model selection decision
+  const modelReasons: Record<string, string> = {
+    'opus': stepNumber === 0 ? 'planning/orchestration' : 'escalation (10+ errors)',
+    'sonnet': 'escalation (5+ errors)',
+    'haiku': 'cost-efficient (0-5 errors)',
+  };
+
+  if (errorCount > 0) {
+    console.log(
+      `🤖 MODEL SELECTION: Step ${stepNumber} (Errors: ${errorCount}/${ERROR_THRESHOLD_FOR_ESCALATION}) → ${selectedModel.toUpperCase()} (${modelReasons[selectedModel]})`
+    );
+  }
+
   // ✅ Get budget with correct config
   const budget = getSessionBudget(sessionId, AUTONOM_BUDGET_CONFIG);
   const totalTokensUsed = budget.totalInputTokens + budget.totalOutputTokens;
@@ -167,10 +221,17 @@ export async function handleAutonomContinuation(
       ? `You have completed ${stepNumber - 1} step${stepNumber !== 2 ? 's' : ''}. Continue with step ${stepNumber}.`
       : `Beginning autonomous execution of step ${stepNumber}.`;
 
+  // ✅ FIX #11b: Add model selection guidance to continuation prompt
+  const modelGuidance = selectedModel === 'opus' ? '**MODEL: Opus 4.5** (Maximum capability - orchestration/escalation)' : selectedModel === 'sonnet' ? '**MODEL: Sonnet 4.5** (Escalation - errors detected, attempting resolution)' : '**MODEL: Haiku 4.5** (Cost-efficient execution)';
+
+  const errorInfo = errorCount > 0 ? `\n⚠️ **ERROR CONTEXT**: This step has encountered ${errorCount} error(s). ${errorCount > ERROR_THRESHOLD_FOR_ESCALATION ? `Escalating to ${selectedModel.toUpperCase()}. Focus on robust error handling.` : 'Retry with improved approach.'}` : '';
+
   const continuationPrompt = `
 [AUTONOM MODE - STEP ${stepNumber}/${MAX_STEPS_PER_SESSION}]
 
 ${contextSummary}
+
+${modelGuidance}${errorInfo}
 
 **YOUR TASK FOR THIS STEP:**
 1. **PLAN**: Decide the next action based on previous progress
@@ -189,7 +250,7 @@ ${contextSummary}
 
 Proceed with step ${stepNumber}. Work efficiently and report your progress.`;
 
-  // ✅ Send progress update to client before continuation
+  // ✅ Send progress update to client before continuation (including model & error info)
   sessionStreamManager.safeSend(
     sessionId,
     JSON.stringify({
@@ -203,6 +264,9 @@ Proceed with step ${stepNumber}. Work efficiently and report your progress.`;
       maxCost: budget.config.maxCostPerSession,
       sessionId: sessionId,
       stepsCompleted: autonState.stepsCompleted,
+      selectedModel: selectedModel,
+      errorCount: errorCount,
+      problematicSteps: autonState.problematicSteps,
     })
   );
 
@@ -248,6 +312,45 @@ Proceed with step ${stepNumber}. Work efficiently and report your progress.`;
 }
 
 /**
+ * Record an error for a step (used to trigger escalation)
+ */
+export function recordStepError(
+  sessionId: string,
+  stepNumber: number,
+): number {
+  const state = getAutonomState(sessionId);
+  const currentErrorCount = (state.stepErrorCounts.get(stepNumber) || 0) + 1;
+  state.stepErrorCounts.set(stepNumber, currentErrorCount);
+  return currentErrorCount;
+}
+
+/**
+ * Mark a step as problematic (couldn't be resolved even with Opus)
+ */
+export function markStepAsProblematic(
+  sessionId: string,
+  stepNumber: number,
+  reason: string,
+): void {
+  const state = getAutonomState(sessionId);
+  const problemDesc = `Step ${stepNumber}: ${reason}`;
+  if (!state.problematicSteps.includes(problemDesc)) {
+    state.problematicSteps.push(problemDesc);
+  }
+}
+
+/**
+ * Get error count for a step
+ */
+export function getStepErrorCount(
+  sessionId: string,
+  stepNumber: number,
+): number {
+  const state = getAutonomState(sessionId);
+  return state.stepErrorCounts.get(stepNumber) || 0;
+}
+
+/**
  * Record a step completion
  */
 export function recordStepCompletion(
@@ -264,6 +367,7 @@ export function recordStepCompletion(
 export function getAutonomSummary(sessionId: string): {
   stepCount: number;
   stepsCompleted: string[];
+  problematicSteps: string[];
   elapsedTime: number;
 } {
   const state = getAutonomState(sessionId);
@@ -271,6 +375,7 @@ export function getAutonomSummary(sessionId: string): {
   return {
     stepCount: state.turnCount,
     stepsCompleted: state.stepsCompleted,
+    problematicSteps: state.problematicSteps,
     elapsedTime,
   };
 }

@@ -1,10 +1,10 @@
 /**
- * ActivityProgressBar - Slim progress indicator showing current AI activity
- * Displays what the AI is doing (thinking, writing, reading, etc.) with elapsed time
+ * ActivityProgressBar - Compact progress indicator showing current AI activity
+ * Displays: Zap icon + status text, files edited count, elapsed time
  */
 
 import React, { memo, useEffect, useState, useRef } from 'react';
-import { Loader2, Brain, Code2, Search, FileEdit, Terminal, Globe, CheckCircle2, Zap } from 'lucide-react';
+import { Zap, FilePen, Clock } from 'lucide-react';
 import type { AIProgressState } from './ChatContainer';
 
 interface ActivityProgressBarProps {
@@ -12,42 +12,15 @@ interface ActivityProgressBarProps {
   isGenerating: boolean;
 }
 
-// Get icon for tool type
-const getToolIcon = (tool?: string, status?: string) => {
-  if (status === 'thinking' || !tool) {
-    return <Brain className="w-3.5 h-3.5" />;
-  }
-
-  const lowerTool = tool.toLowerCase();
-
-  if (lowerTool.includes('read') || lowerTool.includes('glob') || lowerTool.includes('grep')) {
-    return <Search className="w-3.5 h-3.5" />;
-  }
-  if (lowerTool.includes('edit') || lowerTool.includes('write') || lowerTool.includes('notebook')) {
-    return <FileEdit className="w-3.5 h-3.5" />;
-  }
-  if (lowerTool.includes('bash') || lowerTool.includes('terminal') || lowerTool.includes('shell')) {
-    return <Terminal className="w-3.5 h-3.5" />;
-  }
-  if (lowerTool.includes('web') || lowerTool.includes('fetch') || lowerTool.includes('browser')) {
-    return <Globe className="w-3.5 h-3.5" />;
-  }
-  if (lowerTool.includes('task')) {
-    return <Zap className="w-3.5 h-3.5" />;
-  }
-
-  return <Code2 className="w-3.5 h-3.5" />;
-};
-
-// Get display text for status
+// Get status text for display
 const getStatusText = (progress: AIProgressState): string => {
   if (progress.status === 'completed') return 'Done';
   if (progress.status === 'error') return 'Error';
-  if (progress.toolDisplayName) return progress.toolDisplayName;
-  if (progress.status === 'thinking') return 'Thinking';
-  if (progress.status === 'writing') return 'Writing';
-  if (progress.status === 'tool_use') return 'Working';
-  return 'Processing';
+  if (progress.toolDisplayName) return `${progress.toolDisplayName}...`;
+  if (progress.status === 'thinking') return 'Thinking...';
+  if (progress.status === 'writing') return 'Writing...';
+  if (progress.status === 'tool_use') return 'Working...';
+  return 'Processing...';
 };
 
 // Format elapsed time
@@ -56,7 +29,7 @@ const formatElapsed = (ms: number): string => {
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = seconds % 60;
-  return `${minutes}m ${remainingSeconds}s`;
+  return `${minutes}m ${remainingSeconds.toString().padStart(2, '0')}s`;
 };
 
 export const ActivityProgressBar = memo(function ActivityProgressBar({
@@ -111,57 +84,60 @@ export const ActivityProgressBar = memo(function ActivityProgressBar({
   }
 
   const statusText = getStatusText(progress);
-  const Icon = progress.status === 'completed' ? CheckCircle2 : null;
+  const filesEdited = progress.editedFilesCount || 0;
 
   return (
     <div
-      className="activity-progress-bar"
+      className="flex justify-center py-2"
       style={{
         opacity: isGenerating ? 1 : 0.5,
-        transform: isVisible ? 'translateY(0)' : 'translateY(8px)',
+        transform: isVisible ? 'translateY(0)' : 'translateY(4px)',
         transition: 'all 0.3s ease-out',
       }}
     >
-      {/* Animated gradient background */}
-      <div className="activity-progress-gradient" />
+      <div
+        className="flex items-center gap-1.5 px-2 py-1 rounded-md transition-all duration-300"
+        style={{
+          background: 'linear-gradient(135deg, rgba(251, 191, 36, 0.15), rgba(245, 158, 11, 0.15))',
+          border: '1px solid rgba(251, 191, 36, 0.3)',
+        }}
+      >
+        {/* Zap icon with animation */}
+        <Zap
+          size={12}
+          className="animate-pulse"
+          style={{ color: 'rgb(251, 191, 36)' }}
+          aria-hidden="true"
+        />
 
-      {/* Content */}
-      <div className="activity-progress-content">
-        {/* Left: Status with icon */}
-        <div className="activity-progress-status">
-          {isGenerating ? (
-            <div className="activity-progress-icon spinning">
-              <Loader2 className="w-3.5 h-3.5" />
-            </div>
-          ) : Icon ? (
-            <div className="activity-progress-icon done">
-              <Icon className="w-3.5 h-3.5" />
-            </div>
-          ) : (
-            <div className="activity-progress-icon">
-              {getToolIcon(progress.currentTool, progress.status)}
-            </div>
-          )}
-          <span className="activity-progress-text">{statusText}</span>
-          {progress.currentFile && (
-            <span className="activity-progress-file">
-              {progress.currentFile.split('/').pop()}
-            </span>
-          )}
-        </div>
+        {/* Status text */}
+        <span
+          className="text-xs font-medium"
+          style={{ color: 'rgb(252, 211, 77)' }}
+        >
+          {statusText}
+        </span>
 
-        {/* Right: Elapsed time */}
-        <div className="activity-progress-time">
-          {formatElapsed(elapsedTime)}
+        {/* Files edited count - only show if > 0 */}
+        {filesEdited > 0 && (
+          <div
+            className="flex items-center gap-0.5"
+            style={{ color: 'rgb(134, 239, 172)' }}
+          >
+            <FilePen size={10} aria-hidden="true" />
+            <span className="text-xs">{filesEdited}</span>
+          </div>
+        )}
+
+        {/* Elapsed time */}
+        <div
+          className="flex items-center gap-0.5"
+          style={{ color: 'rgb(156, 163, 175)' }}
+        >
+          <Clock size={10} aria-hidden="true" />
+          <span className="text-xs font-mono">{formatElapsed(elapsedTime)}</span>
         </div>
       </div>
-
-      {/* Animated progress line */}
-      {isGenerating && (
-        <div className="activity-progress-line">
-          <div className="activity-progress-line-inner" />
-        </div>
-      )}
     </div>
   );
 });

@@ -11,8 +11,8 @@
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import * as readline from 'readline';
-import { homedir } from 'os';
-import { join } from 'path';
+import { homedir as _homedir } from 'os';
+import { join as _join } from 'path';
 
 const args = process.argv.slice(2);
 const command = args[0];

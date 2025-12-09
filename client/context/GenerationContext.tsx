@@ -1,9 +1,11 @@
 /**
  * GenerationContext - Provides generation state to all components
  * Allows nested components like TaskTool to access isGenerating and onStop
+ *
+ * PERFORMANCE: Uses useMemo to prevent unnecessary re-renders of consumers
  */
 
-import React, { createContext, useContext } from 'react';
+import React, { createContext, useContext, useMemo } from 'react';
 
 interface GenerationContextType {
   isGenerating: boolean;
@@ -21,8 +23,15 @@ export function GenerationProvider({
   isGenerating: boolean;
   onStop: () => void;
 }) {
+  // PERFORMANCE: Memoize context value to prevent unnecessary re-renders
+  // Only creates new object when isGenerating or onStop actually change
+  const value = useMemo(
+    () => ({ isGenerating, onStop }),
+    [isGenerating, onStop]
+  );
+
   return (
-    <GenerationContext.Provider value={{ isGenerating, onStop }}>
+    <GenerationContext.Provider value={value}>
       {children}
     </GenerationContext.Provider>
   );

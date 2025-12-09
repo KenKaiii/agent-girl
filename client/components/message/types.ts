@@ -105,9 +105,11 @@ export interface LongRunningCommandBlock {
   bashId: string;
   command: string;
   commandType: 'install' | 'build' | 'test';
-  output: string;
-  status: 'running' | 'completed' | 'failed';
+  output?: string;
+  status?: 'running' | 'completed' | 'failed';
   startedAt: number;
+  description?: string;
+  updates?: Array<{ timestamp: number; content: string; isError?: boolean }>;
 }
 
 export interface ToolResult {

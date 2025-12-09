@@ -9,7 +9,7 @@
  * Features: Smart mode switching, AI suggestions, direct edits, seamless UX
  */
 
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, memo } from 'react';
 import {
   Sparkles,
   MousePointer2,
@@ -424,8 +424,11 @@ function AISuggestions({
   );
 }
 
-// Main Visual Editor component
-export function VisualEditor({
+/**
+ * Main Visual Editor component
+ * PERFORMANCE: Wrapped in React.memo to prevent unnecessary re-renders
+ */
+export const VisualEditor = memo(function VisualEditor({
   element,
   elements,
   iframeRef,
@@ -934,4 +937,4 @@ export function VisualEditor({
       </div>
     </div>
   );
-}
+});
