@@ -52,7 +52,7 @@ const MODE_CONFIGS: Record<string, ModeConfig> = {
   'build': {
     id: 'build',
     name: 'Build',
-    description: 'Website builder with Smart Sections & niche optimization',
+    description: 'Premium website builder with 100-step AI generation & live preview',
   },
   'unified': {
     id: 'unified',

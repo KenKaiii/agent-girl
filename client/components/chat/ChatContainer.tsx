@@ -87,9 +87,15 @@ export function ChatContainer({
 
   // Session management
   const [sessions, setSessions] = useState<Session[]>([]);
+  const sessionsRef = useRef<Session[]>([]); // Ref to avoid effect dependencies
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const currentSessionIdRef = useRef<string | null>(null); // Ref for keyboard nav
   const [_isLoadingSessions, setIsLoadingSessions] = useState(true);
   const [currentSessionMode, setCurrentSessionMode] = useState<'general' | 'coder' | 'intense-research' | 'spark' | 'unified' | 'build'>('general');
+
+  // Keep refs in sync with state
+  useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
+  useEffect(() => { currentSessionIdRef.current = currentSessionId; }, [currentSessionId]);
 
   // Pagination state for lazy loading
   const [hasMoreSessions, setHasMoreSessions] = useState(true);
@@ -269,9 +275,15 @@ export function ChatContainer({
 
   // In-chat search state
   const [showSearchBar, setShowSearchBar] = useState(false);
+  const showSearchBarRef = useRef(false); // Ref to avoid effect dependency
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMatches, setSearchMatches] = useState<number[]>([]);
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    showSearchBarRef.current = showSearchBar;
+  }, [showSearchBar]);
 
   // Working directory panel state
   const [isWorkingDirPanelCollapsed, setIsWorkingDirPanelCollapsed] = useState(true);
@@ -318,6 +330,13 @@ export function ChatContainer({
       workingDirectory: session.working_directory,
     };
   }), [sessions, currentSessionId]);
+
+  // Memoize current session lookup - used multiple times in JSX
+  const currentSession = useMemo(() =>
+    sessions.find(s => s.id === currentSessionId),
+    [sessions, currentSessionId]
+  );
+  const currentWorkingDirectory = currentSession?.working_directory || null;
 
   // Simple handlers - no useCallback needed for simple setters
   const handleSidebarToggle = () => setIsSidebarOpen(prev => !prev);
@@ -517,24 +536,40 @@ export function ChatContainer({
         setShowKeyboardShortcuts(true);
       }
 
-      // ⌘ K - New chat
+      // ⌘ K - New chat (inline to avoid dependency)
       if (isMeta && e.key === 'k') {
         e.preventDefault();
-        handleNewChat();
+        // Track current session before clearing
+        if (currentSessionIdRef.current) {
+          setNavigationHistory(prev => {
+            const newHistory = prev.filter(id => id !== currentSessionIdRef.current);
+            newHistory.push(currentSessionIdRef.current!);
+            if (newHistory.length > 10) newHistory.shift();
+            navigationHistoryRef.current = newHistory;
+            return newHistory;
+          });
+        }
+        setCurrentSessionId(null);
+        setCurrentSessionMode('general');
+        setMessages([]);
+        setInputValue('');
+        setAvailableCommands([]);
+        setLiveTokenCount(0);
+        window.location.hash = '';
       }
 
-      // ⌘ T - New chat tab (alias for new chat)
+      // ⌘ T - New chat tab (opens in new browser tab)
       if (isMeta && e.key === 't') {
         e.preventDefault();
-        handleNewChat();
+        window.open(window.location.origin, '_blank');
       }
 
       // ⌘ ← (Left arrow) - Navigate history (placeholder)
       if (isMeta && e.key === 'ArrowLeft') {
         e.preventDefault();
-        // Navigate to previous session if available
-        if (navigationHistory.length > 1) {
-          const prevSessionId = navigationHistory[navigationHistory.length - 2];
+        // Navigate to previous session if available - use ref to avoid dependency
+        if (navigationHistoryRef.current.length > 1) {
+          const prevSessionId = navigationHistoryRef.current[navigationHistoryRef.current.length - 2];
           if (prevSessionId) setCurrentSessionId(prevSessionId);
         }
       }
@@ -551,16 +586,16 @@ export function ChatContainer({
         setCurrentSessionId(null);
       }
 
-      // ⌘ E - Toggle code visibility
+      // ⌘ E - Toggle code visibility (functional update to avoid dependency)
       if (isMeta && e.key === 'e') {
         e.preventDefault();
-        setShowCode(!showCode);
+        setShowCode(prev => !prev);
       }
 
-      // ⌘ Shift M - Toggle compact/full view
+      // ⌘ Shift M - Toggle compact/full view (functional update)
       if (isMeta && e.shiftKey && e.key === 'M') {
         e.preventDefault();
-        setDisplayMode(displayMode === 'full' ? 'compact' : 'full');
+        setDisplayMode(prev => prev === 'full' ? 'compact' : 'full');
       }
 
       // ⌘ O - Open file
@@ -579,43 +614,64 @@ export function ChatContainer({
       if (isMeta && e.key === 'f') {
         e.preventDefault();
         setShowSearchBar(prev => !prev);
-        if (!showSearchBar) {
+        // Use ref to check previous state (functional update handles toggle)
+        if (!showSearchBarRef.current) {
           setSearchQuery('');
           setSearchMatches([]);
           setCurrentMatchIndex(0);
         }
       }
 
-      // Escape - Close search bar
-      if (e.key === 'Escape' && showSearchBar) {
+      // Escape - Close search bar (use ref to avoid dependency)
+      if (e.key === 'Escape' && showSearchBarRef.current) {
         e.preventDefault();
         setShowSearchBar(false);
         setSearchQuery('');
         setSearchMatches([]);
       }
 
-      // ⌘ B - Toggle sidebar
+      // ⌘ B - Toggle sidebar (already uses functional update)
       if (isMeta && e.key === 'b') {
         e.preventDefault();
         setIsSidebarOpen(prev => !prev);
       }
 
-      // ⌘ [ - Navigate to previous chat
+      // ⌘ [ - Navigate to previous chat (inline using refs)
       if (isMeta && e.key === '[') {
         e.preventDefault();
-        handlePrevChat();
+        const sessions = sessionsRef.current;
+        if (sessions.length === 0) return;
+        const currentIndex = sessions.findIndex(s => s.id === currentSessionIdRef.current);
+        if (currentIndex > 0) {
+          setCurrentSessionId(sessions[currentIndex - 1].id);
+          window.location.hash = sessions[currentIndex - 1].id;
+        } else if (currentIndex === -1 && sessions.length > 0) {
+          setCurrentSessionId(sessions[0].id);
+          window.location.hash = sessions[0].id;
+        }
       }
 
-      // ⌘ ] - Navigate to next chat
+      // ⌘ ] - Navigate to next chat (inline using refs)
       if (isMeta && e.key === ']') {
         e.preventDefault();
-        handleNextChat();
+        const sessions = sessionsRef.current;
+        if (sessions.length === 0) return;
+        const currentIndex = sessions.findIndex(s => s.id === currentSessionIdRef.current);
+        if (currentIndex >= 0 && currentIndex < sessions.length - 1) {
+          setCurrentSessionId(sessions[currentIndex + 1].id);
+          window.location.hash = sessions[currentIndex + 1].id;
+        } else if (currentIndex === -1 && sessions.length > 0) {
+          setCurrentSessionId(sessions[0].id);
+          window.location.hash = sessions[0].id;
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showCode, displayMode, navigationHistory, showSearchBar, isSidebarOpen]);
+  // Empty dependencies - all state access uses refs or functional updates
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // loadSessions is defined above using useCallback with pagination support
 
@@ -1319,7 +1375,7 @@ export function ChatContainer({
 
             {/* Messages */}
             <GenerationProvider isGenerating={isLoading} onStop={handleStop}>
-              <WorkingDirectoryContext.Provider value={{ workingDirectory: sessions.find(s => s.id === currentSessionId)?.working_directory || null }}>
+              <WorkingDirectoryContext.Provider value={{ workingDirectory: currentWorkingDirectory }}>
                 <MessageList
                   messages={messages}
                   isLoading={isCurrentSessionLoading}
@@ -1335,7 +1391,7 @@ export function ChatContainer({
             {/* Input Section with Progress Bar and Working Directory */}
             <ChatInputSection
               currentSessionId={currentSessionId}
-              sessionWorkingDirectory={sessions.find(s => s.id === currentSessionId)?.working_directory || undefined}
+              sessionWorkingDirectory={currentWorkingDirectory || undefined}
               inputValue={inputValue}
               onInputChange={setInputValue}
               onSubmit={handleSubmit}
