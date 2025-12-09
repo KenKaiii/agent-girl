@@ -17,6 +17,13 @@ import {
   handlePremiumPreviewRequest,
   removeWebSocketFromBuilds,
 } from "./premiumHandler";
+import {
+  handleCloneStart,
+  handleCloneQuick,
+  handleCloneStatus,
+  handleCloneStopServer,
+  removeWebSocketFromClones,
+} from "./cloneHandler";
 
 interface ChatWebSocketData {
   type: 'hot-reload' | 'chat';
@@ -78,6 +85,14 @@ export async function handleWebSocketMessage(
       await handlePremiumUndo(ws, data);
     } else if (data.type === 'premium_preview_request') {
       await handlePremiumPreviewRequest(ws, data);
+    } else if (data.type === 'clone_start') {
+      await handleCloneStart(ws, data);
+    } else if (data.type === 'clone_quick') {
+      await handleCloneQuick(ws, data);
+    } else if (data.type === 'clone_status') {
+      await handleCloneStatus(ws, data);
+    } else if (data.type === 'clone_stop_server') {
+      await handleCloneStopServer(ws, data);
     } else {
       logger.warn('Unknown message type', { type: data.type });
     }

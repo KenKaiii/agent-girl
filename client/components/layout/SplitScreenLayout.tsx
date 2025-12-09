@@ -8,6 +8,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { PreviewProvider } from '../../context/PreviewContext';
 import { ChatContainer, type AIEditRequest, type AIProgressState, type ActionHistoryEntry } from '../chat/ChatContainer';
 import {
   ElementSelector,
@@ -19,7 +20,10 @@ import {
   PortFinder,
 } from '../preview';
 import type { SelectedElement, SelectionMode } from '../preview';
+import { CloneModal } from '../clone';
 import { SmartEditToolbar, useEditHistory, type EditHistoryEntry, type PageSection } from '../preview/SmartEditToolbar';
+import { useContentEdit } from '../../hooks/useContentEdit';
+import { useProjectDiscovery } from '../../hooks/useProjectDiscovery';
 import {
   Monitor,
   Smartphone,
@@ -184,8 +188,44 @@ export function SplitScreenLayout() {
   // Edit history for undo/redo (50 steps max)
   const editHistoryHook = useEditHistory(50);
   const [selectedElements, setSelectedElements] = useState<SelectedElement[]>([]);
+
+  // Project discovery - find running dev servers and their project paths
+  const { projects: runningProjects } = useProjectDiscovery();
+  const [currentProjectPath, setCurrentProjectPath] = useState<string | null>(null);
+
+  // Content editing API - persist changes to source files
+  const contentEdit = useContentEdit(currentProjectPath);
+
+  // Resolve project path when preview URL changes
+  useEffect(() => {
+    if (previewUrl) {
+      try {
+        const url = new URL(previewUrl);
+        const port = parseInt(url.port || '80');
+
+        // Find matching project from running projects
+        const matchingProject = runningProjects.find(p => p.port === port);
+        if (matchingProject?.projectPath) {
+          setCurrentProjectPath(matchingProject.projectPath);
+        } else {
+          // Try to fetch project path from API
+          fetch(`/api/preview/project-path?port=${port}`)
+            .then(res => res.json())
+            .then(data => {
+              if (data.path) {
+                setCurrentProjectPath(data.path);
+              }
+            })
+            .catch(() => { /* ignore */ });
+        }
+      } catch {
+        // Invalid URL
+      }
+    }
+  }, [previewUrl, runningProjects]);
   const [isAIEditPanelOpen, setIsAIEditPanelOpen] = useState(false);
   const [isLocalDataManagerOpen, setIsLocalDataManagerOpen] = useState(false);
+  const [isCloneModalOpen, setIsCloneModalOpen] = useState(false);
   const [showFloatingPrompt, setShowFloatingPrompt] = useState(false);
   const [_floatingPromptPosition, _setFloatingPromptPosition] = useState({ x: 0, y: 0 });
   const { fields: localDataFields, setFields: setLocalDataFields } = useLocalData();
@@ -589,9 +629,10 @@ export function SplitScreenLayout() {
   }, [selectedElements]);
 
   // Handle inline text edit from SmartEditToolbar
-  const handleSmartTextEdit = useCallback((selector: string, newText: string) => {
+  const handleSmartTextEdit = useCallback(async (selector: string, newText: string) => {
     if (selectedElements.length === 0) return;
-    const oldText = selectedElements[0].textContent || '';
+    const element = selectedElements[0];
+    const oldText = element.textContent || '';
 
     // Add to history
     editHistoryHook.addEntry({
@@ -599,10 +640,10 @@ export function SplitScreenLayout() {
       type: 'text',
       oldValue: oldText,
       newValue: newText,
-      element: selectedElements[0],
+      element,
     });
 
-    // Apply edit via iframe
+    // Apply edit via iframe (instant feedback)
     if (iframeRef.current?.contentDocument) {
       try {
         const el = iframeRef.current.contentDocument.querySelector(selector);
@@ -613,7 +654,27 @@ export function SplitScreenLayout() {
         console.error('Failed to apply text edit');
       }
     }
-  }, [selectedElements, editHistoryHook]);
+
+    // Persist to source file via Content API
+    if (currentProjectPath && oldText !== newText) {
+      const result = await contentEdit.saveTextEdit(
+        selector,
+        oldText,
+        newText,
+        {
+          tagName: element.tagName,
+          className: element.className,
+          path: element.path,
+        }
+      );
+
+      if (result.success) {
+        console.log(`✅ Content saved to ${result.file}:${result.lineNumber}`);
+      } else {
+        console.warn('⚠️ Content saved to DOM only:', result.error);
+      }
+    }
+  }, [selectedElements, editHistoryHook, currentProjectPath, contentEdit]);
 
   // Handle AI edit from SmartEditToolbar
   const handleSmartAIEdit = useCallback((prompt: string, elements: SelectedElement[]) => {
@@ -1062,6 +1123,16 @@ Was soll das neue Bild sein?`;
     }
   };
 
+  // Open preview programmatically (for auto-preview from clone commands)
+  const openPreviewFromAction = useCallback((url: string) => {
+    console.log('[SplitScreenLayout] Opening preview from action:', url);
+    setPreviewUrl(url);
+    setShowPreview(true);
+    // Persist immediately
+    localStorage.setItem('agent-girl-preview-url', url);
+    localStorage.setItem('agent-girl-show-preview', 'true');
+  }, []);
+
   // Calculate dynamic scale based on available space
   const calculateDeviceScale = useCallback((deviceWidth: number, deviceHeight: number): number => {
     if (previewDimensions.width === 0 || previewDimensions.height === 0) return 0.5;
@@ -1165,11 +1236,15 @@ Was soll das neue Bild sein?`;
   }, [isSelectionMode, showFloatingPrompt, showDevicePicker, showActionHistory, isAIEditPanelOpen]);
 
   return (
-    <div
-      ref={containerRef}
-      className="h-screen w-screen flex"
-      style={{ background: '#0a0a0b', overflowY: 'hidden', overflowX: 'clip' }}
+    <PreviewProvider
+      onSetPreviewUrl={setPreviewUrl}
+      onOpenPreview={openPreviewFromAction}
     >
+      <div
+        ref={containerRef}
+        className="h-screen w-screen flex"
+        style={{ background: '#0a0a0b', overflowY: 'hidden', overflowX: 'clip' }}
+      >
       {/* Chat Panel - Responsive min/max widths for tablets and small screens */}
       <div
         className="h-full min-h-0 flex flex-col relative"
@@ -1417,6 +1492,15 @@ Was soll das neue Bild sein?`;
 
             {/* Right: Actions */}
             <div className="flex items-center gap-0.5">
+              {/* Clone Website */}
+              <button
+                onClick={() => setIsCloneModalOpen(true)}
+                className="p-1.5 rounded hover:bg-white/10 transition-colors text-gray-500 hover:text-gray-300"
+                title="Clone website"
+              >
+                <Globe size={14} />
+              </button>
+
               {/* Local Data Manager */}
               <button
                 onClick={() => setIsLocalDataManagerOpen(true)}
@@ -1803,6 +1887,13 @@ Was soll das neue Bild sein?`;
         fields={localDataFields}
         onFieldsChange={setLocalDataFields}
       />
-    </div>
+
+      {/* Clone Website Modal */}
+      <CloneModal
+        isOpen={isCloneModalOpen}
+        onClose={() => setIsCloneModalOpen(false)}
+      />
+      </div>
+    </PreviewProvider>
   );
 }

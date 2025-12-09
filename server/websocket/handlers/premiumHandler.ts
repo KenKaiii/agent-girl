@@ -13,8 +13,11 @@ import {
   executeEditCommand,
   undo,
   redo,
+  PremiumWebsiteExecutor,
   type EditCommand,
   type EditResult,
+  type StepProgress,
+  type StepError,
 } from "../../utils/premium";
 
 interface ChatWebSocketData {
@@ -102,7 +105,7 @@ export async function handlePremiumBuildStart(
 const KEEPALIVE_INTERVAL_MS = 25000; // 25 seconds (under typical 30s timeout)
 
 /**
- * Execute all build steps with progress updates
+ * Execute all build steps with progress updates using real Claude SDK
  */
 async function executeBuildSteps(
   buildId: string,
@@ -112,57 +115,118 @@ async function executeBuildSteps(
     throw new Error('No build plan available');
   }
 
-  let lastKeepalive = Date.now();
-
-  for (const step of build.plan.steps) {
-    // Send keepalive if enough time has passed (prevents WebSocket timeout)
-    const now = Date.now();
-    if (now - lastKeepalive > KEEPALIVE_INTERVAL_MS) {
-      broadcastToBuild(buildId, {
-        type: 'premium_keepalive',
-        buildId,
-        timestamp: now,
-      });
-      lastKeepalive = now;
-    }
-
-    // Update current step
-    build.currentStep = step.id;
-    build.currentPhase = build.plan.phases.find(
-      p => step.id >= p.stepRange[0] && step.id <= p.stepRange[1]
-    )?.name;
-
-    // Send progress update
-    sendBuildProgress(buildId, build);
-
-    // Simulate step execution (in real implementation, this would execute the step)
-    // TODO: Integrate with actual Claude SDK for step execution
-    await simulateStep(step.name);
-
-    // Update cost estimates
-    build.cost.tokens += step.estimatedTokens;
-    build.cost.apiCalls++;
-    build.cost.estimatedUSD = build.cost.tokens * 0.00001; // Rough estimate
+  if (!build.projectPath) {
+    throw new Error('No project path set');
   }
 
-  // Build complete
-  build.status = 'complete';
-  build.completedAt = new Date();
-  build.previewUrl = `http://localhost:4321`; // Would be actual preview URL
-
-  broadcastToBuild(buildId, {
-    type: 'premium_build_complete',
-    buildId,
-    previewUrl: build.previewUrl,
+  // Create executor with real Claude SDK integration
+  const executor = new PremiumWebsiteExecutor(build.plan, {
     projectPath: build.projectPath,
-    cost: build.cost,
+    businessName: build.businessInfo?.name || build.plan.projectId || 'Premium Website',
+    model: 'haiku', // Start with fastest model, escalate on errors
+    maxRetries: 7,
+
+    // Real-time progress updates via WebSocket
+    onProgress: (progress: StepProgress) => {
+      build.currentStep = progress.stepId;
+      build.currentPhase = progress.phase;
+
+      // Update cost tracking
+      if (progress.tokensUsed) {
+        build.cost.tokens += progress.tokensUsed;
+        build.cost.apiCalls++;
+        build.cost.estimatedUSD = build.cost.tokens * 0.00001;
+      }
+
+      broadcastToBuild(buildId, {
+        type: 'premium_build_progress',
+        buildId,
+        progress: {
+          currentStep: progress.stepId,
+          totalSteps: build.totalSteps,
+          percentage: progress.percentage,
+          currentPhase: progress.phase,
+          currentStepName: progress.stepName,
+          status: progress.status,
+          filesCreated: progress.filesCreated,
+        },
+        cost: build.cost,
+        status: build.status,
+      });
+    },
+
+    // Error handling with model escalation info
+    onError: (error: StepError) => {
+      logger.warn('Premium build step error', {
+        buildId,
+        stepId: error.stepId,
+        stepName: error.stepName,
+        error: error.error,
+        retryCount: error.retryCount,
+        escalatedModel: error.escalatedModel,
+      });
+
+      broadcastToBuild(buildId, {
+        type: 'premium_build_step_error',
+        buildId,
+        stepId: error.stepId,
+        stepName: error.stepName,
+        error: error.error,
+        retryCount: error.retryCount,
+        canRetry: error.canRetry,
+        escalatedModel: error.escalatedModel,
+      });
+    },
+
+    // Build completion
+    onComplete: (result) => {
+      build.status = result.success ? 'complete' : 'error';
+      build.completedAt = new Date();
+      build.previewUrl = `http://localhost:4321`;
+      build.cost.tokens = result.totalTokens;
+      build.cost.estimatedUSD = result.totalCost;
+
+      if (result.success) {
+        broadcastToBuild(buildId, {
+          type: 'premium_build_complete',
+          buildId,
+          previewUrl: build.previewUrl,
+          projectPath: build.projectPath,
+          cost: build.cost,
+          filesCreated: result.filesCreated,
+          duration: result.duration,
+        });
+
+        logger.info('Premium build complete', {
+          buildId,
+          steps: result.completedSteps,
+          totalSteps: result.totalSteps,
+          cost: build.cost,
+          duration: result.duration,
+        });
+      } else {
+        build.error = `Build failed: ${result.failedSteps} steps failed`;
+        broadcastToBuild(buildId, {
+          type: 'premium_build_error',
+          buildId,
+          error: build.error,
+          completedSteps: result.completedSteps,
+          failedSteps: result.failedSteps,
+          errors: result.errors,
+        });
+
+        logger.error('Premium build failed', {
+          buildId,
+          completedSteps: result.completedSteps,
+          failedSteps: result.failedSteps,
+          errors: result.errors,
+        });
+      }
+    },
   });
 
-  logger.info('Premium build complete', {
-    buildId,
-    steps: build.totalSteps,
-    cost: build.cost,
-  });
+  // Execute the plan with real Claude SDK calls
+  await executor.execute();
 }
 
 /**
@@ -351,15 +415,6 @@ function broadcastToBuild(buildId: string, message: unknown): void {
   }
 }
 
-/**
- * Simulate step execution (placeholder for actual implementation)
- */
-async function simulateStep(stepName: string): Promise<void> {
-  // Simulate varying execution times based on step complexity
-  const baseTime = 100; // ms
-  const variability = Math.random() * 200;
-  await new Promise(resolve => setTimeout(resolve, baseTime + variability));
-}
 
 /**
  * Clean up connections for a build

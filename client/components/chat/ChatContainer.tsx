@@ -338,47 +338,60 @@ export function ChatContainer({
   );
   const currentWorkingDirectory = currentSession?.working_directory || null;
 
-  // Simple handlers - no useCallback needed for simple setters
-  const handleSidebarToggle = () => setIsSidebarOpen(prev => !prev);
-  const handleToggleCompact = () => setDisplayMode(prev => prev === 'compact' ? 'full' : 'compact');
-  const handleToggleCode = () => setShowCode(prev => !prev);
-  const handleNewChatTab = () => window.open(window.location.origin, '_blank');
+  // Simple handlers - memoized to prevent child re-renders
+  const handleSidebarToggle = useCallback(() => setIsSidebarOpen(prev => !prev), []);
+  const handleToggleCompact = useCallback(() => setDisplayMode(prev => prev === 'compact' ? 'full' : 'compact'), []);
+  const handleToggleCode = useCallback(() => setShowCode(prev => !prev), []);
+  const handleNewChatTab = useCallback(() => window.open(window.location.origin, '_blank'), []);
 
-  const handleSidebarPreviousChat = () => {
+  // Navigation handlers - use refs to avoid dependency on handleSessionSelect/sessions
+  const handleSidebarPreviousChat = useCallback(() => {
     if (navigationHistoryRef.current.length > 0) {
       const previousId = navigationHistoryRef.current.pop();
-      if (previousId) handleSessionSelect(previousId);
+      if (previousId) {
+        // Inline session select logic to avoid dependency
+        setCurrentSessionId(previousId);
+        window.location.hash = previousId;
+      }
     }
-  };
+  }, []);
 
-  const handleSidebarBackToRecent = () => {
+  const handleSidebarBackToRecent = useCallback(() => {
     if (navigationHistoryRef.current.length > 0) {
       navigationHistoryRef.current = [];
-      if (sessions.length > 0) handleSessionSelect(sessions[0].id);
+      const firstSession = sessionsRef.current[0];
+      if (firstSession) {
+        setCurrentSessionId(firstSession.id);
+        window.location.hash = firstSession.id;
+      }
     }
-  };
+  }, []);
 
   // Save model selection to localStorage
-  // Supports mid-chat model switching with context handoff
-  const handleModelChange = (modelId: string) => {
-    const previousModel = selectedModel;
-    setSelectedModel(modelId);
-    localStorage.setItem('agent-boy-model', modelId);
+  // Supports mid-chat model switching with context handoff - memoized with functional update
+  const handleModelChange = useCallback((modelId: string) => {
+    setSelectedModel(prev => {
+      localStorage.setItem('agent-boy-model', modelId);
 
-    // If switching mid-chat, notify user and prepare context handoff
-    if (messages.length > 0 && previousModel !== modelId) {
-      const modelNames: Record<string, string> = {
-        'opus': 'Claude Opus 4.5',
-        'sonnet': 'Claude Sonnet 4.5',
-        'haiku': 'Claude Haiku 4.5',
-        'glm-4.6': 'GLM 4.6',
-        'kimi-k2-thinking': 'Kimi K2 Thinking',
-        'kimi-k2-thinking-turbo': 'Kimi K2 Turbo',
-      };
-      const newModelName = modelNames[modelId] || modelId;
-      toast.info(`Model gewechselt zu ${newModelName}. Der nächste Prompt erhält einen Kontext-Überblick.`);
-    }
-  };
+      // If switching mid-chat, notify user and prepare context handoff
+      // Use messageCache to check if we have messages (avoids messages dependency)
+      const hasMessages = messageCache.current.get(currentSessionIdRef.current || '') !== undefined ||
+                         (currentSessionIdRef.current && messageCache.current.size > 0);
+      if (hasMessages && prev !== modelId) {
+        const modelNames: Record<string, string> = {
+          'opus': 'Claude Opus 4.5',
+          'sonnet': 'Claude Sonnet 4.5',
+          'haiku': 'Claude Haiku 4.5',
+          'glm-4.6': 'GLM 4.6',
+          'kimi-k2-thinking': 'Kimi K2 Thinking',
+          'kimi-k2-thinking-turbo': 'Kimi K2 Turbo',
+        };
+        const newModelName = modelNames[modelId] || modelId;
+        toast.info(`Model gewechselt zu ${newModelName}. Der nächste Prompt erhält einen Kontext-Überblick.`);
+      }
+      return modelId;
+    });
+  }, []);
 
   // Load more sessions for infinite scroll
   const loadMoreSessions = useCallback(async () => {
@@ -1315,7 +1328,6 @@ export function ChatContainer({
           messages={messages}
           onModelChange={handleModelChange}
           isPlanMode={isPlanMode}
-          isAutonomMode={isAutonomMode}
           isConnected={isConnected}
           showCode={showCode}
           displayMode={displayMode}
@@ -1328,7 +1340,6 @@ export function ChatContainer({
           handleNextChat={handleNextChat}
           handleBackToRecent={handleBackToRecent}
           handleChangeDirectory={handleChangeDirectory}
-          handleToggleAutonomMode={handleToggleAutonomMode}
           setIsSidebarOpen={setIsSidebarOpen}
           setShowCode={setShowCode}
           setDisplayMode={setDisplayMode}
@@ -1351,6 +1362,8 @@ export function ChatContainer({
             isGenerating={isLoading}
             isPlanMode={isPlanMode}
             onTogglePlanMode={handleTogglePlanMode}
+            isAutonomMode={isAutonomMode}
+            onToggleAutonomMode={handleToggleAutonomMode}
             availableCommands={availableCommands}
             onOpenBuildWizard={handleOpenBuildWizard}
             mode={currentSessionMode}

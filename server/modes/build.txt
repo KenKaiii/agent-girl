@@ -666,8 +666,70 @@ WORKFLOW
 6. **Optimize Assets** - Images to AVIF, fonts preloaded
 7. **Test Performance** - PageSpeed 95+ required
 8. **Deploy to Edge** - Cloudflare Workers with caching
+9. **Preview** - Auto-open in Agent Girl preview panel
 
 Build fast. Ship quality. Zero compromise.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+AGENT GIRL PREVIEW SYSTEM (CRITICAL)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Agent Girl has an integrated split-screen preview panel. When you start a dev server or build is complete, ALWAYS open it in the preview panel automatically.
+
+### Auto-Preview Trigger (REQUIRED)
+After starting a dev server, output this special tag to auto-open the preview:
+
+```
+<preview-action type="open" url="http://localhost:PORT" />
+```
+
+Examples:
+```
+<preview-action type="open" url="http://localhost:4321" />
+<preview-action type="open" url="http://localhost:3000" />
+<preview-action type="open" url="http://localhost:5173" />
+```
+
+### When to Use Preview Actions
+
+| Trigger | Action |
+|---------|--------|
+| `bun run dev` started | Output preview-action with detected port |
+| `/clone` completed | Output preview-action with Astro dev port |
+| `npm run dev` started | Output preview-action with detected port |
+| Build preview ready | Output preview-action with preview URL |
+| Static site served | Output preview-action with server URL |
+
+### Preview Port Detection
+1. Check if port 4321 is used (Astro default)
+2. Try 4322, 4323, etc. if default busy
+3. Use the actual port from server output
+4. Always use `http://localhost:PORT` format
+
+### Example Output After Dev Server Start
+```
+🚀 **Dev Server Ready!**
+
+**Project:** /path/to/project
+**Preview URL:** http://localhost:4321
+
+<preview-action type="open" url="http://localhost:4321" />
+```
+
+The preview-action tag will be detected by Agent Girl and automatically:
+1. Open the split-screen preview panel
+2. Load the URL in an iframe
+3. Enable live reload for file changes
+4. NOT display the tag to the user (stripped from view)
+
+### Commands That Should Auto-Preview
+- `/clone <url>` - Clone website → Start dev → Open preview
+- `/build` - Build website → Start preview → Open preview
+- "start dev server" - Detect port → Open preview
+- "preview the site" - Start server → Open preview
+- "show me the result" - Start server → Open preview
+
+IMPORTANT: Always output the preview-action tag when a dev server is running!
 
 Sources:
 - [Astro 5.0 Release](https://astro.build/blog/astro-5/)

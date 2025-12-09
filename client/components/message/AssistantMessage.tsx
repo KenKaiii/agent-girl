@@ -18,13 +18,14 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import React, { useState, memo, useCallback, useMemo, lazy, Suspense } from 'react';
+import React, { useState, memo, useCallback, useMemo, lazy, Suspense, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AssistantMessage as AssistantMessageType, ToolUseBlock, TextBlock, LongRunningCommandBlock } from './types';
 import { ThinkingBlock } from './ThinkingBlock';
 import { CodeBlockWithCopy } from './CodeBlockWithCopy';
 import { URLBadge } from './URLBadge';
+import { usePreview } from '../../context/PreviewContext';
 
 // PERFORMANCE: Lazy load heavy Mermaid component (~600KB)
 const MermaidDiagram = lazy(() => import('./MermaidDiagram').then(m => ({ default: m.MermaidDiagram })));
@@ -819,7 +820,24 @@ function LongRunningCommandComponent({ command }: { command: LongRunningCommandB
   );
 }
 
+// Regex to detect preview-action tags: <preview-action type="open" url="http://..." />
+const PREVIEW_ACTION_REGEX = /<preview-action\s+type="open"\s+url="([^"]+)"\s*\/?>/g;
+
 function TextComponent({ text }: { text: TextBlock }) {
+  const { openPreview } = usePreview();
+
+  // Detect and trigger preview-action tags
+  useEffect(() => {
+    const matches = text.text.matchAll(PREVIEW_ACTION_REGEX);
+    for (const match of matches) {
+      const url = match[1];
+      if (url && url.startsWith('http')) {
+        console.log('[PreviewAction] Detected preview URL:', url);
+        openPreview(url);
+      }
+    }
+  }, [text.text, openPreview]);
+
   // Check if this is a context cleared message
   const isContextCleared = text.text.includes('--- Context cleared');
   // Check for both manual and auto-compact messages
@@ -872,12 +890,17 @@ function TextComponent({ text }: { text: TextBlock }) {
   // Check if this is the compacting loading message
   const isCompactingMessage = text.text === 'Compacting conversation...';
 
+  // Strip preview-action tags from displayed text (they're processed above)
+  const displayText = useMemo(() => {
+    return text.text.replace(/<preview-action\s+[^>]*\/?>/g, '').trim();
+  }, [text.text]);
+
   return (
     <div className="text-base" style={{ color: 'rgb(var(--text-primary))' }}>
       {isCompactingMessage ? (
         // Render with shimmer gradient effect
         <div className="text-gradient text-base font-semibold">
-          {text.text}
+          {displayText}
         </div>
       ) : (
         // Normal markdown rendering
@@ -886,7 +909,7 @@ function TextComponent({ text }: { text: TextBlock }) {
             remarkPlugins={[remarkGfm]}
             components={MARKDOWN_COMPONENTS}
           >
-            {text.text}
+            {displayText}
           </ReactMarkdown>
         </div>
       )}

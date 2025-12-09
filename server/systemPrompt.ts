@@ -154,6 +154,9 @@ export function getSystemPrompt(
   // Background processes (compact)
   prompt += `\nBackground processes: Use Bash with run_in_background:true for dev servers, watchers, databases.`;
 
+  // Preview system
+  prompt += `\nAuto-preview: After starting dev servers, output \`<preview-action type="open" url="http://localhost:PORT" />\` to auto-open in Agent Girl preview panel.`;
+
   // Agents (compact list)
   if (agents && Object.keys(agents).length > 0) {
     const agentList = Object.entries(agents)

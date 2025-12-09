@@ -34,6 +34,8 @@ interface NewChatWelcomeProps {
   isGenerating?: boolean;
   isPlanMode?: boolean;
   onTogglePlanMode?: () => void;
+  isAutonomMode?: boolean;
+  onToggleAutonomMode?: () => void;
   availableCommands?: SlashCommand[];
   onOpenBuildWizard?: () => void;
   mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified' | 'build';
@@ -100,7 +102,7 @@ const FileAttachmentPreview = memo(function FileAttachmentPreview({
   );
 });
 
-export const NewChatWelcome = memo(function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, disabled, isGenerating, isPlanMode, onTogglePlanMode, availableCommands = [], onOpenBuildWizard, mode, onModeChange }: NewChatWelcomeProps) {
+export const NewChatWelcome = memo(function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, disabled, isGenerating, isPlanMode, onTogglePlanMode, isAutonomMode, onToggleAutonomMode, availableCommands = [], onOpenBuildWizard, mode, onModeChange }: NewChatWelcomeProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [attachedFiles, setAttachedFiles] = useState<FileAttachment[]>([]);
@@ -561,6 +563,34 @@ export const NewChatWelcome = memo(function NewChatWelcome({ inputValue, onInput
                       </button>
                     )}
 
+                    {/* Autonom Mode toggle button - 100-step autonomous execution */}
+                    {onToggleAutonomMode && (
+                      <button
+                        onClick={onToggleAutonomMode}
+                        type="button"
+                        className="flex items-center gap-1 rounded-md sm:rounded-lg transition outline-none focus:outline-none text-[10px] sm:text-xs font-medium px-1.5 py-1 sm:px-3 sm:py-1.5"
+                        style={{
+                          background: isAutonomMode
+                            ? 'linear-gradient(135deg, #ff6b35, #f72585, #7209b7)'
+                            : 'transparent',
+                          backgroundSize: isAutonomMode ? '200% 200%' : '100% 100%',
+                          animation: isAutonomMode ? 'autonom-gradient 2s ease infinite' : 'none',
+                          border: isAutonomMode ? 'none' : '1px solid rgba(255, 255, 255, 0.1)',
+                          color: isAutonomMode ? '#fff' : 'inherit',
+                          boxShadow: isAutonomMode
+                            ? '0 0 12px rgba(247, 37, 133, 0.4)'
+                            : 'none',
+                        }}
+                        title={isAutonomMode ? "AUTONOM Active - 100 Steps Autonomous" : "Activate AUTONOM Mode"}
+                        aria-label={isAutonomMode ? "Deactivate AUTONOM Mode" : "Activate AUTONOM Mode"}
+                      >
+                        <span style={{ fontSize: '0.875rem' }}>🍄</span>
+                        <span className="hidden sm:inline">Autonom</span>
+                        <span className="sm:hidden">Auto</span>
+                        <span style={{ fontSize: '0.875rem' }}>🤖</span>
+                      </button>
+                    )}
+
                     {/* Build Wizard button */}
                     {onOpenBuildWizard && (
                       <button
@@ -614,6 +644,15 @@ export const NewChatWelcome = memo(function NewChatWelcome({ inputValue, onInput
 
         </div>
       </div>
+
+      {/* Autonom mode animation styles */}
+      <style>{`
+        @keyframes autonom-gradient {
+          0% { background-position: 0% 50%; }
+          50% { background-position: 100% 50%; }
+          100% { background-position: 0% 50%; }
+        }
+      `}</style>
     </div>
   );
 });

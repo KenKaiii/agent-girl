@@ -87,40 +87,41 @@ export function ChatModals({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="relative w-full max-w-4xl max-h-[85vh] rounded-2xl overflow-hidden"
             style={{ background: 'linear-gradient(180deg, #1a1a2e 0%, #16162a 100%)', border: '1px solid rgba(255,255,255,0.1)' }}>
-            {/* Header with Tabs */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
-              <div className="flex items-center gap-1">
+            {/* Header with Tabs - Always visible for mode switching */}
+            <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 border-b border-white/10" style={{ background: 'linear-gradient(180deg, #1a1a2e 0%, #1a1a2e 100%)' }}>
+              <div className="flex items-center gap-2 p-1 rounded-xl" style={{ background: 'rgba(255,255,255,0.03)' }}>
                 {/* Website Builder Tab */}
                 <button
                   onClick={() => onBuildModeChange('launcher')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all ${
                     buildMode === 'launcher'
-                      ? 'bg-gradient-to-r from-blue-500/20 to-purple-500/20 text-white border border-blue-500/30'
-                      : 'text-gray-400 hover:text-white hover:bg-white/5'
+                      ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg shadow-blue-500/20'
+                      : 'text-gray-400 hover:text-white hover:bg-white/10'
                   }`}
                 >
-                  <Rocket size={16} />
-                  Website Builder
+                  <Rocket size={18} />
+                  <span>Website Builder</span>
                 </button>
                 {/* Custom Project Tab */}
                 <button
                   onClick={() => onBuildModeChange('wizard')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all ${
                     buildMode === 'wizard'
-                      ? 'bg-gradient-to-r from-orange-500/20 to-amber-500/20 text-white border border-orange-500/30'
-                      : 'text-gray-400 hover:text-white hover:bg-white/5'
+                      ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-lg shadow-orange-500/20'
+                      : 'text-gray-400 hover:text-white hover:bg-white/10'
                   }`}
                 >
-                  <Hammer size={16} />
-                  Custom Project
+                  <Hammer size={18} />
+                  <span>Custom Project</span>
                 </button>
               </div>
               {/* Close Button */}
               <button
                 onClick={onCloseBuildWizard}
-                className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+                className="p-2.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+                title="Close (Esc)"
               >
-                <X size={18} />
+                <X size={20} />
               </button>
             </div>
             {/* Content */}

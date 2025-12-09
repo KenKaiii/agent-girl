@@ -70,3 +70,13 @@ export {
   type ValidationResult,
   type ValidationCheck,
 } from './exportPipeline';
+
+// Premium Website Executor - Real Claude SDK Integration
+export {
+  PremiumWebsiteExecutor,
+  buildPremiumWebsite,
+  type ExecutionConfig,
+  type StepProgress,
+  type StepError,
+  type ExecutionResult,
+} from './executor';

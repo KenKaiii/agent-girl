@@ -19,7 +19,6 @@
  */
 
 import React, { useState, useRef, useEffect, memo } from 'react';
-import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { ProjectTypeSelector } from './ProjectTypeSelector';
 import { FeatureSelector } from './FeatureSelector';
@@ -122,103 +121,54 @@ export const BuildWizard = memo(function BuildWizard({ onComplete, onClose }: Bu
   const currentStepIndex = steps.indexOf(currentStep);
   const progress = ((currentStepIndex + 1) / steps.length) * 100;
 
-  // Render as portal to document.body to escape parent layout constraints
-  return createPortal(
+  // Render inline within ChatModals - no createPortal to allow tab switching
+  return (
     <div
       style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
+        position: 'relative',
+        width: '100%',
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 9999,
-        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-        backdropFilter: 'blur(8px)',
+        flexDirection: 'column',
+        backgroundColor: 'transparent',
       }}
     >
+      {/* Progress Bar */}
       <div
         style={{
-          position: 'relative',
-          width: '100%',
-          maxWidth: '1152px', // max-w-6xl = 72rem = 1152px
-          height: '90vh',
-          borderRadius: '16px',
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-          backgroundColor: 'rgb(20, 22, 24)',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: '4px',
+          backgroundColor: 'rgba(255, 255, 255, 0.1)',
         }}
       >
-        {/* Progress Bar */}
         <div
           style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            height: '4px',
-            backgroundColor: 'rgba(255, 255, 255, 0.1)',
+            height: '100%',
+            width: `${progress}%`,
+            backgroundImage: 'linear-gradient(90deg, #A8C7FA 0%, #DAEEFF 50%, #A8C7FA 100%)',
+            backgroundSize: '200% auto',
+            animation: 'shimmer 3s linear infinite',
+            transition: 'width 500ms ease-out',
           }}
-        >
-          <div
-            style={{
-              height: '100%',
-              width: `${progress}%`,
-              backgroundImage: 'linear-gradient(90deg, #A8C7FA 0%, #DAEEFF 50%, #A8C7FA 100%)',
-              backgroundSize: '200% auto',
-              animation: 'shimmer 3s linear infinite',
-              transition: 'width 500ms ease-out',
-            }}
-          />
-        </div>
+        />
+      </div>
 
-        {/* Close Button */}
-        <button
-          onClick={onClose}
-          style={{
-            position: 'absolute',
-            top: '16px',
-            right: '16px',
-            padding: '8px',
-            borderRadius: '8px',
-            color: 'white',
-            backgroundColor: 'rgba(255, 255, 255, 0.1)',
-            border: 'none',
-            cursor: 'pointer',
-            zIndex: 10,
-            transition: 'background-color 200ms',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
-          }}
-          aria-label="Close wizard"
-        >
-          <X style={{ width: '20px', height: '20px' }} />
-        </button>
+      {/* Spacer for progress bar */}
+      <div style={{ height: '20px', flexShrink: 0 }} />
 
-        {/* Spacer for progress bar and close button */}
-        <div style={{ height: '60px', flexShrink: 0 }} />
-
-        {/* Step Content with Transitions */}
-        <div
-          ref={contentRef}
-          style={{
-            flex: 1,
-            overflowY: 'auto',
-            paddingBottom: '80px', // Space for fixed buttons
-            opacity: isTransitioning ? 0 : 1,
-            transform: isTransitioning ? 'translateY(20px)' : 'translateY(0)',
-            transition: 'opacity 0.3s ease-out, transform 0.3s ease-out',
-          }}
-        >
+      {/* Step Content with Transitions */}
+      <div
+        ref={contentRef}
+        style={{
+          flex: 1,
+          overflowY: 'auto',
+          opacity: isTransitioning ? 0 : 1,
+          transform: isTransitioning ? 'translateY(20px)' : 'translateY(0)',
+          transition: 'opacity 0.3s ease-out, transform 0.3s ease-out',
+        }}
+      >
           {currentStep === 'project-type' && (
             <ProjectTypeSelector onSelect={handleTemplateSelect} />
           )}
@@ -252,23 +202,18 @@ export const BuildWizard = memo(function BuildWizard({ onComplete, onClose }: Bu
           )}
         </div>
 
-        {/* Fixed Action Buttons */}
-        {currentStep !== 'project-type' && (
-          <div
-            style={{
-              position: 'absolute',
-              bottom: 0,
-              left: 0,
-              right: 0,
-              padding: '16px 32px',
-              backgroundColor: 'rgb(20, 22, 24)',
-              borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              zIndex: 10,
-            }}
-          >
+      {/* Action Buttons */}
+      {currentStep !== 'project-type' && (
+        <div
+          style={{
+            padding: '16px 32px',
+            backgroundColor: 'transparent',
+            borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
             <button
               onClick={() => {
                 if (currentStep === 'features') transitionToStep('project-type');
@@ -357,35 +302,33 @@ export const BuildWizard = memo(function BuildWizard({ onComplete, onClose }: Bu
           </div>
         )}
 
-        {/* Step Indicator */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '8px',
-            padding: '16px 0',
-            borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-            backgroundColor: 'rgb(20, 22, 24)',
-          }}
-        >
-          {steps.map((step, index) => (
-            <div
-              key={step}
-              style={{
-                width: index === currentStepIndex ? '32px' : '8px',
-                height: '8px',
-                borderRadius: '4px',
-                backgroundColor: index <= currentStepIndex
-                  ? 'rgb(218, 238, 255)'
-                  : 'rgba(255, 255, 255, 0.2)',
-                transition: 'all 300ms',
-              }}
-            />
-          ))}
-        </div>
+      {/* Step Indicator */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '8px',
+          padding: '16px 0',
+          borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+          backgroundColor: 'transparent',
+        }}
+      >
+        {steps.map((step, index) => (
+          <div
+            key={step}
+            style={{
+              width: index === currentStepIndex ? '32px' : '8px',
+              height: '8px',
+              borderRadius: '4px',
+              backgroundColor: index <= currentStepIndex
+                ? 'rgb(218, 238, 255)'
+                : 'rgba(255, 255, 255, 0.2)',
+              transition: 'all 300ms',
+            }}
+          />
+        ))}
       </div>
-    </div>,
-    document.body
+    </div>
   );
 });

@@ -56,6 +56,8 @@ import { handleCLIRequest } from "./routes/cli";
 import { handleProxyRoutes } from "./routes/proxy";
 import { handleBuildRoutes } from "./routes/build";
 import { handlePremiumRoutes } from "./routes/premium";
+import { handleCloneRoutes } from "./routes/clone";
+import { handleContentRoutes } from "./routes/content";
 import { handleWebSocketMessage } from "./websocket/messageHandlers";
 import { removeWebSocketFromBuilds } from "./websocket/handlers/premiumHandler";
 import { handleHealthCheck, handleLivenessProbe, handleReadinessProbe, updateWsStats } from "./routes/health";
@@ -243,6 +245,18 @@ const server = Bun.serve({
     const premiumResponse = await handlePremiumRoutes(req, url);
     if (premiumResponse) {
       return premiumResponse;
+    }
+
+    // Try clone routes (for website cloning)
+    const cloneResponse = await handleCloneRoutes(req, url);
+    if (cloneResponse) {
+      return cloneResponse;
+    }
+
+    // Try content routes (for inline content editing)
+    const contentResponse = await handleContentRoutes(req, url);
+    if (contentResponse) {
+      return contentResponse;
     }
 
     // CLI API endpoint for external control

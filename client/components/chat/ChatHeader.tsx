@@ -23,7 +23,6 @@ import { ModelSelector } from '../header/ModelSelector';
 import { WorkingDirectoryDisplay } from '../header/WorkingDirectoryDisplay';
 import { AboutButton } from '../header/AboutButton';
 import { RadioPlayer } from '../header/RadioPlayer';
-import { AutonomToggle } from '../header/AutonomToggle';
 import {
   Menu,
   Edit3,
@@ -65,7 +64,6 @@ interface ChatHeaderProps {
 
   // Mode toggles
   isPlanMode: boolean;
-  isAutonomMode: boolean;
   isConnected: boolean;
 
   // Display toggles
@@ -82,7 +80,6 @@ interface ChatHeaderProps {
   handleNextChat: () => void;
   handleBackToRecent: () => void;
   handleChangeDirectory: (sessionId: string, newDir: string) => Promise<void>;
-  handleToggleAutonomMode: () => void;
   setIsSidebarOpen: (open: boolean) => void;
   setShowCode: (show: boolean) => void;
   setDisplayMode: (mode: 'full' | 'compact') => void;
@@ -107,7 +104,6 @@ export function ChatHeader({
   messages,
   onModelChange,
   isPlanMode,
-  isAutonomMode,
   isConnected,
   showCode,
   displayMode,
@@ -120,7 +116,6 @@ export function ChatHeader({
   handleNextChat,
   handleBackToRecent,
   handleChangeDirectory,
-  handleToggleAutonomMode,
   setIsSidebarOpen,
   setShowCode,
   setDisplayMode,
@@ -365,14 +360,6 @@ export function ChatHeader({
                   onChangeDirectory={handleChangeDirectory}
                 />
               )}
-
-              {/* AUTONOM Toggle - Enable/disable autonomous mode */}
-              <div style={{ display: 'flex', alignItems: 'center', padding: '0 6px' }}>
-                <AutonomToggle
-                  isActive={isAutonomMode}
-                  onToggle={handleToggleAutonomMode}
-                />
-              </div>
 
               {/* About Button - hidden in split-screen mode */}
               {layoutMode !== 'split-screen' && <AboutButton />}
