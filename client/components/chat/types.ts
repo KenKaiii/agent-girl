@@ -98,13 +98,7 @@ export interface ChatContainerProps {
   // Expose setInputValue so preview selection can load context into chat
   onInputValueSetter?: (setter: (value: string) => void) => void;
   // Selected elements from preview for displaying in chat
-  selectedElements?: Array<{
-    id: number;
-    tagName: string;
-    selector: string;
-    className?: string;
-    elementId?: string;
-  }>;
+  selectedElements?: SelectedElement[];
   onClearSelection?: () => void;
   // BUILD MODE: Auto-start preview with specific URL
   onBuildPreviewStart?: (url: string) => void;

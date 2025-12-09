@@ -116,11 +116,12 @@ export interface ToolResult {
   tool_use_id: string;
   type: 'tool_result';
   content: string;
+  is_error?: boolean;
 }
 
 export interface AssistantMessage extends BaseMessage {
   type: 'assistant';
-  content: (TextBlock | ToolUseBlock | ThinkingBlock | LongRunningCommandBlock)[];
+  content: (TextBlock | ToolUseBlock | ThinkingBlock | LongRunningCommandBlock | ToolResult)[];
   metadata?: {
     id: string;
     model: string;

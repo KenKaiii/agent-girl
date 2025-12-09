@@ -636,7 +636,7 @@ export function useWebSocketMessageHandler({
                 // Add new update to the updates array
                 const updatedBlock = {
                   ...commandBlock,
-                  updates: [...commandBlock.updates, {
+                  updates: [...(commandBlock.updates || []), {
                     timestamp: Date.now(),
                     content: outputMsg.content,
                     isError: outputMsg.isError || false,

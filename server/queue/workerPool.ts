@@ -16,6 +16,7 @@ export class WorkerPool extends EventEmitter {
   private taskExecutor: TaskExecutor;
   private maxWorkers: number;
   private isRunning: boolean = false;
+  private isProcessing: boolean = false; // PERFORMANCE FIX: Prevent recursive spin loop
 
   constructor(maxWorkers: number = 50, taskExecutor?: TaskExecutor) {
     super();
@@ -83,23 +84,33 @@ export class WorkerPool extends EventEmitter {
 
   /**
    * Process queue and assign tasks to idle workers
+   * PERFORMANCE FIX: Only schedule next iteration if there's work to do
    */
   private async processQueue(): Promise<void> {
-    if (!this.isRunning) return;
+    if (!this.isRunning || this.isProcessing) return;
 
-    const idleWorkers = this.getIdleWorkers();
-    while (idleWorkers.length > 0 && this.taskQueue.length > 0) {
-      const worker = idleWorkers.pop();
-      const task = this.taskQueue.shift();
+    // PERFORMANCE FIX: Don't spin if queue is empty
+    if (this.taskQueue.length === 0) return;
 
-      if (!worker || !task) break;
+    this.isProcessing = true;
 
-      // Assign task to worker
-      this.assignTaskToWorker(worker, task);
+    try {
+      const idleWorkers = this.getIdleWorkers();
+      while (idleWorkers.length > 0 && this.taskQueue.length > 0) {
+        const worker = idleWorkers.pop();
+        const task = this.taskQueue.shift();
+
+        if (!worker || !task) break;
+
+        // Assign task to worker
+        this.assignTaskToWorker(worker, task);
+      }
+    } finally {
+      this.isProcessing = false;
     }
 
-    // Continue processing
-    if (this.isRunning) {
+    // PERFORMANCE FIX: Only continue if there are still tasks AND idle workers
+    if (this.isRunning && this.taskQueue.length > 0 && this.getIdleWorkers().length > 0) {
       setImmediate(() => this.processQueue());
     }
   }
@@ -144,14 +155,20 @@ export class WorkerPool extends EventEmitter {
       this.workerTaskAssignment.delete(worker.id);
       this.emit('worker:error', { workerId: worker.id, taskId: task.id, error: errorMessage });
 
-      // Mark worker as idle after error
+      // Mark worker as idle after error and trigger queue processing
       setTimeout(() => {
         worker.status = 'idle';
+        // PERFORMANCE FIX: Only process if there are pending tasks
+        if (this.taskQueue.length > 0) {
+          this.processQueue();
+        }
       }, 1000);
     }
 
-    // Continue processing queue
-    this.processQueue();
+    // PERFORMANCE FIX: Only continue if there are pending tasks
+    if (this.taskQueue.length > 0) {
+      this.processQueue();
+    }
   }
 
   /**
