@@ -81,6 +81,7 @@ interface UseWebSocketMessageHandlerProps {
   handleActivityProgress: (progress: AIProgressState) => void;
   messageCache: React.MutableRefObject<Map<string, Message[]>>;
   activeLongRunningCommandRef: React.MutableRefObject<string | null>;
+  setAutonomProgress?: (progress: any) => void;
 }
 
 export function useWebSocketMessageHandler({
@@ -98,6 +99,7 @@ export function useWebSocketMessageHandler({
   handleActivityProgress,
   messageCache,
   activeLongRunningCommandRef,
+  setAutonomProgress,
 }: UseWebSocketMessageHandlerProps) {
   return useCallback((message: any) => {
     // Session isolation: Ignore messages from other sessions
@@ -758,6 +760,101 @@ export function useWebSocketMessageHandler({
         toolId: questionMsg.toolId,
         questions: questionMsg.questions,
       });
+    } else if (message.type === 'slash_commands_available' && 'commands' in message) {
+      // SDK supportedCommands() returns built-in commands only, not custom .md files
+      // We ignore this and use REST API instead
+    } else if (message.type === 'compact_start' && 'trigger' in message && 'preTokens' in message) {
+      // Handle auto-compact notification
+      const compactMsg = message as { type: 'compact_start'; trigger: 'auto' | 'manual'; preTokens: number };
+      if (compactMsg.trigger === 'auto') {
+        const tokenCount = compactMsg.preTokens.toLocaleString();
+        toast.info('Auto-compacting conversation...', {
+          description: `Context reached limit (${tokenCount} tokens). Summarizing history...`,
+          duration: 10000, // Show for 10 seconds (compaction takes time)
+        });
+      }
+    } else if (message.type === 'compact_loading') {
+      // Handle /compact loading state - add temporary loading message with shimmer effect
+      const targetSessionId = message.sessionId || currentSessionId;
+      if (targetSessionId === currentSessionId) {
+        const loadingMessage: Message = {
+          id: 'compact-loading',
+          type: 'assistant',
+          content: [{ type: 'text', text: 'Compacting conversation...' }],
+          timestamp: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, loadingMessage]);
+      }
+    } else if (message.type === 'compact_complete' && 'preTokens' in message) {
+      // Handle /compact completion - remove loading message and add final divider
+      const targetSessionId = message.sessionId || currentSessionId;
+      if (targetSessionId === currentSessionId) {
+        const compactMsg = message as { type: 'compact_complete'; preTokens: number };
+        const tokenCount = compactMsg.preTokens.toLocaleString();
+
+        // Remove loading message
+        setMessages((prev) => prev.filter(m => m.id !== 'compact-loading'));
+
+        // Add final divider message
+        const dividerMessage: Message = {
+          id: Date.now().toString(),
+          type: 'assistant',
+          content: [{ type: 'text', text: `--- History compacted. Previous messages were summarized to reduce token usage (${tokenCount} tokens before compact) ---` }],
+          timestamp: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, dividerMessage]);
+      }
+    } else if (message.type === 'ask_user_question' && 'toolId' in message && 'questions' in message) {
+      // Handle AskUserQuestion tool - show modal to get user's answers
+      const questionMsg = message as {
+        type: 'ask_user_question';
+        toolId: string;
+        questions: Question[];
+        sessionId?: string;
+      };
+      console.log('❓ Received question from Claude:', questionMsg.questions);
+      setPendingQuestion({
+        toolId: questionMsg.toolId,
+        questions: questionMsg.questions,
+      });
+    } else if (message.type === 'question_answered') {
+      // Clear the question modal when answer is confirmed
+      setPendingQuestion(null);
+    } else if (message.type === 'autonom_progress' && setAutonomProgress) {
+      // Handle AUTONOM progress updates (including model selection and error tracking)
+      const progressMsg = message as {
+        type: 'autonom_progress';
+        stepNumber: number;
+        maxSteps: number;
+        budgetUsed: number;
+        budgetRemaining: string;
+        tokensRemaining: number;
+        totalCost: string;
+        maxCost: number;
+        stepsCompleted: string[];
+        selectedModel?: string;
+        errorCount?: number;
+        problematicSteps?: string[];
+      };
+      console.log(`🤖 AUTONOM Progress: Step ${progressMsg.stepNumber}/${progressMsg.maxSteps}, Model: ${progressMsg.selectedModel || 'haiku'}, Errors: ${progressMsg.errorCount || 0}, Budget: ${(progressMsg.budgetUsed * 100).toFixed(1)}%`);
+      setAutonomProgress({
+        stepNumber: progressMsg.stepNumber,
+        maxSteps: progressMsg.maxSteps,
+        budgetUsed: progressMsg.budgetUsed,
+        budgetRemaining: progressMsg.budgetRemaining,
+        tokensRemaining: progressMsg.tokensRemaining,
+        totalCost: progressMsg.totalCost,
+        maxCost: progressMsg.maxCost,
+        stepsCompleted: progressMsg.stepsCompleted,
+        selectedModel: progressMsg.selectedModel || 'haiku',
+        errorCount: progressMsg.errorCount || 0,
+        problematicSteps: progressMsg.problematicSteps || [],
+      });
+    } else if (message.type === 'keepalive') {
+      // Keepalive messages are sent every 30s to prevent WebSocket idle timeout
+      // during long-running operations. No action needed - just acknowledge receipt.
+      // Optionally log for debugging (commented out to reduce noise)
+      // console.log(`💓 Keepalive received (${message.elapsedSeconds}s elapsed)`);
     }
   }, [
     currentSessionId,
@@ -774,5 +871,6 @@ export function useWebSocketMessageHandler({
     handleActivityProgress,
     messageCache,
     activeLongRunningCommandRef,
+    setAutonomProgress,
   ]);
 }

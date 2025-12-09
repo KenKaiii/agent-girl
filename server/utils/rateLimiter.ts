@@ -195,3 +195,22 @@ export const expensiveOpLimiter = new TokenBucketRateLimiter({
   maxViolations: 3,
   blockDuration: 300000, // 5 minute block
 });
+
+// Premium Builder API rate limiter
+// More restrictive since builds are resource-intensive
+export const premiumBuildLimiter = new TokenBucketRateLimiter({
+  maxTokens: 5,       // Max 5 builds
+  refillRate: 1,      // +1 per minute
+  refillInterval: 60000,
+  maxViolations: 3,
+  blockDuration: 600000, // 10 minute block for abuse
+});
+
+// Premium edit operations limiter
+export const premiumEditLimiter = new TokenBucketRateLimiter({
+  maxTokens: 30,      // 30 edits per bucket
+  refillRate: 5,      // +5 per 10 seconds
+  refillInterval: 10000,
+  maxViolations: 5,
+  blockDuration: 120000, // 2 minute block
+});

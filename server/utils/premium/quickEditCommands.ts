@@ -63,6 +63,7 @@ export interface EditResult {
   undoOperations: ChangeOperation[];
   preview?: string;
   message: string;
+  changedFiles?: string[];
 }
 
 // ============================================================================
@@ -378,17 +379,46 @@ function resolveTarget(target: string): TargetResolution | null {
 }
 
 // ============================================================================
+// Input Validation Constants
+// ============================================================================
+
+const MAX_COMMAND_LENGTH = 1000;
+const MAX_VALUE_LENGTH = 500;
+
+// ============================================================================
 // Main Parser
 // ============================================================================
 
 export function parseEditCommand(input: string): EditCommand | null {
+  // Security: validate input length to prevent DoS
+  if (!input || typeof input !== 'string') {
+    return null;
+  }
+
+  if (input.length > MAX_COMMAND_LENGTH) {
+    console.warn(`[QuickEdit] Command too long: ${input.length} chars (max: ${MAX_COMMAND_LENGTH})`);
+    return null;
+  }
+
   const normalizedInput = input.trim();
+
+  // Prevent empty or whitespace-only commands
+  if (normalizedInput.length === 0) {
+    return null;
+  }
 
   for (const pattern of COMMAND_PATTERNS) {
     for (const regex of pattern.patterns) {
       const match = normalizedInput.match(regex);
       if (match) {
         const parsed = pattern.extract(match, normalizedInput);
+
+        // Security: truncate excessively long values
+        if (parsed.value && parsed.value.length > MAX_VALUE_LENGTH) {
+          parsed.value = parsed.value.slice(0, MAX_VALUE_LENGTH);
+          console.warn(`[QuickEdit] Value truncated to ${MAX_VALUE_LENGTH} chars`);
+        }
+
         const targetResolution = resolveTarget(parsed.target);
 
         return {
@@ -602,22 +632,49 @@ export async function executeEditCommand(
 interface UndoStack {
   past: EditResult[];
   future: EditResult[];
+  lastAccess: number;
 }
 
 const undoStacks: Map<string, UndoStack> = new Map();
+const MAX_STACK_SIZE = 50;
+const STACK_CLEANUP_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
+const STACK_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
+
+/**
+ * Cleanup old undo stacks to prevent memory leaks
+ */
+function cleanupOldStacks(): void {
+  const now = Date.now();
+  let cleaned = 0;
+
+  for (const [projectId, stack] of undoStacks) {
+    if (now - stack.lastAccess > STACK_MAX_AGE_MS) {
+      undoStacks.delete(projectId);
+      cleaned++;
+    }
+  }
+
+  if (cleaned > 0) {
+    console.log(`[QuickEdit] Cleaned up ${cleaned} old undo stacks. Active: ${undoStacks.size}`);
+  }
+}
+
+// Start periodic cleanup
+setInterval(cleanupOldStacks, STACK_CLEANUP_INTERVAL_MS);
 
 export function pushToUndoStack(projectId: string, result: EditResult): void {
   let stack = undoStacks.get(projectId);
   if (!stack) {
-    stack = { past: [], future: [] };
+    stack = { past: [], future: [], lastAccess: Date.now() };
     undoStacks.set(projectId, stack);
   }
 
   stack.past.push(result);
   stack.future = []; // Clear future on new action
+  stack.lastAccess = Date.now();
 
   // Limit stack size
-  if (stack.past.length > 50) {
+  if (stack.past.length > MAX_STACK_SIZE) {
     stack.past.shift();
   }
 }
@@ -628,6 +685,7 @@ export function undo(projectId: string): EditResult | null {
 
   const result = stack.past.pop()!;
   stack.future.push(result);
+  stack.lastAccess = Date.now();
 
   return result;
 }
@@ -638,8 +696,16 @@ export function redo(projectId: string): EditResult | null {
 
   const result = stack.future.pop()!;
   stack.past.push(result);
+  stack.lastAccess = Date.now();
 
   return result;
+}
+
+/**
+ * Clear undo stack for a specific project
+ */
+export function clearUndoStack(projectId: string): void {
+  undoStacks.delete(projectId);
 }
 
 // ============================================================================
@@ -701,5 +767,6 @@ export default {
   pushToUndoStack,
   undo,
   redo,
+  clearUndoStack,
   generateEditSuggestions,
 };

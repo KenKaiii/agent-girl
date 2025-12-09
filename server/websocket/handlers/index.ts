@@ -10,6 +10,13 @@ import { handleChatMessage } from "./chatHandler";
 import { handleApprovePlan, handleSetPermissionMode } from "./sessionHandler";
 import { handleKillBackgroundProcess, handleStopGeneration } from "./cancelHandler";
 import { handleAnswerQuestion, handleCancelQuestion } from "./questionHandler";
+import {
+  handlePremiumBuildStart,
+  handlePremiumEdit,
+  handlePremiumUndo,
+  handlePremiumPreviewRequest,
+  removeWebSocketFromBuilds,
+} from "./premiumHandler";
 
 interface ChatWebSocketData {
   type: 'hot-reload' | 'chat';
@@ -63,6 +70,14 @@ export async function handleWebSocketMessage(
       await handleAnswerQuestion(ws, data, activeQueries);
     } else if (data.type === 'cancel_question') {
       await handleCancelQuestion(ws, data);
+    } else if (data.type === 'premium_build_start') {
+      await handlePremiumBuildStart(ws, data, activeQueries);
+    } else if (data.type === 'premium_edit') {
+      await handlePremiumEdit(ws, data);
+    } else if (data.type === 'premium_undo' || data.type === 'premium_redo') {
+      await handlePremiumUndo(ws, data);
+    } else if (data.type === 'premium_preview_request') {
+      await handlePremiumPreviewRequest(ws, data);
     } else {
       logger.warn('Unknown message type', { type: data.type });
     }

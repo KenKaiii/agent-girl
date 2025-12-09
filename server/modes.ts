@@ -64,6 +64,11 @@ const MODE_CONFIGS: Record<string, ModeConfig> = {
     name: 'Autonom',
     description: 'Dynamic 100-step autonomous execution for any task',
   },
+  'premium': {
+    id: 'premium',
+    name: 'Premium',
+    description: 'AI-powered 100-step website builder with design presets',
+  },
 };
 
 const modePromptCache = new Map<string, string>();

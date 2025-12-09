@@ -22,30 +22,21 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { flushSync } from 'react-dom';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
+import { ChatHeader } from './ChatHeader';
 import { NewChatWelcome } from './NewChatWelcome';
 import { Sidebar, useSidebarWidth } from '../sidebar/Sidebar';
-import { ModelSelector } from '../header/ModelSelector';
-import { WorkingDirectoryDisplay } from '../header/WorkingDirectoryDisplay';
-import { AboutButton } from '../header/AboutButton';
-import { RadioPlayer } from '../header/RadioPlayer';
-import { AutonomToggle } from '../header/AutonomToggle';
-import { PlanApprovalModal } from '../plan/PlanApprovalModal';
-import { QuestionModal, type Question } from '../question/QuestionModal';
-import { BuildLauncher, type Template } from '../preview/BuildLauncher';
-import { BuildWizard } from '../build-wizard/BuildWizard';
 import { ScrollButton } from './ScrollButton';
-import { WorkingDirectoryPanel } from './WorkingDirectoryPanel';
-import { CommandQueueDisplay } from '../queue/CommandQueueDisplay';
-import { ActivityProgressBar } from './ActivityProgressBar';
-import { KeyboardShortcuts } from '../ui/KeyboardShortcuts';
 import { AutonomProgressTracker } from './AutonomProgressTracker';
+import { ChatModals } from './ChatModals';
+import { ChatInputSection } from './ChatInputSection';
+import type { Question } from '../question/QuestionModal';
+import type { Template } from '../preview/BuildLauncher';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { WorkingDirectoryContext } from '../../hooks/useWorkingDirectory';
 import { GenerationProvider } from '../../context/GenerationContext';
 import { useSessionAPI, type Session } from '../../hooks/useSessionAPI';
 import { useResponsive } from '../../hooks/useResponsive';
-import { Menu, Edit3, ChevronLeft, ChevronRight, History, ExternalLink, Eye, EyeOff, Code2, Monitor, MessageSquare, Search, X, ChevronUp, ChevronDown, Rocket, Hammer } from 'lucide-react';
-import type { Message, SystemMessage, PreviewActionMetadata, PreviewElement } from '../message/types';
+import type { Message } from '../message/types';
 import type { SelectedElement } from '../preview/ElementSelector';
 import { toast } from '../../utils/toast';
 import { showError } from '../../utils/errorMessages';
@@ -55,7 +46,7 @@ import { useMessageQueue } from '../../hooks/useMessageQueue';
 
 // Import refactored types and hooks
 import type { AIEditRequest, AIProgressState, ActionHistoryEntry, AutonomProgressData, ChatContainerProps } from './types';
-import { useWebSocketMessageHandler, useKeyboardShortcuts, FILE_EDIT_TOOLS, getToolDisplayName } from './hooks';
+import { useWebSocketMessageHandler, useKeyboardShortcuts, FILE_EDIT_TOOLS, getToolDisplayName, useBuildHandlers } from './hooks';
 import { createSessionHandlers } from './handlers';
 
 // Re-export types for backwards compatibility
@@ -291,12 +282,12 @@ export function ChatContainer({
   const { isMobile, isTablet: _isTablet } = useResponsive();
   const sidebarWidth = useSidebarWidth(isSidebarOpen);
 
-  // Per-session loading state helpers
-  const isSessionLoading = (sessionId: string | null): boolean => {
+  // Per-session loading state helpers - memoized to prevent re-renders
+  const isSessionLoading = useCallback((sessionId: string | null): boolean => {
     return sessionId ? loadingSessions.has(sessionId) : false;
-  };
+  }, [loadingSessions]);
 
-  const setSessionLoading = (sessionId: string, loading: boolean) => {
+  const setSessionLoading = useCallback((sessionId: string, loading: boolean) => {
     setLoadingSessions(prev => {
       const next = new Set(prev);
       if (loading) {
@@ -306,7 +297,7 @@ export function ChatContainer({
       }
       return next;
     });
-  };
+  }, []);
 
   // Check if ANY session is loading (global loading state for input disabling)
   const isAnySessionLoading = loadingSessions.size > 0;
@@ -628,8 +619,8 @@ export function ChatContainer({
 
   // loadSessions is defined above using useCallback with pagination support
 
-  // Handle session switching
-  const handleSessionSelect = async (sessionId: string) => {
+  // Handle session switching - memoized to prevent re-renders
+  const handleSessionSelect = useCallback(async (sessionId: string) => {
     // IMPORTANT: Cache current session's messages BEFORE switching
     if (currentSessionId && messages.length > 0) {
       messageCache.current.set(currentSessionId, messages);
@@ -710,7 +701,7 @@ export function ChatContainer({
     });
 
     setMessages(convertedMessages);
-  };
+  }, [currentSessionId, messages, sessions, loadCommandsLazy]);
 
   // Handle new chat creation
   const handleNewChat = async () => {
@@ -789,7 +780,11 @@ export function ChatContainer({
         setCurrentSessionMode('general');
         setMessages([]);
       }
-      await loadSessions(); // Reload sessions to reflect deletion
+      // PERFORMANCE FIX: Update local state instead of refetching all sessions
+      setSessions(prev => prev.filter(s => s.id !== chatId));
+      setTotalSessions(prev => Math.max(0, prev - 1));
+      // Clean up message cache for deleted session
+      messageCache.current.delete(chatId);
     }
     // Error already shown by sessionAPI
   };
@@ -799,7 +794,12 @@ export function ChatContainer({
     const result = await sessionAPI.renameSession(chatId, newFolderName);
 
     if (result.success) {
-      await loadSessions();
+      // PERFORMANCE FIX: Update local state instead of refetching all sessions
+      setSessions(prev => prev.map(s =>
+        s.id === chatId
+          ? { ...s, title: newFolderName, working_directory: s.working_directory?.replace(/[^/]+$/, newFolderName) }
+          : s
+      ));
     } else {
       // Show error to user
       toast.error('Error', {
@@ -813,7 +813,12 @@ export function ChatContainer({
     const result = await sessionAPI.updateWorkingDirectory(sessionId, newDirectory);
 
     if (result.success) {
-      await loadSessions();
+      // PERFORMANCE FIX: Update local state instead of refetching all sessions
+      setSessions(prev => prev.map(s =>
+        s.id === sessionId
+          ? { ...s, working_directory: newDirectory }
+          : s
+      ));
 
       // Invalidate cache for old directory and load commands for new one
       commandsCache.current.delete(newDirectory);
@@ -998,719 +1003,29 @@ export function ChatContainer({
     setPendingQuestion(null);
   };
 
+  // Create WebSocket message handler using the hook
+  const handleWebSocketMessage = useWebSocketMessageHandler({
+    currentSessionId,
+    setMessages,
+    setSessionLoading,
+    setContextUsage,
+    setPendingPlan,
+    setPendingQuestion,
+    setIsPlanMode,
+    setCurrentSessionMode,
+    setSessions,
+    setBackgroundProcesses,
+    setLiveTokenCount,
+    handleActivityProgress,
+    messageCache,
+    activeLongRunningCommandRef,
+    setAutonomProgress,
+  });
+
   const { isConnected, sendMessage, stopGeneration } = useWebSocket({
     // Use dynamic URL based on current window location (works on any port)
     url: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`,
-    onMessage: (message) => {
-      // Session isolation: Ignore messages from other sessions
-      if (message.sessionId && message.sessionId !== currentSessionId) {
-        console.log(`[Session Filter] Ignoring message from session ${message.sessionId} (current: ${currentSessionId})`);
-
-        // Allow certain message types through for background session updates
-        if (message.type === 'context_usage') {
-          // Process context_usage for any session
-          const usageMsg = message as {
-            type: 'context_usage';
-            inputTokens: number;
-            outputTokens: number;
-            contextWindow: number;
-            contextPercentage: number;
-            sessionId?: string;
-          };
-
-          const targetSessionId = usageMsg.sessionId || currentSessionId;
-          if (targetSessionId) {
-            setContextUsage(prev => {
-              const newMap = new Map(prev);
-              newMap.set(targetSessionId, {
-                inputTokens: usageMsg.inputTokens,
-                contextWindow: usageMsg.contextWindow,
-                contextPercentage: usageMsg.contextPercentage,
-              });
-              return newMap;
-            });
-
-            console.log(`📊 Context usage updated for session ${targetSessionId.substring(0, 8)}: ${usageMsg.contextPercentage}%`);
-          }
-          return;
-        }
-
-        // Clear loading state for filtered session if it's a completion message
-        if ((message.type === 'result' || message.type === 'error') && message.sessionId) {
-          setSessionLoading(message.sessionId, false);
-        }
-        return;
-      }
-
-      // Handle incoming WebSocket messages
-      if (message.type === 'assistant_message' && 'content' in message) {
-        const assistantContent = message.content as string;
-        // Report writing state to preview (only on first message)
-        handleActivityProgress({
-          isActive: true,
-          status: 'writing',
-          toolDisplayName: 'Responding...',
-        });
-        setMessages((prev) => {
-          const lastMessage = prev[prev.length - 1];
-
-          // Reset token count on first assistant message (start of new response)
-          if (!lastMessage || lastMessage.type !== 'assistant') {
-            setLiveTokenCount(0);
-          }
-
-          // If last message is from assistant, append to the last text block
-          if (lastMessage && lastMessage.type === 'assistant') {
-            const content = Array.isArray(lastMessage.content) ? lastMessage.content : [];
-            const lastBlock = content[content.length - 1];
-
-            // If last block is text, append to it for smooth streaming
-            if (lastBlock && lastBlock.type === 'text') {
-              const updatedContent = [
-                ...content.slice(0, -1),
-                { type: 'text' as const, text: lastBlock.text + assistantContent }
-              ];
-              const updatedMessage = {
-                ...lastMessage,
-                content: updatedContent
-              };
-              return [...prev.slice(0, -1), updatedMessage];
-            } else {
-              // Otherwise add new text block
-              const updatedMessage = {
-                ...lastMessage,
-                content: [...content, { type: 'text' as const, text: assistantContent }]
-              };
-              return [...prev.slice(0, -1), updatedMessage];
-            }
-          }
-
-          // Otherwise create new assistant message
-          return [
-            ...prev,
-            {
-              id: Date.now().toString(),
-              type: 'assistant' as const,
-              content: [{ type: 'text' as const, text: assistantContent }],
-              timestamp: new Date().toISOString(),
-            },
-          ];
-        });
-      } else if (message.type === 'thinking_start') {
-        console.log('💭 Thinking block started');
-        // Report thinking state to progress bar and preview
-        handleActivityProgress({
-          isActive: true,
-          status: 'thinking',
-          toolDisplayName: 'Thinking...',
-        });
-        // Create a new thinking block when thinking starts
-        setMessages((prev) => {
-          const lastMessage = prev[prev.length - 1];
-
-          if (lastMessage && lastMessage.type === 'assistant') {
-            const content = Array.isArray(lastMessage.content) ? lastMessage.content : [];
-            const updatedMessage = {
-              ...lastMessage,
-              content: [...content, { type: 'thinking' as const, thinking: '' }]
-            };
-            return [...prev.slice(0, -1), updatedMessage];
-          }
-
-          // Create new assistant message with thinking block
-          return [
-            ...prev,
-            {
-              id: Date.now().toString(),
-              type: 'assistant' as const,
-              content: [{ type: 'thinking' as const, thinking: '' }],
-              timestamp: new Date().toISOString(),
-            },
-          ];
-        });
-      } else if (message.type === 'thinking_delta' && 'content' in message) {
-        const thinkingContent = message.content as string;
-        console.log('💭 Thinking delta:', thinkingContent.slice(0, 50) + (thinkingContent.length > 50 ? '...' : ''));
-
-        setMessages((prev) => {
-          const lastMessage = prev[prev.length - 1];
-
-          if (lastMessage && lastMessage.type === 'assistant') {
-            const content = Array.isArray(lastMessage.content) ? lastMessage.content : [];
-            const lastBlock = content[content.length - 1];
-
-            // If last block is thinking, append to it
-            if (lastBlock && lastBlock.type === 'thinking') {
-              const updatedContent = [
-                ...content.slice(0, -1),
-                { type: 'thinking' as const, thinking: lastBlock.thinking + thinkingContent }
-              ];
-              const updatedMessage = {
-                ...lastMessage,
-                content: updatedContent
-              };
-              return [...prev.slice(0, -1), updatedMessage];
-            }
-          }
-
-          return prev; // No update if not in a thinking block
-        });
-      } else if (message.type === 'tool_use' && 'toolId' in message && 'toolName' in message && 'toolInput' in message) {
-        // Handle tool use messages
-        const toolUseMsg = message as { type: 'tool_use'; toolId: string; toolName: string; toolInput: Record<string, unknown> };
-
-        // Report AI progress to progress bar and preview panel
-        const filePath = (toolUseMsg.toolInput.file_path as string) || (toolUseMsg.toolInput.path as string);
-        const toolName = toolUseMsg.toolName;
-        const isFileEdit = FILE_EDIT_TOOLS.includes(toolName);
-        const displayName = getToolDisplayName(toolName);
-
-        // Extract additional context based on tool type
-        let contextInfo = filePath;
-        if (toolName === 'Bash' && toolUseMsg.toolInput.command) {
-          // Show first part of command
-          const cmd = String(toolUseMsg.toolInput.command);
-          contextInfo = cmd.length > 50 ? cmd.substring(0, 47) + '...' : cmd;
-        } else if (toolName === 'WebFetch' && toolUseMsg.toolInput.url) {
-          contextInfo = String(toolUseMsg.toolInput.url);
-        } else if (toolName === 'WebSearch' && toolUseMsg.toolInput.query) {
-          contextInfo = String(toolUseMsg.toolInput.query);
-        } else if (toolName === 'Grep' && toolUseMsg.toolInput.pattern) {
-          contextInfo = `/${toolUseMsg.toolInput.pattern}/`;
-        }
-
-        // Create new action history entry
-        const newAction: ActionHistoryEntry = {
-          id: toolUseMsg.toolId,
-          timestamp: Date.now(),
-          tool: toolName,
-          toolDisplayName: displayName,
-          file: contextInfo,
-          status: 'running',
-        };
-
-        handleActivityProgress({
-          isActive: true,
-          currentTool: toolName,
-          currentFile: filePath,
-          status: 'tool_use',
-          toolDisplayName: displayName,
-          isFileEdit,
-          currentToolId: toolUseMsg.toolId,
-          newAction, // Signal to add this action to history
-        } as AIProgressState & { newAction: ActionHistoryEntry });
-
-        // Use flushSync to prevent React batching from causing tools to be lost
-        // When multiple tool_use messages arrive rapidly, React batches setState calls
-        // causing all but the last update to be overwritten. flushSync forces synchronous updates.
-        flushSync(() => {
-          setMessages((prev) => {
-          const lastMessage = prev[prev.length - 1];
-
-          const toolUseBlock = {
-            type: 'tool_use' as const,
-            id: toolUseMsg.toolId,
-            name: toolUseMsg.toolName,
-            input: toolUseMsg.toolInput,
-            // Initialize nestedTools array for Task tools
-            ...(toolUseMsg.toolName === 'Task' ? { nestedTools: [] } : {}),
-          };
-
-          // If last message is assistant, check for Task tool nesting
-          if (lastMessage && lastMessage.type === 'assistant') {
-            const content = Array.isArray(lastMessage.content) ? lastMessage.content : [];
-
-            // Check for duplicate tool_use blocks (prevents race condition issues)
-            const isDuplicate = content.some(block =>
-              block.type === 'tool_use' && block.id === toolUseMsg.toolId
-            );
-
-            if (isDuplicate) {
-              return prev; // Skip duplicate
-            }
-
-            // Find all active Task tools (Tasks without a text block after them)
-            const activeTaskIndices: number[] = [];
-            let foundTextBlockAfterLastTask = false;
-
-            for (let i = content.length - 1; i >= 0; i--) {
-              const block = content[i];
-              if (block.type === 'text') {
-                foundTextBlockAfterLastTask = true;
-              }
-              if (block.type === 'tool_use' && block.name === 'Task') {
-                if (!foundTextBlockAfterLastTask) {
-                  activeTaskIndices.unshift(i); // Add to beginning to maintain order
-                } else {
-                  break; // Stop looking once we hit a text block context boundary
-                }
-              }
-            }
-
-            // If this is a Task tool OR we found no active Tasks to nest under, add normally
-            if (toolUseMsg.toolName === 'Task' || activeTaskIndices.length === 0) {
-              const updatedMessage = {
-                ...lastMessage,
-                content: [...content, toolUseBlock]
-              };
-              return [...prev.slice(0, -1), updatedMessage];
-            }
-
-            // Distribute tools across active Tasks using round-robin
-            // Use total nested tool count as a counter for distribution
-            const totalNestedTools = activeTaskIndices.reduce((sum, idx) => {
-              const block = content[idx];
-              return sum + (block.type === 'tool_use' ? (block.nestedTools?.length || 0) : 0);
-            }, 0);
-
-            const targetTaskIndex = activeTaskIndices[totalNestedTools % activeTaskIndices.length];
-
-            // Nest this tool under the selected Task
-            const updatedContent = content.map((block, index) => {
-              if (index === targetTaskIndex && block.type === 'tool_use') {
-                // Check for duplicate in nested tools as well
-                const isNestedDuplicate = (block.nestedTools || []).some(
-                  nested => nested.id === toolUseMsg.toolId
-                );
-
-                if (isNestedDuplicate) {
-                  return block; // Don't add duplicate
-                }
-
-                return {
-                  ...block,
-                  nestedTools: [...(block.nestedTools || []), toolUseBlock]
-                };
-              }
-              return block;
-            });
-
-            const updatedMessage = {
-              ...lastMessage,
-              content: updatedContent
-            };
-            return [...prev.slice(0, -1), updatedMessage];
-          }
-
-          // Otherwise create new assistant message with tool
-          return [
-            ...prev,
-            {
-              id: Date.now().toString(),
-              type: 'assistant' as const,
-              content: [toolUseBlock],
-              timestamp: new Date().toISOString(),
-            },
-          ];
-          });
-        });
-      } else if (message.type === 'token_update' && 'outputTokens' in message) {
-        // Update live token count during streaming
-        const tokenUpdate = message as { type: 'token_update'; outputTokens: number };
-        setLiveTokenCount(tokenUpdate.outputTokens);
-      } else if (message.type === 'result') {
-        if (currentSessionId) {
-          setSessionLoading(currentSessionId, false);
-          // Clear message cache for this session since messages are now saved to DB
-          messageCache.current.delete(currentSessionId);
-          console.log(`[Message Cache] Cleared cache for session ${currentSessionId} (stream completed)`);
-          // Clear live token count when response completes
-          setLiveTokenCount(0);
-          // Reset AI progress for progress bar and preview panel
-          handleActivityProgress({
-            isActive: false,
-            status: 'completed',
-          });
-        }
-      } else if (message.type === 'timeout_warning') {
-        // Handle timeout warning (60s elapsed)
-        const warningMsg = message as { type: 'timeout_warning'; message: string; elapsedSeconds: number };
-        toast.warning('Still thinking...', {
-          description: warningMsg.message || 'The AI is taking longer than usual',
-          duration: 5000,
-        });
-      } else if (message.type === 'retry_attempt') {
-        // Handle retry attempt notification
-        const retryMsg = message as { type: 'retry_attempt'; attempt: number; maxAttempts: number; message: string; errorType: string };
-        toast.info(`Retrying (${retryMsg.attempt}/${retryMsg.maxAttempts})`, {
-          description: retryMsg.message || `Attempting to recover from ${retryMsg.errorType}...`,
-          duration: 3000,
-        });
-      } else if (message.type === 'error') {
-        // Handle error messages from server
-        if (currentSessionId) setSessionLoading(currentSessionId, false);
-        // Clear live token count on error
-        setLiveTokenCount(0);
-        // Reset AI progress for progress bar and preview panel with error status
-        handleActivityProgress({
-          isActive: false,
-          status: 'error',
-        });
-
-        // Get error type and message
-        const errorType = 'errorType' in message ? (message.errorType as string) : undefined;
-        const errorMsg = 'message' in message ? message.message : ('error' in message ? message.error : undefined);
-        const errorMessage = errorMsg || 'An error occurred';
-
-        // Map error type to user-friendly error code
-        const errorCodeMap: Record<string, string> = {
-          'timeout_error': 'API_TIMEOUT',
-          'rate_limit_error': 'API_RATE_LIMIT',
-          'overloaded_error': 'API_OVERLOADED',
-          'authentication_error': 'API_AUTHENTICATION',
-          'permission_error': 'API_PERMISSION',
-          'invalid_request_error': 'API_INVALID_REQUEST',
-          'request_too_large': 'API_REQUEST_TOO_LARGE',
-          'network_error': 'API_NETWORK',
-        };
-
-        // Show appropriate toast notification
-        if (errorType && errorCodeMap[errorType]) {
-          const errorCode = errorCodeMap[errorType] as keyof typeof import('../../utils/errorMessages').ErrorMessages;
-          showError(errorCode, errorMessage);
-        } else {
-          toast.error('Error', {
-            description: errorMessage
-          });
-        }
-
-        // Display error as assistant message
-        const errorIcon = errorType === 'timeout_error' ? '⏱️' :
-                         errorType === 'rate_limit_error' ? '🚦' :
-                         errorType === 'authentication_error' ? '🔑' :
-                         errorType === 'network_error' ? '🌐' : '❌';
-
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: Date.now().toString(),
-            type: 'assistant' as const,
-            content: [{
-              type: 'text' as const,
-              text: `${errorIcon} Error: ${errorMessage}`
-            }],
-            timestamp: new Date().toISOString(),
-          },
-        ]);
-      } else if (message.type === 'user_message') {
-        // Echo back user message if needed
-      } else if (message.type === 'exit_plan_mode') {
-        // Handle plan mode exit - show approval modal and auto-deactivate plan mode
-        const planText = 'plan' in message ? message.plan : undefined;
-        setPendingPlan(planText || 'No plan provided');
-        setIsPlanMode(false); // Auto-deactivate plan mode when ExitPlanMode is triggered
-      } else if (message.type === 'session_title_updated' && 'newTitle' in message) {
-        // Handle session title update from server
-        console.log(`📝 Session title updated to: ${message.newTitle}`);
-        // Update only the specific session instead of reloading all (prevents UI flash)
-        const updatedSessionId = 'sessionId' in message ? message.sessionId : currentSessionId;
-        if (updatedSessionId && message.newTitle) {
-          setSessions(prev => prev.map(s =>
-            s.id === updatedSessionId ? { ...s, title: message.newTitle as string } : s
-          ));
-        }
-      } else if (message.type === 'mode_changed' && 'mode' in message) {
-        // Handle session mode change confirmation from server
-        const newMode = message.mode as 'general' | 'coder' | 'intense-research' | 'spark';
-        console.log(`✅ Mode changed confirmed: ${newMode}`);
-        // Update local state to match confirmed mode
-        setCurrentSessionMode(newMode);
-        // Update sessions list to reflect the mode change
-        setSessions(prev => prev.map(s =>
-          s.id === currentSessionId ? { ...s, mode: newMode } : s
-        ));
-      } else if (message.type === 'permission_mode_changed') {
-        // Handle permission mode change confirmation
-        const mode = 'mode' in message ? message.mode : undefined;
-        setIsPlanMode(mode === 'plan');
-      } else if (message.type === 'background_process_started' && 'bashId' in message && 'command' in message && 'description' in message) {
-        // Handle background process started
-        const sessionId = message.sessionId || currentSessionId;
-        if (sessionId) {
-          setBackgroundProcesses(prev => {
-            const newMap = new Map(prev);
-            const processes = newMap.get(sessionId) || [];
-            newMap.set(sessionId, [...processes, {
-              bashId: message.bashId as string,
-              command: message.command as string,
-              description: message.description as string,
-              startedAt: Date.now()
-            }]);
-            return newMap;
-          });
-        }
-      } else if (message.type === 'background_process_killed' && 'bashId' in message) {
-        // Handle background process killed confirmation
-        const sessionId = message.sessionId || currentSessionId;
-        if (sessionId) {
-          setBackgroundProcesses(prev => {
-            const newMap = new Map(prev);
-            const processes = newMap.get(sessionId) || [];
-            newMap.set(sessionId, processes.filter(p => p.bashId !== message.bashId));
-            return newMap;
-          });
-        }
-      } else if (message.type === 'background_process_exited' && 'bashId' in message && 'exitCode' in message) {
-        // Handle background process that exited on its own
-        const sessionId = message.sessionId || currentSessionId;
-        if (sessionId) {
-          console.log(`Background process exited: ${message.bashId}, exitCode: ${message.exitCode}`);
-          setBackgroundProcesses(prev => {
-            const newMap = new Map(prev);
-            const processes = newMap.get(sessionId) || [];
-            newMap.set(sessionId, processes.filter(p => p.bashId !== message.bashId));
-            return newMap;
-          });
-        }
-      } else if (message.type === 'long_running_command_started' && 'bashId' in message && 'command' in message && 'commandType' in message) {
-        // Handle long-running command started - add as message block
-        const longRunningMsg = message as {
-          type: 'long_running_command_started';
-          bashId: string;
-          command: string;
-          commandType: 'install' | 'build' | 'test';
-          description?: string;
-          startedAt: number;
-        };
-
-        activeLongRunningCommandRef.current = longRunningMsg.bashId;
-
-        // Add a new assistant message with the long-running command block
-        setMessages(prev => [
-          ...prev,
-          {
-            id: `msg-${Date.now()}`,
-            type: 'assistant' as const,
-            timestamp: new Date().toISOString(),
-            content: [{
-              type: 'long_running_command' as const,
-              bashId: longRunningMsg.bashId,
-              command: longRunningMsg.command,
-              commandType: longRunningMsg.commandType,
-              output: '',
-              status: 'running' as const,
-              startedAt: longRunningMsg.startedAt,
-            }],
-          },
-        ]);
-      } else if (message.type === 'command_output_chunk' && 'bashId' in message && 'output' in message) {
-        // Handle streaming output from long-running command - update message block
-        const outputMsg = message as { type: 'command_output_chunk'; bashId: string; output: string };
-
-        setMessages(prev => {
-          const lastMessage = prev[prev.length - 1];
-          if (lastMessage?.type === 'assistant' && lastMessage.content.length > 0) {
-            const lastBlock = lastMessage.content[lastMessage.content.length - 1];
-            if (lastBlock.type === 'long_running_command' && lastBlock.bashId === outputMsg.bashId) {
-              // Update the output of the last long-running command block
-              return [
-                ...prev.slice(0, -1),
-                {
-                  ...lastMessage,
-                  content: [
-                    ...lastMessage.content.slice(0, -1),
-                    {
-                      ...lastBlock,
-                      output: lastBlock.output + outputMsg.output,
-                    },
-                  ],
-                },
-              ];
-            }
-          }
-          return prev;
-        });
-      } else if (message.type === 'long_running_command_completed' && 'bashId' in message) {
-        // Handle long-running command completion - update message block status
-        const completedMsg = message as { type: 'long_running_command_completed'; bashId: string; exitCode: number };
-
-        setMessages(prev => {
-          const lastMessage = prev[prev.length - 1];
-          if (lastMessage?.type === 'assistant' && lastMessage.content.length > 0) {
-            const lastBlock = lastMessage.content[lastMessage.content.length - 1];
-            if (lastBlock.type === 'long_running_command' && lastBlock.bashId === completedMsg.bashId) {
-              toast.success('Command completed', {
-                description: 'Installation finished successfully',
-                duration: 3000,
-              });
-
-              activeLongRunningCommandRef.current = null;
-
-              // Update status to completed
-              return [
-                ...prev.slice(0, -1),
-                {
-                  ...lastMessage,
-                  content: [
-                    ...lastMessage.content.slice(0, -1),
-                    {
-                      ...lastBlock,
-                      status: 'completed' as const,
-                    },
-                  ],
-                },
-              ];
-            }
-          }
-          return prev;
-        });
-      } else if (message.type === 'long_running_command_failed' && 'bashId' in message && 'error' in message) {
-        // Handle long-running command failure - update message block status
-        const failedMsg = message as { type: 'long_running_command_failed'; bashId: string; error: string };
-
-        setMessages(prev => {
-          const lastMessage = prev[prev.length - 1];
-          if (lastMessage?.type === 'assistant' && lastMessage.content.length > 0) {
-            const lastBlock = lastMessage.content[lastMessage.content.length - 1];
-            if (lastBlock.type === 'long_running_command' && lastBlock.bashId === failedMsg.bashId) {
-              toast.error('Command failed', {
-                description: failedMsg.error,
-                duration: 5000,
-              });
-
-              activeLongRunningCommandRef.current = null;
-
-              // Update status to failed
-              return [
-                ...prev.slice(0, -1),
-                {
-                  ...lastMessage,
-                  content: [
-                    ...lastMessage.content.slice(0, -1),
-                    {
-                      ...lastBlock,
-                      status: 'failed' as const,
-                      output: lastBlock.output + '\n\nError: ' + failedMsg.error,
-                    },
-                  ],
-                },
-              ];
-            }
-          }
-          return prev;
-        });
-      } else if (message.type === 'slash_commands_available' && 'commands' in message) {
-        // SDK supportedCommands() returns built-in commands only, not custom .md files
-        // We ignore this and use REST API instead
-      } else if (message.type === 'compact_start' && 'trigger' in message && 'preTokens' in message) {
-        // Handle auto-compact notification
-        const compactMsg = message as { type: 'compact_start'; trigger: 'auto' | 'manual'; preTokens: number };
-        if (compactMsg.trigger === 'auto') {
-          const tokenCount = compactMsg.preTokens.toLocaleString();
-          toast.info('Auto-compacting conversation...', {
-            description: `Context reached limit (${tokenCount} tokens). Summarizing history...`,
-            duration: 10000, // Show for 10 seconds (compaction takes time)
-          });
-        }
-      } else if (message.type === 'compact_loading') {
-        // Handle /compact loading state - add temporary loading message with shimmer effect
-        const targetSessionId = message.sessionId || currentSessionId;
-        if (targetSessionId === currentSessionId) {
-          const loadingMessage: Message = {
-            id: 'compact-loading',
-            type: 'assistant',
-            content: [{ type: 'text', text: 'Compacting conversation...' }],
-            timestamp: new Date().toISOString(),
-          };
-          setMessages((prev) => [...prev, loadingMessage]);
-        }
-      } else if (message.type === 'compact_complete' && 'preTokens' in message) {
-        // Handle /compact completion - remove loading message and add final divider
-        const targetSessionId = message.sessionId || currentSessionId;
-        if (targetSessionId === currentSessionId) {
-          const compactMsg = message as { type: 'compact_complete'; preTokens: number };
-          const tokenCount = compactMsg.preTokens.toLocaleString();
-
-          // Remove loading message
-          setMessages((prev) => prev.filter(m => m.id !== 'compact-loading'));
-
-          // Add final divider message
-          const dividerMessage: Message = {
-            id: Date.now().toString(),
-            type: 'assistant',
-            content: [{ type: 'text', text: `--- History compacted. Previous messages were summarized to reduce token usage (${tokenCount} tokens before compact) ---` }],
-            timestamp: new Date().toISOString(),
-          };
-          setMessages((prev) => [...prev, dividerMessage]);
-        }
-      } else if (message.type === 'context_usage' && 'inputTokens' in message && 'contextWindow' in message && 'contextPercentage' in message) {
-        // Handle context usage update (for current session)
-        const usageMsg = message as {
-          type: 'context_usage';
-          inputTokens: number;
-          outputTokens: number;
-          contextWindow: number;
-          contextPercentage: number;
-          sessionId?: string;
-        };
-
-        const targetSessionId = usageMsg.sessionId || currentSessionId;
-        if (targetSessionId) {
-          setContextUsage(prev => {
-            const newMap = new Map(prev);
-            newMap.set(targetSessionId, {
-              inputTokens: usageMsg.inputTokens,
-              contextWindow: usageMsg.contextWindow,
-              contextPercentage: usageMsg.contextPercentage,
-            });
-            return newMap;
-          });
-
-          console.log(`📊 Context usage updated for session ${targetSessionId.substring(0, 8)}: ${usageMsg.contextPercentage}%`);
-        }
-      } else if (message.type === 'ask_user_question' && 'toolId' in message && 'questions' in message) {
-        // Handle AskUserQuestion tool - show modal to get user's answers
-        const questionMsg = message as {
-          type: 'ask_user_question';
-          toolId: string;
-          questions: Question[];
-          sessionId?: string;
-        };
-        console.log('❓ Received question from Claude:', questionMsg.questions);
-        setPendingQuestion({
-          toolId: questionMsg.toolId,
-          questions: questionMsg.questions,
-        });
-      } else if (message.type === 'question_answered') {
-        // Clear the question modal when answer is confirmed
-        setPendingQuestion(null);
-      } else if (message.type === 'autonom_progress') {
-        // Handle AUTONOM progress updates (including model selection and error tracking)
-        const progressMsg = message as {
-          type: 'autonom_progress';
-          stepNumber: number;
-          maxSteps: number;
-          budgetUsed: number;
-          budgetRemaining: string;
-          tokensRemaining: number;
-          totalCost: string;
-          maxCost: number;
-          stepsCompleted: string[];
-          selectedModel?: string;
-          errorCount?: number;
-          problematicSteps?: string[];
-        };
-        console.log(`🤖 AUTONOM Progress: Step ${progressMsg.stepNumber}/${progressMsg.maxSteps}, Model: ${progressMsg.selectedModel || 'haiku'}, Errors: ${progressMsg.errorCount || 0}, Budget: ${(progressMsg.budgetUsed * 100).toFixed(1)}%`);
-        setAutonomProgress({
-          stepNumber: progressMsg.stepNumber,
-          maxSteps: progressMsg.maxSteps,
-          budgetUsed: progressMsg.budgetUsed,
-          budgetRemaining: progressMsg.budgetRemaining,
-          tokensRemaining: progressMsg.tokensRemaining,
-          totalCost: progressMsg.totalCost,
-          maxCost: progressMsg.maxCost,
-          stepsCompleted: progressMsg.stepsCompleted,
-          selectedModel: progressMsg.selectedModel || 'haiku',
-          errorCount: progressMsg.errorCount || 0,
-          problematicSteps: progressMsg.problematicSteps || [],
-        });
-      } else if (message.type === 'keepalive') {
-        // Keepalive messages are sent every 30s to prevent WebSocket idle timeout
-        // during long-running operations. No action needed - just acknowledge receipt.
-        // Optionally log for debugging (commented out to reduce noise)
-        // console.log(`💓 Keepalive received (${message.elapsedSeconds}s elapsed)`);
-      }
-    },
+    onMessage: handleWebSocketMessage,
   });
 
   // Handle killing a background process
@@ -1862,229 +1177,22 @@ export function ChatContainer({
     setMessages((prev) => prev.filter(msg => msg.id !== messageId));
   };
 
-  // Build wizard handlers
-  const handleOpenBuildWizard = () => {
-    setIsBuildWizardOpen(true);
-  };
-
-  const handleCloseBuildWizard = () => {
-    setIsBuildWizardOpen(false);
-  };
-
-  // Handle template selection from BuildLauncher - FULLY AUTOMATED
-  const handleSelectTemplate = async (template: Template) => {
-    setIsBuildWizardOpen(false);
-    setCurrentSessionId(null);
-    setCurrentSessionMode('build');
-    setMessages([]);
-
-    // AUTO-START BUILD WORKFLOW: Create project, start dev server, show preview
-    try {
-      const projectName = template.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-
-      const response = await fetch('/api/build/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          templateId: template.id,
-          projectName,
-          workingDir: '/Users/master/Projects'
-        })
-      });
-
-      const buildResult = await response.json();
-
-      if (buildResult.success && onBuildPreviewStart) {
-        // Trigger split-screen layout with live preview
-        onBuildPreviewStart(buildResult.previewUrl);
-        console.log('[BUILD] Auto-started project:', buildResult.projectPath, 'Preview:', buildResult.previewUrl);
-      }
-    } catch (error) {
-      console.error('[BUILD] Auto-start failed:', error);
-    }
-
-    // Continue with normal flow - submit template command to AI
-    setTimeout(() => {
-      handleSubmit(undefined, 'build', template.command);
-    }, 100);
-  };
-
-  // Handle quick actions from BuildLauncher (clone, ai, blank, niche)
-  const handleQuickAction = (action: string, input?: string) => {
-    let prompt = '';
-    switch (action) {
-      case 'clone':
-        prompt = `/clone ${input || ''}`;
-        break;
-      case 'ai':
-        prompt = input || 'Create a modern Astro 5 website with landing page, about, and contact sections';
-        break;
-      case 'blank':
-        prompt = '/new my-project';
-        break;
-      case 'niche':
-        prompt = `/landing ${input || 'saas'} "My Project"`;
-        break;
-      default:
-        prompt = action;
-    }
-
-    if (prompt) {
-      setIsBuildWizardOpen(false);
-      setCurrentSessionId(null);
-      setCurrentSessionMode('build');
-      setMessages([]);
-
-      setTimeout(() => {
-        handleSubmit(undefined, 'build', prompt);
-      }, 100);
-    }
-  };
-
-  // Handle BuildWizard completion (step-by-step custom project)
-  const handleBuildComplete = (prompt: string) => {
-    setIsBuildWizardOpen(false);
-    setCurrentSessionId(null);
-    setCurrentSessionMode('coder');
-    setMessages([]);
-
-    setTimeout(() => {
-      handleSubmit(undefined, 'coder', prompt);
-    }, 100);
-  };
-
-  // Handle AI edit request from preview element selection
-  const handleAIEditRequest = useCallback(async (request: AIEditRequest) => {
-    // First, add a preview action system message to show context in chat
-    const previewElements: PreviewElement[] = request.elements.map(el => ({
-      id: el.id,
-      tagName: el.tagName,
-      selector: el.selector,
-      textContent: el.textContent,
-      className: el.className,
-      elementId: el.elementId,
-      path: el.path,
-      styles: el.styles ? {
-        color: el.styles.color,
-        backgroundColor: el.styles.backgroundColor,
-        fontSize: el.styles.fontSize,
-      } : undefined,
-    }));
-
-    const previewMetadata: PreviewActionMetadata = {
-      type: 'preview',
-      action: 'ai_request',
-      previewUrl: request.previewUrl,
-      elements: previewElements,
-      fileContext: request.fileContext ? {
-        framework: request.fileContext.framework || 'unknown',
-        routePattern: request.fileContext.routePattern,
-        possibleFiles: request.fileContext.possibleFiles,
-        componentHints: request.fileContext.componentHints,
-      } : undefined,
-      viewport: request.viewport ? {
-        device: request.viewport.device,
-        width: request.viewport.width,
-        height: request.viewport.height,
-      } : undefined,
-      screenshot: request.screenshot,
-      userRequest: request.prompt,
-    };
-
-    // Add preview action message to chat
-    const previewMessage: SystemMessage = {
-      id: `preview-${Date.now()}`,
-      type: 'system',
-      content: `Preview AI Edit: ${request.prompt}`,
-      timestamp: new Date().toISOString(),
-      metadata: previewMetadata,
-    };
-
-    // Add the preview action message to messages first
-    setMessages(prev => [...prev, previewMessage]);
-
-    // Build the edit prompt with full context
-    const elementDetails = request.elements.map(el =>
-      `  - **Element ${el.id}**: \`<${el.tagName}>\` (${el.selector})${el.textContent ? ` - "${el.textContent.slice(0, 50)}${el.textContent.length > 50 ? '...' : ''}"` : ''}`
-    ).join('\n');
-
-    let fullPrompt = `🎯 **Preview Edit Request**\n\n`;
-    fullPrompt += `**Target URL:** ${request.previewUrl}\n\n`;
-
-    // Add file path context for AI to find the right files
-    if (request.fileContext) {
-      fullPrompt += `**📁 File Detection:**\n`;
-      if (request.fileContext.framework) {
-        fullPrompt += `  - Framework: ${request.fileContext.framework}\n`;
-        fullPrompt += `  - Routing: ${request.fileContext.routePattern}\n`;
-      }
-      if (request.fileContext.possibleFiles.length > 0) {
-        fullPrompt += `  - Likely source files:\n`;
-        request.fileContext.possibleFiles.slice(0, 5).forEach(file => {
-          fullPrompt += `    • \`${file}\`\n`;
-        });
-      }
-      if (request.fileContext.componentHints.length > 0) {
-        fullPrompt += `  - Component locations: ${request.fileContext.componentHints.join(', ')}\n`;
-      }
-      fullPrompt += '\n';
-    }
-
-    // Add viewport context
-    if (request.viewport) {
-      fullPrompt += `**📱 Viewport:** ${request.viewport.device} (${request.viewport.width}×${request.viewport.height}px)\n\n`;
-    }
-
-    fullPrompt += `**Selected Elements (${request.elements.length}):**\n${elementDetails}\n\n`;
-
-    // Add detailed element info for each selected element
-    if (request.elements.length > 0) {
-      fullPrompt += `**Element Details:**\n`;
-      request.elements.forEach(el => {
-        fullPrompt += `  **${el.id}. \`<${el.tagName}>\`**\n`;
-        fullPrompt += `    - Selector: \`${el.selector}\`\n`;
-        if (el.className) fullPrompt += `    - Class: \`${el.className}\`\n`;
-        if (el.elementId) fullPrompt += `    - ID: \`${el.elementId}\`\n`;
-        if (el.path) fullPrompt += `    - Path: \`${el.path}\`\n`;
-        if (el.textContent) fullPrompt += `    - Text: "${el.textContent.slice(0, 100)}${el.textContent.length > 100 ? '...' : ''}"\n`;
-        if (el.styles) {
-          fullPrompt += `    - Styles: color=${el.styles.color}, bg=${el.styles.backgroundColor}, font=${el.styles.fontSize}\n`;
-        }
-      });
-      fullPrompt += '\n';
-    }
-
-    if (request.localData && Object.keys(request.localData).length > 0) {
-      fullPrompt += `**Local Data to Use:**\n`;
-      Object.entries(request.localData).forEach(([key, value]) => {
-        fullPrompt += `  - ${key}: ${value}\n`;
-      });
-      fullPrompt += '\n';
-    }
-
-    fullPrompt += `**User Request:** ${request.prompt}\n\n`;
-    fullPrompt += `Please use the file detection hints above to find and edit the correct source files. Start by reading the suggested files to verify they match the preview content, then make the requested changes.`;
-
-    // If screenshot is available, include it as an image attachment
-    const files: import('../message/types').FileAttachment[] = [];
-    if (request.screenshot) {
-      files.push({
-        id: `screenshot-${Date.now()}`,
-        name: 'screenshot.png',
-        type: 'image/png',
-        size: request.screenshot.length,
-        preview: request.screenshot,
-      });
-    }
-
-    // Submit to chat
-    setInputValue(fullPrompt);
-
-    // Small delay to ensure state is set, then submit
-    setTimeout(() => {
-      handleSubmit(files.length > 0 ? files : undefined, 'coder', fullPrompt);
-    }, 50);
-  }, [handleSubmit]);
+  // Build wizard handlers (extracted to useBuildHandlers hook)
+  const {
+    handleOpenBuildWizard,
+    handleCloseBuildWizard,
+    handleSelectTemplate,
+    handleQuickAction,
+    handleBuildComplete,
+    handleAIEditRequest,
+  } = useBuildHandlers({
+    setIsBuildWizardOpen,
+    setCurrentSessionId,
+    setCurrentSessionMode,
+    setMessages,
+    onBuildPreviewStart,
+    handleSubmit,
+  });
 
   // Register the AI edit handler with the parent
   useEffect(() => {
@@ -2137,402 +1245,43 @@ export function ChatContainer({
           transition: 'margin-left 0.2s ease-in-out',
         }}
       >
-        {/* Header - Always visible - Compact in split-screen mode */}
-        <nav
-          className="header"
-          style={{
-            height: layoutMode === 'split-screen' ? '48px' : '56px',
-            minHeight: layoutMode === 'split-screen' ? '48px' : '56px',
-            backgroundColor: '#141618',
-            borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-            display: 'flex',
-            alignItems: 'center',
-            width: '100%',
-            flexShrink: 0,
-            position: 'relative',
-            zIndex: 50,
-          }}
-        >
-          <div className="header-content">
-            <div className="header-inner" style={{ padding: layoutMode === 'split-screen' ? '0 0.75rem' : undefined }}>
-              {/* Left side */}
-              <div className="header-left">
-                {/* Mobile: Always show hamburger menu */}
-                {isMobile && (
-                  <button
-                    className="header-btn"
-                    aria-label="Open Sidebar"
-                    onClick={() => setIsSidebarOpen(true)}
-                    style={{
-                      background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(139, 92, 246, 0.15))',
-                      border: '1px solid rgba(59, 130, 246, 0.3)',
-                    }}
-                  >
-                    <Menu />
-                  </button>
-                )}
-
-                {/* Desktop: Show controls when sidebar is closed */}
-                {!isSidebarOpen && !isMobile && (
-                  <>
-                    {/* Sidebar toggle */}
-                    <button className="header-btn" aria-label="Toggle Sidebar" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
-                      <Menu />
-                    </button>
-
-                    {/* New chat */}
-                    <button className="header-btn" aria-label="New Chat" onClick={handleNewChat}>
-                      <Edit3 />
-                    </button>
-
-                    {/* New chat in new tab */}
-                    <button
-                      className="header-btn"
-                      aria-label="New Chat in New Tab"
-                      onClick={() => window.open(window.location.origin, '_blank')}
-                      title="Open new chat in new tab"
-                    >
-                      <ExternalLink size={18} />
-                    </button>
-
-                    {/* Separator */}
-                    <div style={{ width: '1px', height: '20px', backgroundColor: 'rgba(255,255,255,0.15)', margin: '0 4px' }} />
-
-                    {/* Previous chat */}
-                    <button
-                      className="header-btn"
-                      aria-label="Previous Chat"
-                      onClick={handlePrevChat}
-                      disabled={sessions.length === 0 || sessions.findIndex(s => s.id === currentSessionId) <= 0}
-                      title="Previous chat"
-                      style={{ opacity: sessions.length === 0 || sessions.findIndex(s => s.id === currentSessionId) <= 0 ? 0.3 : 1 }}
-                    >
-                      <ChevronLeft size={18} />
-                    </button>
-
-                    {/* Next chat */}
-                    <button
-                      className="header-btn"
-                      aria-label="Next Chat"
-                      onClick={handleNextChat}
-                      disabled={sessions.length === 0 || sessions.findIndex(s => s.id === currentSessionId) >= sessions.length - 1}
-                      title="Next chat"
-                      style={{ opacity: sessions.length === 0 || sessions.findIndex(s => s.id === currentSessionId) >= sessions.length - 1 ? 0.3 : 1 }}
-                    >
-                      <ChevronRight size={18} />
-                    </button>
-
-                    {/* Back to recent */}
-                    <button
-                      className="header-btn"
-                      aria-label="Back to Recent"
-                      onClick={handleBackToRecent}
-                      disabled={navigationHistory.length === 0}
-                      title="Back to recent chat"
-                      style={{ opacity: navigationHistory.length === 0 ? 0.3 : 1 }}
-                    >
-                      <History size={18} />
-                    </button>
-                  </>
-                )}
-              </div>
-
-            {/* Center - Logo and Model Selector - Compact in split-screen */}
-            <div className="header-center">
-              <div className="flex flex-col items-start w-full">
-                <div className="flex justify-between items-center w-full">
-                  <div className="flex items-center gap-2" style={{ gap: layoutMode === 'split-screen' ? '0.5rem' : '0.75rem' }}>
-                    {!isSidebarOpen && layoutMode !== 'split-screen' && (
-                      <img
-                        src="/client/agent-boy.svg"
-                        alt="Agent Girl"
-                        className="header-icon"
-                        loading="eager"
-                        onError={(e) => {
-                          console.error('Failed to load agent-boy.svg');
-                          setTimeout(() => {
-                            e.currentTarget.src = '/client/agent-boy.svg?' + Date.now();
-                          }, 100);
-                        }}
-                      />
-                    )}
-                    <div
-                      className="header-title text-gradient"
-                      style={{
-                        fontSize: layoutMode === 'split-screen' ? '0.875rem' : undefined,
-                      }}
-                    >
-                      {layoutMode === 'split-screen' ? 'Chat' : 'Agent Girl'}
-                    </div>
-                    {/* Model Selector - now allows mid-chat switching with context handoff */}
-                    <ModelSelector
-                      selectedModel={selectedModel}
-                      onModelChange={handleModelChange}
-                      hasMessages={messages.length > 0}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Right side */}
-            <div className="header-right">
-              {/* View toggles - Code & Display Mode */}
-              <div className="flex items-center gap-1">
-                {/* Code visibility toggle */}
-                <button
-                  onClick={() => setShowCode(!showCode)}
-                  className="flex items-center gap-1.5 px-2 py-1.5 rounded-md transition-colors"
-                  aria-label={showCode ? 'Hide code blocks' : 'Show code blocks'}
-                  title={showCode ? 'Hide code blocks' : 'Show code blocks'}
-                  style={{
-                    backgroundColor: showCode ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
-                    color: showCode ? '#3b82f6' : 'rgb(var(--text-secondary))',
-                  }}
-                >
-                  <Code2 className="w-3.5 h-3.5" />
-                  <span className="text-xs">{showCode ? 'Code' : 'Code'}</span>
-                </button>
-
-                {/* Display mode toggle */}
-                <button
-                  onClick={() => setDisplayMode(displayMode === 'full' ? 'compact' : 'full')}
-                  className="flex items-center gap-1.5 px-2 py-1.5 rounded-md transition-colors"
-                  aria-label={displayMode === 'full' ? 'Compact mode' : 'Full mode'}
-                  title={displayMode === 'full' ? 'Hide verbose output' : 'Show all output'}
-                  style={{
-                    backgroundColor: displayMode === 'full' ? 'rgba(139, 92, 246, 0.15)' : 'transparent',
-                    color: displayMode === 'full' ? '#8b5cf6' : 'rgb(var(--text-secondary))',
-                  }}
-                >
-                  {displayMode === 'full' ? (
-                    <Eye className="w-3.5 h-3.5" />
-                  ) : (
-                    <EyeOff className="w-3.5 h-3.5" />
-                  )}
-                  <span className="text-xs">{displayMode === 'full' ? 'Full' : 'Compact'}</span>
-                </button>
-              </div>
-
-              {/* Separator */}
-              {onLayoutModeChange && (
-                <div style={{ width: '1px', height: '20px', backgroundColor: 'rgba(255,255,255,0.1)', margin: '0 6px' }} />
-              )}
-
-              {/* Layout Mode Toggle - Click anywhere to toggle */}
-              {onLayoutModeChange && (
-                <button
-                  onClick={() => {
-                    const newMode = layoutMode === 'chat-only' ? 'split-screen' : 'chat-only';
-                    onLayoutModeChange(newMode);
-                    if (newMode === 'split-screen' && !previewUrl && onDetectPreviewUrl) {
-                      onDetectPreviewUrl();
-                    }
-                  }}
-                  className="flex items-center rounded-lg p-0.5 transition-all hover:bg-white/5"
-                  style={{ backgroundColor: 'rgba(255, 255, 255, 0.03)' }}
-                  title={layoutMode === 'chat-only' ? 'Switch to Splitview' : 'Switch to Chat only'}
-                >
-                  {/* Chat option */}
-                  <div
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-all"
-                    style={{
-                      backgroundColor: layoutMode === 'chat-only' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
-                      color: layoutMode === 'chat-only' ? '#3b82f6' : 'rgb(var(--text-secondary))',
-                      boxShadow: layoutMode === 'chat-only' ? '0 1px 2px rgba(0,0,0,0.2)' : 'none',
-                    }}
-                  >
-                    <MessageSquare className="w-3.5 h-3.5" />
-                    <span>Chat</span>
-                  </div>
-                  {/* Splitview option */}
-                  <div
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-all"
-                    style={{
-                      backgroundColor: layoutMode === 'split-screen' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
-                      color: layoutMode === 'split-screen' ? '#3b82f6' : 'rgb(var(--text-secondary))',
-                      boxShadow: layoutMode === 'split-screen' ? '0 1px 2px rgba(0,0,0,0.2)' : 'none',
-                    }}
-                  >
-                    <Monitor className="w-3.5 h-3.5" />
-                    <span>Splitview</span>
-                  </div>
-                </button>
-              )}
-
-              {/* Radio Player - hidden in split-screen mode */}
-              {layoutMode !== 'split-screen' && <RadioPlayer />}
-              {/* Working Directory Display - compact in split-screen mode */}
-              {currentSessionId && sessions.find(s => s.id === currentSessionId)?.working_directory && layoutMode !== 'split-screen' && (
-                <WorkingDirectoryDisplay
-                  directory={sessions.find(s => s.id === currentSessionId)?.working_directory || ''}
-                  sessionId={currentSessionId}
-                  onChangeDirectory={handleChangeDirectory}
-                />
-              )}
-
-              {/* AUTONOM Toggle - Enable/disable autonomous mode */}
-              <div style={{ display: 'flex', alignItems: 'center', padding: '0 6px' }}>
-                <AutonomToggle
-                  isActive={isAutonomMode}
-                  onToggle={handleToggleAutonomMode}
-                />
-              </div>
-
-              {/* About Button - hidden in split-screen mode */}
-              {layoutMode !== 'split-screen' && <AboutButton />}
-            </div>
-          </div>
-        </div>
-      </nav>
-
-        {/* Search Bar */}
-        {showSearchBar && (
-          <div
-            style={{
-              position: 'sticky',
-              top: '60px',
-              zIndex: 100,
-              padding: '0.5rem 1rem',
-              background: 'rgb(var(--bg-secondary))',
-              borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.75rem',
-            }}
-          >
-            <div style={{ position: 'relative', flex: 1, maxWidth: '400px' }}>
-              <Search
-                size={16}
-                style={{
-                  position: 'absolute',
-                  left: '0.75rem',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  color: 'rgb(var(--text-secondary))',
-                }}
-              />
-              <input
-                type="text"
-                placeholder="Search in chat..."
-                value={searchQuery}
-                onChange={(e) => {
-                  const query = e.target.value;
-                  setSearchQuery(query);
-                  if (query.length >= 2) {
-                    // Find matching message indices
-                    const matches: number[] = [];
-                    messages.forEach((msg, idx) => {
-                      const content = typeof msg.content === 'string'
-                        ? msg.content
-                        : JSON.stringify(msg.content);
-                      if (content.toLowerCase().includes(query.toLowerCase())) {
-                        matches.push(idx);
-                      }
-                    });
-                    setSearchMatches(matches);
-                    setCurrentMatchIndex(0);
-                    if (matches.length > 0 && scrollContainerRef.current) {
-                      const messageElements = scrollContainerRef.current.querySelectorAll('[data-message-index]');
-                      const targetElement = Array.from(messageElements).find(
-                        el => el.getAttribute('data-message-index') === String(matches[0])
-                      );
-                      targetElement?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    }
-                  } else {
-                    setSearchMatches([]);
-                  }
-                }}
-                autoFocus
-                style={{
-                  width: '100%',
-                  padding: '0.5rem 0.75rem 0.5rem 2.25rem',
-                  background: 'rgb(var(--bg-input))',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
-                  borderRadius: '0.5rem',
-                  color: 'rgb(var(--text-primary))',
-                  fontSize: '0.875rem',
-                  outline: 'none',
-                }}
-              />
-            </div>
-            {searchMatches.length > 0 && (
-              <>
-                <span style={{ color: 'rgb(var(--text-secondary))', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
-                  {currentMatchIndex + 1} / {searchMatches.length}
-                </span>
-                <button
-                  onClick={() => {
-                    const newIdx = currentMatchIndex > 0 ? currentMatchIndex - 1 : searchMatches.length - 1;
-                    setCurrentMatchIndex(newIdx);
-                    if (scrollContainerRef.current) {
-                      const messageElements = scrollContainerRef.current.querySelectorAll('[data-message-index]');
-                      const targetElement = Array.from(messageElements).find(
-                        el => el.getAttribute('data-message-index') === String(searchMatches[newIdx])
-                      );
-                      targetElement?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    }
-                  }}
-                  style={{
-                    padding: '0.25rem',
-                    background: 'rgba(255, 255, 255, 0.1)',
-                    border: 'none',
-                    borderRadius: '0.25rem',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    color: 'rgb(var(--text-secondary))',
-                  }}
-                  title="Previous match"
-                >
-                  <ChevronUp size={16} />
-                </button>
-                <button
-                  onClick={() => {
-                    const newIdx = currentMatchIndex < searchMatches.length - 1 ? currentMatchIndex + 1 : 0;
-                    setCurrentMatchIndex(newIdx);
-                    if (scrollContainerRef.current) {
-                      const messageElements = scrollContainerRef.current.querySelectorAll('[data-message-index]');
-                      const targetElement = Array.from(messageElements).find(
-                        el => el.getAttribute('data-message-index') === String(searchMatches[newIdx])
-                      );
-                      targetElement?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    }
-                  }}
-                  style={{
-                    padding: '0.25rem',
-                    background: 'rgba(255, 255, 255, 0.1)',
-                    border: 'none',
-                    borderRadius: '0.25rem',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    color: 'rgb(var(--text-secondary))',
-                  }}
-                  title="Next match"
-                >
-                  <ChevronDown size={16} />
-                </button>
-              </>
-            )}
-            <button
-              onClick={() => {
-                setShowSearchBar(false);
-                setSearchQuery('');
-                setSearchMatches([]);
-              }}
-              style={{
-                padding: '0.25rem',
-                background: 'transparent',
-                border: 'none',
-                cursor: 'pointer',
-                color: 'rgb(var(--text-secondary))',
-                display: 'flex',
-              }}
-              title="Close search (Esc)"
-            >
-              <X size={16} />
-            </button>
-          </div>
-        )}
+        <ChatHeader
+          layoutMode={layoutMode}
+          isSidebarOpen={isSidebarOpen}
+          isMobile={isMobile}
+          onLayoutModeChange={onLayoutModeChange}
+          previewUrl={previewUrl}
+          onDetectPreviewUrl={onDetectPreviewUrl}
+          sessions={sessions}
+          currentSessionId={currentSessionId}
+          navigationHistory={navigationHistory}
+          selectedModel={selectedModel}
+          messages={messages}
+          onModelChange={handleModelChange}
+          isPlanMode={isPlanMode}
+          isAutonomMode={isAutonomMode}
+          isConnected={isConnected}
+          showCode={showCode}
+          displayMode={displayMode}
+          showSearchBar={showSearchBar}
+          searchQuery={searchQuery}
+          searchMatches={searchMatches}
+          currentMatchIndex={currentMatchIndex}
+          handleNewChat={handleNewChat}
+          handlePrevChat={handlePrevChat}
+          handleNextChat={handleNextChat}
+          handleBackToRecent={handleBackToRecent}
+          handleChangeDirectory={handleChangeDirectory}
+          handleToggleAutonomMode={handleToggleAutonomMode}
+          setIsSidebarOpen={setIsSidebarOpen}
+          setShowCode={setShowCode}
+          setDisplayMode={setDisplayMode}
+          setShowSearchBar={setShowSearchBar}
+          setSearchQuery={setSearchQuery}
+          setSearchMatches={setSearchMatches}
+          setCurrentMatchIndex={setCurrentMatchIndex}
+          scrollContainerRef={scrollContainerRef}
+        />
 
         {messages.length === 0 ? (
           // New Chat Welcome Screen
@@ -2583,51 +1332,37 @@ export function ChatContainer({
               </WorkingDirectoryContext.Provider>
             </GenerationProvider>
 
-            {/* Command Queue Display */}
-            <CommandQueueDisplay
-              queue={commandQueue}
-              onClearQueue={() => {
-                setCommandQueue(prev => prev.filter(cmd => cmd.status !== 'completed'));
-              }}
-            />
-
-            {/* Input - with integrated selection display */}
-            <ChatInput
-              key={currentSessionId || 'new-chat'}
-              value={inputValue}
-              onChange={setInputValue}
+            {/* Input Section with Progress Bar and Working Directory */}
+            <ChatInputSection
+              currentSessionId={currentSessionId}
+              sessionWorkingDirectory={sessions.find(s => s.id === currentSessionId)?.working_directory || undefined}
+              inputValue={inputValue}
+              onInputChange={setInputValue}
               onSubmit={handleSubmit}
               onStop={handleStop}
               disabled={!isConnected || isLoading}
               isGenerating={isLoading}
+              mode={currentSessionMode}
+              onModeChange={handleModeChange}
               isPlanMode={isPlanMode}
               onTogglePlanMode={handleTogglePlanMode}
               isAutonomMode={isAutonomMode}
               onToggleAutonomMode={handleToggleAutonomMode}
-              backgroundProcesses={backgroundProcesses.get(currentSessionId || '') || []}
-              onKillProcess={handleKillProcess}
-              mode={currentSessionMode}
-              onModeChange={handleModeChange}
               availableCommands={availableCommands}
               contextUsage={currentSessionId ? contextUsage.get(currentSessionId) : undefined}
               selectedModel={selectedModel}
+              backgroundProcesses={backgroundProcesses.get(currentSessionId || '') || []}
+              onKillProcess={handleKillProcess}
               layoutMode={layoutMode}
               onOpenBuildWizard={handleOpenBuildWizard}
-              previewUrl={previewUrl}
+              previewUrl={previewUrl || undefined}
               selectedElements={selectedElements}
               onClearSelection={onClearSelection}
-            />
-
-            {/* Activity Progress Bar - below chat input with nice effects */}
-            <ActivityProgressBar
-              progress={activityProgress}
-              isGenerating={isLoading}
-            />
-
-            {/* Working Directory Panel */}
-            <WorkingDirectoryPanel
-              workingDirectory={sessions.find(s => s.id === currentSessionId)?.working_directory || null}
-              chatFolder={sessions.find(s => s.id === currentSessionId)?.working_directory || undefined}
+              activityProgress={activityProgress}
+              commandQueue={commandQueue}
+              onClearQueue={() => {
+                setCommandQueue(prev => prev.filter(cmd => cmd.status !== 'completed'));
+              }}
               onDirectoryChange={(newPath) => {
                 if (currentSessionId) {
                   handleChangeDirectory(currentSessionId, newPath);
@@ -2636,103 +1371,35 @@ export function ChatContainer({
               onInsertText={(text) => {
                 setInputValue(prev => prev + (prev && !prev.endsWith(' ') ? ' ' : '') + text);
               }}
-              sessionId={currentSessionId || undefined}
-              isCollapsed={isWorkingDirPanelCollapsed}
-              onToggleCollapse={() => setIsWorkingDirPanelCollapsed(!isWorkingDirPanelCollapsed)}
+              isWorkingDirPanelCollapsed={isWorkingDirPanelCollapsed}
+              onToggleWorkingDirCollapse={() => setIsWorkingDirPanelCollapsed(!isWorkingDirPanelCollapsed)}
             />
-
           </>
         )}
       </div>
 
-      {/* Plan Approval Modal */}
-      {pendingPlan && (
-        <PlanApprovalModal
-          plan={pendingPlan}
-          onApprove={handleApprovePlan}
-          onReject={handleRejectPlan}
-          isResponseInProgress={isLoading}
-        />
-      )}
-
-      {/* Question Modal */}
-      {pendingQuestion && (
-        <QuestionModal
-          toolId={pendingQuestion.toolId}
-          questions={pendingQuestion.questions}
-          onSubmit={handleQuestionSubmit}
-          onCancel={handleQuestionCancel}
-        />
-      )}
-
-      {/* Build Mode - Tab Selection */}
-      {isBuildWizardOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="relative w-full max-w-4xl max-h-[85vh] rounded-2xl overflow-hidden"
-            style={{ background: 'linear-gradient(180deg, #1a1a2e 0%, #16162a 100%)', border: '1px solid rgba(255,255,255,0.1)' }}>
-            {/* Header with Tabs */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
-              <div className="flex items-center gap-1">
-                {/* Website Builder Tab */}
-                <button
-                  onClick={() => setBuildMode('launcher')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                    buildMode === 'launcher'
-                      ? 'bg-gradient-to-r from-blue-500/20 to-purple-500/20 text-white border border-blue-500/30'
-                      : 'text-gray-400 hover:text-white hover:bg-white/5'
-                  }`}
-                >
-                  <Rocket size={16} />
-                  Website Builder
-                </button>
-                {/* Custom Project Tab */}
-                <button
-                  onClick={() => setBuildMode('wizard')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                    buildMode === 'wizard'
-                      ? 'bg-gradient-to-r from-orange-500/20 to-amber-500/20 text-white border border-orange-500/30'
-                      : 'text-gray-400 hover:text-white hover:bg-white/5'
-                  }`}
-                >
-                  <Hammer size={16} />
-                  Custom Project
-                </button>
-              </div>
-              {/* Close Button */}
-              <button
-                onClick={handleCloseBuildWizard}
-                className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            {/* Content */}
-            <div className="overflow-y-auto" style={{ maxHeight: 'calc(85vh - 60px)' }}>
-              {buildMode === 'launcher' ? (
-                <BuildLauncher
-                  onSelectTemplate={handleSelectTemplate}
-                  onQuickAction={handleQuickAction}
-                  onClose={handleCloseBuildWizard}
-                />
-              ) : (
-                <BuildWizard
-                  onComplete={handleBuildComplete}
-                  onClose={handleCloseBuildWizard}
-                />
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* All Modals */}
+      <ChatModals
+        pendingPlan={pendingPlan}
+        isLoading={isLoading}
+        onApprovePlan={handleApprovePlan}
+        onRejectPlan={handleRejectPlan}
+        pendingQuestion={pendingQuestion}
+        onQuestionSubmit={handleQuestionSubmit}
+        onQuestionCancel={handleQuestionCancel}
+        isBuildWizardOpen={isBuildWizardOpen}
+        buildMode={buildMode}
+        onBuildModeChange={setBuildMode}
+        onSelectTemplate={handleSelectTemplate}
+        onQuickAction={handleQuickAction}
+        onBuildComplete={handleBuildComplete}
+        onCloseBuildWizard={handleCloseBuildWizard}
+        showKeyboardShortcuts={showKeyboardShortcuts}
+        onCloseKeyboardShortcuts={() => setShowKeyboardShortcuts(false)}
+      />
 
       {/* Scroll Button - only show when messages exist */}
       {messages.length > 0 && <ScrollButton scrollContainerRef={scrollContainerRef} />}
-
-      {/* Keyboard Shortcuts Modal */}
-      <KeyboardShortcuts
-        isOpen={showKeyboardShortcuts}
-        onClose={() => setShowKeyboardShortcuts(false)}
-      />
     </div>
   );
 }
