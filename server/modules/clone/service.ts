@@ -312,16 +312,32 @@ scrape(options)
     const scriptContent = this.generateCloneScript(options.url, job.outputDir!, options);
     await writeFile(scriptPath, scriptContent);
 
-    // Run clone script
+    // Run clone script from agent-girl directory (where packages are installed)
+    // process.cwd() returns the directory where bun was started
     const cloneProc = spawn(['node', scriptPath], {
-      cwd: job.outputDir!,
+      cwd: process.cwd(),
       stdout: 'pipe',
       stderr: 'pipe',
     });
 
     // Process output
     const reader = cloneProc.stdout.getReader();
+    const stderrReader = cloneProc.stderr.getReader();
     let filesDownloaded = 0;
+    let stderrOutput = '';
+
+    // Read stderr in background
+    (async () => {
+      try {
+        while (true) {
+          const { done, value } = await stderrReader.read();
+          if (done) break;
+          stderrOutput += new TextDecoder().decode(value);
+        }
+      } catch {
+        // Stream ended
+      }
+    })();
 
     try {
       while (true) {
@@ -348,7 +364,8 @@ scrape(options)
 
     const exitCode = await cloneProc.exited;
     if (exitCode !== 0) {
-      throw new Error('Clone process failed');
+      const errorMsg = stderrOutput.trim() || 'Clone process failed with exit code ' + exitCode;
+      throw new Error(errorMsg);
     }
 
     job.progress = 60;
