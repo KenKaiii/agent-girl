@@ -112,6 +112,11 @@ export function ChatInputSection({
   onInsertText,
   isWorkingDirPanelCollapsed,
   onToggleWorkingDirCollapse,
+  // Projects
+  projects,
+  isProjectsPanelCollapsed,
+  onToggleProjectsCollapse,
+  onOpenProjectPreview,
 }: ChatInputSectionProps) {
   return (
     <>
@@ -163,6 +168,14 @@ export function ChatInputSection({
         sessionId={currentSessionId || undefined}
         isCollapsed={isWorkingDirPanelCollapsed}
         onToggleCollapse={onToggleWorkingDirCollapse}
+      />
+
+      {/* Projects Panel */}
+      <ProjectsPanel
+        projects={projects}
+        isCollapsed={isProjectsPanelCollapsed}
+        onToggleCollapse={onToggleProjectsCollapse}
+        onOpenPreview={onOpenProjectPreview}
       />
     </>
   );

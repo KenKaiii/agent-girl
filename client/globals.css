@@ -1633,7 +1633,7 @@
   opacity: 0;
   background: transparent;
   pointer-events: none;
-  transition: opacity 0.15s ease;
+  transition: opacity 0.15s ease, pointer-events 0.15s ease;
 }
 
 /* Show menu on hover for all chat items (including active) */

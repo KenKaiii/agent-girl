@@ -288,6 +288,9 @@ export function ChatContainer({
   // Working directory panel state
   const [isWorkingDirPanelCollapsed, setIsWorkingDirPanelCollapsed] = useState(true);
 
+  // Projects panel state
+  const [isProjectsPanelCollapsed, setIsProjectsPanelCollapsed] = useState(true);
+
   const sessionAPI = useSessionAPI();
 
   // Responsive hooks
@@ -1442,6 +1445,20 @@ export function ChatContainer({
               }}
               isWorkingDirPanelCollapsed={isWorkingDirPanelCollapsed}
               onToggleWorkingDirCollapse={() => setIsWorkingDirPanelCollapsed(!isWorkingDirPanelCollapsed)}
+              projects={currentSession?.projects}
+              isProjectsPanelCollapsed={isProjectsPanelCollapsed}
+              onToggleProjectsCollapse={() => setIsProjectsPanelCollapsed(!isProjectsPanelCollapsed)}
+              onOpenProjectPreview={(url) => {
+                // Open preview URL in split screen or external browser
+                if (onLayoutModeChange && layoutMode !== 'split-screen') {
+                  onLayoutModeChange('split-screen');
+                }
+                if (_onSetPreviewUrl) {
+                  _onSetPreviewUrl(url);
+                } else {
+                  window.open(url, '_blank');
+                }
+              }}
             />
           </>
         )}
