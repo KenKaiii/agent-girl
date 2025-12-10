@@ -702,6 +702,14 @@ export async function handleDeployRoutes(req: Request, url: URL): Promise<Respon
         case 'cloudflare':
           result = await deployToCloudflare(projectPath, production, envVars);
           break;
+        case 'hetzner':
+          result = await deployToHetzner(projectPath);
+          break;
+        default:
+          return new Response(JSON.stringify({
+            success: false,
+            error: `Unbekannte Platform: ${platform}`
+          }), { status: 400, headers: corsHeaders });
       }
 
       return new Response(JSON.stringify(result), {
@@ -766,6 +774,26 @@ export async function handleDeployRoutes(req: Request, url: URL): Promise<Respon
       });
     }
 
+    // POST /api/deploy/hetzner/config - Configure Hetzner VPS
+    if (path === '/api/deploy/hetzner/config' && req.method === 'POST') {
+      const body = await req.json();
+      const parsed = HetznerConfigSchema.safeParse(body);
+
+      if (!parsed.success) {
+        return new Response(JSON.stringify({
+          error: 'Ungültige Anfrage',
+          details: parsed.error.flatten()
+        }), { status: 400, headers: corsHeaders });
+      }
+
+      const result = await configureHetzner(parsed.data);
+
+      return new Response(JSON.stringify(result), {
+        status: result.success ? 200 : 400,
+        headers: corsHeaders
+      });
+    }
+
     return new Response(JSON.stringify({
       error: 'Nicht gefunden',
       availableEndpoints: [
@@ -773,7 +801,8 @@ export async function handleDeployRoutes(req: Request, url: URL): Promise<Respon
         'GET /api/deploy/framework?projectPath=...',
         'POST /api/deploy',
         'POST /api/deploy/quick',
-        'POST /api/deploy/vercel/config'
+        'POST /api/deploy/vercel/config',
+        'POST /api/deploy/hetzner/config'
       ]
     }), { status: 404, headers: corsHeaders });
 

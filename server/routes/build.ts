@@ -12,6 +12,7 @@ import { mkdir, writeFile, access, readFile } from 'fs/promises';
 import { join } from 'path';
 import { exec, spawn, type ChildProcess } from 'child_process';
 import { promisify } from 'util';
+import { projectRegistry } from '../projectRegistry';
 
 const execAsync = promisify(exec);
 
@@ -356,7 +357,7 @@ export async function handleBuildRoutes(req: Request): Promise<Response | null> 
 async function handleBuildStart(req: Request): Promise<Response> {
   try {
     const body = await req.json();
-    const { templateId, projectName, workingDir } = body;
+    const { templateId, projectName, workingDir, sessionId } = body;
 
     if (!templateId || !projectName) {
       return jsonResponse({
@@ -370,10 +371,34 @@ async function handleBuildStart(req: Request): Promise<Response> {
 
     // Check if already exists
     if (await pathExists(projectPath)) {
-      // Project exists, just start the server
+      // Project exists, check if already registered
+      let project = projectRegistry.getProjectByPath(projectPath);
+
+      if (!project) {
+        // Register existing project
+        const config = TEMPLATE_CONFIGS[templateId] || TEMPLATE_CONFIGS['landing-modern'];
+        project = projectRegistry.registerProject({
+          sessionId,
+          name: projectName,
+          type: 'astro',
+          path: projectPath,
+          metadata: {
+            template: templateId,
+            features: config.features,
+          },
+        });
+      } else if (sessionId && project.session_id !== sessionId) {
+        // Link to new session
+        projectRegistry.linkToSession(project.id, sessionId);
+      }
+
+      // Start the server
       const { port, pid } = await startDevServer(projectPath);
+      projectRegistry.updateStatus(project.id, 'serving', `http://localhost:${port}`, port);
+
       return jsonResponse({
         success: true,
+        projectId: project.id,
         projectPath,
         port,
         pid,
@@ -382,19 +407,40 @@ async function handleBuildStart(req: Request): Promise<Response> {
       });
     }
 
+    // Determine project type from template
+    const projectType = templateId === 'docs-starlight' ? 'astro' :
+                        templateId.includes('next') ? 'next' :
+                        templateId.includes('react') ? 'react' : 'astro';
+
+    // Register new project before generating
+    const config = TEMPLATE_CONFIGS[templateId] || TEMPLATE_CONFIGS['landing-modern'];
+    const project = projectRegistry.registerProject({
+      sessionId,
+      name: projectName,
+      type: projectType,
+      path: projectPath,
+      metadata: {
+        template: templateId,
+        features: config.features,
+      },
+    });
+
     // Generate new project
     await generateAstroProject(projectPath, templateId, projectName);
+    projectRegistry.updateStatus(project.id, 'building');
 
     // Start dev server
     const { port, pid } = await startDevServer(projectPath);
+    projectRegistry.updateStatus(project.id, 'serving', `http://localhost:${port}`, port);
 
     return jsonResponse({
       success: true,
+      projectId: project.id,
       projectPath,
       port,
       pid,
       previewUrl: `http://localhost:${port}`,
-      template: TEMPLATE_CONFIGS[templateId]?.name || templateId,
+      template: config.name,
       message: 'Project created and dev server started',
     });
   } catch (error) {

@@ -10,6 +10,7 @@ import { sessionDb } from "../database";
 import { backgroundProcessManager } from "../backgroundProcessManager";
 import { sessionStreamManager } from "../sessionStreamManager";
 import { setupSessionCommands } from "../commandSetup";
+import { projectRegistry } from "../projectRegistry";
 
 // Track if we've imported existing folders this server session
 let hasImportedFolders = false;
@@ -157,7 +158,27 @@ export async function handleSessionRoutes(
       });
     }
 
-    return new Response(JSON.stringify(session), {
+    // Auto-match projects if session has a working directory
+    let projects = projectRegistry.getProjectsBySession(sessionId);
+
+    if (session.working_directory) {
+      // Try to match additional projects by directory
+      const matched = projectRegistry.autoMatchForSession(sessionId, session.working_directory);
+      if (matched.length > 0) {
+        // Merge matched with existing, avoiding duplicates
+        const existingIds = new Set(projects.map(p => p.id));
+        for (const project of matched) {
+          if (!existingIds.has(project.id)) {
+            projects.push(project);
+          }
+        }
+      }
+    }
+
+    return new Response(JSON.stringify({
+      ...session,
+      projects, // Include linked projects in response
+    }), {
       headers: { 'Content-Type': 'application/json' },
     });
   }

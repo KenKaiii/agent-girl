@@ -25,6 +25,7 @@ import { DevToolsPanel } from '../devtools';
 import { SmartEditToolbar, useEditHistory, type EditHistoryEntry, type PageSection } from '../preview/SmartEditToolbar';
 import { ComponentGeneratorPanel } from '../component-generator';
 import { TemplateWizardPanel, TemplateWizardBackdrop } from '../template-wizard';
+import { DeployDropdown } from '../deploy/DeployDropdown';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useContentEdit } from '../../hooks/useContentEdit';
 import { useProjectDiscovery } from '../../hooks/useProjectDiscovery';
@@ -232,8 +233,10 @@ export function SplitScreenLayout() {
   const [isLocalDataManagerOpen, setIsLocalDataManagerOpen] = useState(false);
   const [isCloneModalOpen, setIsCloneModalOpen] = useState(false);
   const [isDevToolsOpen, setIsDevToolsOpen] = useState(false);
+  const [isDeployDropdownOpen, setIsDeployDropdownOpen] = useState(false);
   const [isComponentGeneratorOpen, setIsComponentGeneratorOpen] = useState(false);
   const [isTemplateWizardOpen, setIsTemplateWizardOpen] = useState(false);
+  const deployButtonRef = useRef<HTMLButtonElement>(null);
   const [showFloatingPrompt, setShowFloatingPrompt] = useState(false);
   const [_floatingPromptPosition, _setFloatingPromptPosition] = useState({ x: 0, y: 0 });
   const { fields: localDataFields, setFields: setLocalDataFields } = useLocalData();
@@ -323,7 +326,7 @@ export function SplitScreenLayout() {
   useKeyboardShortcuts({
     onToggleDevTools: () => setIsDevToolsOpen(prev => !prev),
     onToggleGitPanel: () => setIsDevToolsOpen(true), // Opens DevTools with Git tab
-    onToggleDeployPanel: () => setIsDevToolsOpen(true), // Opens DevTools with Deploy tab
+    onToggleDeployPanel: () => setIsDeployDropdownOpen(prev => !prev), // Opens Deploy dropdown
     onOpenComponentGenerator: () => setIsComponentGeneratorOpen(true),
     onOpenTemplateWizard: () => setIsTemplateWizardOpen(true),
     onToggleSidebar: () => {/* Sidebar toggle handled by parent */},
@@ -1720,20 +1723,37 @@ Was soll das neue Bild sein?`;
                 )}
               </div>
 
-              {/* Deploy Button */}
-              <button
-                onClick={() => setIsDevToolsOpen(true)}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-all text-xs font-medium"
-                style={{
-                  background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
-                  color: '#fff',
-                  boxShadow: '0 1px 3px rgba(59, 130, 246, 0.3)',
-                }}
-                title="Deploy project (⌘+Shift+P)"
-              >
-                <Rocket size={12} />
-                <span>Deploy</span>
-              </button>
+              {/* Deploy Button + Dropdown */}
+              <div className="relative">
+                <button
+                  ref={deployButtonRef}
+                  onClick={() => setIsDeployDropdownOpen(!isDeployDropdownOpen)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-all text-xs font-medium"
+                  style={{
+                    background: isDeployDropdownOpen
+                      ? 'linear-gradient(135deg, #8b5cf6, #3b82f6)'
+                      : 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
+                    color: '#fff',
+                    boxShadow: isDeployDropdownOpen
+                      ? '0 2px 8px rgba(139, 92, 246, 0.4)'
+                      : '0 1px 3px rgba(59, 130, 246, 0.3)',
+                  }}
+                  title="Deploy project (⌘+Shift+P)"
+                >
+                  <Rocket size={12} />
+                  <span>Deploy</span>
+                  <ChevronDown
+                    size={10}
+                    className={`ml-0.5 transition-transform ${isDeployDropdownOpen ? 'rotate-180' : ''}`}
+                  />
+                </button>
+                <DeployDropdown
+                  isOpen={isDeployDropdownOpen}
+                  onClose={() => setIsDeployDropdownOpen(false)}
+                  projectPath={currentProjectPath || ''}
+                  anchorRef={deployButtonRef}
+                />
+              </div>
 
               {/* Divider */}
               <div className="w-px h-4 bg-white/10 mx-1" />

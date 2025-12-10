@@ -51,7 +51,7 @@ export interface SectionComparison {
 export interface CloneJob {
   id: string;
   url: string;
-  status: 'pending' | 'cloning' | 'sanitizing' | 'serving' | 'complete' | 'error';
+  status: 'pending' | 'cloning' | 'flattening' | 'sanitizing' | 'serving' | 'complete' | 'error';
   progress: number;
   outputDir?: string;
   server?: ServerInfo;

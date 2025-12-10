@@ -63,6 +63,7 @@ import { handleTemplateRoutes } from "./routes/templates";
 import { handleGitHubRoutes } from "./routes/github";
 import { handleDeployRoutes } from "./routes/deploy";
 import { handleQueueRoutes } from "./routes/queue";
+import { handleProjectRoutes } from "./routes/projects";
 import { initializeQueueSystem, startQueueSystem } from "./queue";
 import { handleWebSocketMessage } from "./websocket/messageHandlers";
 import { removeWebSocketFromBuilds } from "./websocket/handlers/premiumHandler";
@@ -287,6 +288,14 @@ const server = Bun.serve({
     // Try deploy routes (for one-click deployment)
     if (url.pathname.startsWith('/api/deploy')) {
       return handleDeployRoutes(req, url);
+    }
+
+    // Try project routes (for project management)
+    if (url.pathname.startsWith('/api/projects')) {
+      const projectResponse = await handleProjectRoutes(req, url);
+      if (projectResponse) {
+        return projectResponse;
+      }
     }
 
     // Try queue routes (for task queue management)

@@ -3,4 +3,4 @@
  */
 
 export { DeployPanel } from './DeployPanel';
-export type { } from './DeployPanel';
+export { DeployDropdown } from './DeployDropdown';

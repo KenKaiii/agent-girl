@@ -5,6 +5,7 @@
 import { cloneService } from '../modules/clone/service';
 import type { CloneOptions } from '../modules/clone/types';
 import { logger } from '../utils/logger';
+import { projectRegistry } from '../projectRegistry';
 
 /**
  * Handle clone-related API routes
@@ -33,7 +34,7 @@ export async function handleCloneRoutes(req: Request, url: URL): Promise<Respons
   try {
     // POST /api/clone - Start a new clone job
     if (path === '' && method === 'POST') {
-      const body = await req.json() as CloneOptions;
+      const body = await req.json() as CloneOptions & { sessionId?: string };
 
       if (!body.url) {
         return Response.json({ error: 'URL is required' }, { status: 400, headers: corsHeaders });
@@ -42,8 +43,23 @@ export async function handleCloneRoutes(req: Request, url: URL): Promise<Respons
       logger.info('Starting clone job', { url: body.url });
       const job = await cloneService.clone(body);
 
+      // Register project in registry
+      const domain = new URL(body.url).hostname.replace(/^www\./, '');
+      const project = projectRegistry.registerProject({
+        sessionId: body.sessionId,
+        name: domain,
+        type: 'clone',
+        path: job.outputDir!,
+        sourceUrl: body.url,
+        metadata: {
+          originalDomain: domain,
+          cloneJobId: job.id,
+        },
+      });
+
       return Response.json({
         jobId: job.id,
+        projectId: project.id,
         status: job.status,
         url: job.url,
       }, { headers: corsHeaders });
@@ -51,7 +67,7 @@ export async function handleCloneRoutes(req: Request, url: URL): Promise<Respons
 
     // POST /api/clone/quick - Quick clone and serve
     if (path === '/quick' && method === 'POST') {
-      const body = await req.json() as { url: string; port?: number };
+      const body = await req.json() as { url: string; port?: number; sessionId?: string };
 
       if (!body.url) {
         return Response.json({ error: 'URL is required' }, { status: 400, headers: corsHeaders });
@@ -61,8 +77,22 @@ export async function handleCloneRoutes(req: Request, url: URL): Promise<Respons
 
       try {
         const result = await cloneService.quickClone(body.url, body.port || 4321);
+
+        // Register project in registry
+        const domain = new URL(body.url).hostname.replace(/^www\./, '');
+        const project = projectRegistry.registerProject({
+          sessionId: body.sessionId,
+          name: domain,
+          type: 'clone',
+          path: result.htmlDir,
+          sourceUrl: body.url,
+          metadata: { originalDomain: domain },
+        });
+        projectRegistry.updateStatus(project.id, 'serving', result.server.url, result.server.port);
+
         return Response.json({
           success: true,
+          projectId: project.id,
           htmlDir: result.htmlDir,
           previewUrl: result.server.url,
           server: result.server,

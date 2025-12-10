@@ -56,7 +56,7 @@ import { useMessageQueue } from '../../hooks/useMessageQueue';
 // Import refactored types and hooks
 import type { AIEditRequest, AIProgressState, ActionHistoryEntry, AutonomProgressData, ChatContainerProps } from './types';
 import { useWebSocketMessageHandler, useKeyboardShortcuts, FILE_EDIT_TOOLS, getToolDisplayName } from './hooks';
-import { createSessionHandlers } from './handlers';
+import { createSessionHandlers } from './sessionHandlers';
 
 // Re-export types for backwards compatibility
 export type { AIEditRequest, AIProgressState, ActionHistoryEntry };
