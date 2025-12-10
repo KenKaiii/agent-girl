@@ -2,8 +2,8 @@
  * Clone Routes - Website cloning API endpoints
  */
 
-import { cloneService } from '../modules/clone/service';
-import type { CloneOptions } from '../modules/clone/types';
+import { cloneService } from '../features/clone/service';
+import type { CloneOptions } from '../features/clone/types';
 import { logger } from '../utils/core/logger';
 import { projectRegistry } from '../projectRegistry';
 

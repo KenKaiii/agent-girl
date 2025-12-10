@@ -10,7 +10,7 @@ import { flushSync } from 'react-dom';
 import type { Message } from '../../components/message/types';
 import type { Question } from '../../components/question/QuestionModal';
 import type { Session } from '../useSessionAPI';
-import type { AIProgressState, ActionHistoryEntry } from '../types';
+import type { AIProgressState, ActionHistoryEntry } from '../../components/chat/types';
 import type { BackgroundProcess } from '../../components/process/BackgroundProcessMonitor';
 import { toast } from '../../utils/toast';
 import { showError } from '../../utils/errorMessages';
@@ -466,7 +466,7 @@ export function useWebSocketMessageHandler({
 
       // Show appropriate toast notification
       if (errorType && errorCodeMap[errorType]) {
-        const errorCode = errorCodeMap[errorType] as keyof typeof import('../../../utils/errorMessages').ErrorMessages;
+        const errorCode = errorCodeMap[errorType] as keyof typeof import('../../utils/errorMessages').ErrorMessages;
         showError(errorCode, errorMessage);
       } else {
         toast.error('Error', {

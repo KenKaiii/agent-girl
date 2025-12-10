@@ -34,6 +34,7 @@ export interface ProjectMetadata {
   originalDomain?: string;
   cloneJobId?: string;
   buildConfig?: Record<string, unknown>;
+  duplicatedFrom?: string;
 }
 
 class ProjectRegistry {

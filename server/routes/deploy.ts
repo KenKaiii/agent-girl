@@ -73,6 +73,22 @@ interface TokenStorage {
   cloudflare?: { token: string; accountId?: string };
 }
 
+// OAuth Configuration (for future OAuth app setup)
+// For now, we use CLI login which is easier and requires no OAuth app registration
+const OAUTH_CONFIG = {
+  vercel: {
+    authUrl: 'https://vercel.com/integrations/deploy-button/new',
+    // Full OAuth would need: clientId, clientSecret, redirectUri
+  },
+  netlify: {
+    authUrl: 'https://app.netlify.com/authorize',
+    // Full OAuth would need: clientId, clientSecret, redirectUri
+  },
+  cloudflare: {
+    // Cloudflare uses wrangler login - no OAuth app needed
+  }
+};
+
 // ============================================================================
 // Platform Detection & Setup
 // ============================================================================
@@ -147,6 +163,241 @@ async function verifyCloudflareToken(token: string, accountId?: string): Promise
     return res.ok;
   } catch {
     return false;
+  }
+}
+
+// ============================================================================
+// CLI Login Functions (Browser-based, most frictionless)
+// ============================================================================
+
+interface LoginResult {
+  success: boolean;
+  message: string;
+  needsManualStep?: boolean;
+  command?: string;
+}
+
+async function loginVercel(): Promise<LoginResult> {
+  try {
+    // Check if CLI is installed
+    try {
+      execSync('vercel --version', { stdio: 'pipe' });
+    } catch {
+      return {
+        success: false,
+        message: 'Vercel CLI nicht installiert.',
+        needsManualStep: true,
+        command: 'bun add -g vercel'
+      };
+    }
+
+    // Start login process - this opens browser automatically
+    const { stdout, stderr } = await execAsync('vercel login --no-color 2>&1', {
+      timeout: 120000 // 2 min timeout for user to complete browser auth
+    });
+
+    // Check if login was successful
+    try {
+      execSync('vercel whoami', { stdio: 'pipe' });
+      return {
+        success: true,
+        message: 'Vercel Login erfolgreich!'
+      };
+    } catch {
+      return {
+        success: false,
+        message: 'Login nicht abgeschlossen. Bitte im Browser bestätigen.',
+        needsManualStep: true
+      };
+    }
+  } catch (error) {
+    return {
+      success: false,
+      message: `Vercel Login fehlgeschlagen: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`
+    };
+  }
+}
+
+async function loginNetlify(): Promise<LoginResult> {
+  try {
+    // Check if CLI is installed
+    try {
+      execSync('netlify --version', { stdio: 'pipe' });
+    } catch {
+      return {
+        success: false,
+        message: 'Netlify CLI nicht installiert.',
+        needsManualStep: true,
+        command: 'bun add -g netlify-cli'
+      };
+    }
+
+    // Start login process - opens browser
+    await execAsync('netlify login --new 2>&1', {
+      timeout: 120000
+    });
+
+    // Check if login was successful
+    try {
+      execSync('netlify status', { stdio: 'pipe' });
+      return {
+        success: true,
+        message: 'Netlify Login erfolgreich!'
+      };
+    } catch {
+      return {
+        success: false,
+        message: 'Login nicht abgeschlossen. Bitte im Browser bestätigen.',
+        needsManualStep: true
+      };
+    }
+  } catch (error) {
+    return {
+      success: false,
+      message: `Netlify Login fehlgeschlagen: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`
+    };
+  }
+}
+
+async function loginCloudflare(): Promise<LoginResult> {
+  try {
+    // Check if wrangler is installed
+    try {
+      execSync('wrangler --version', { stdio: 'pipe' });
+    } catch {
+      return {
+        success: false,
+        message: 'Wrangler CLI nicht installiert.',
+        needsManualStep: true,
+        command: 'bun add -g wrangler'
+      };
+    }
+
+    // Start login process - opens browser with OAuth
+    await execAsync('wrangler login 2>&1', {
+      timeout: 120000
+    });
+
+    // Check if login was successful
+    try {
+      execSync('wrangler whoami', { stdio: 'pipe' });
+      return {
+        success: true,
+        message: 'Cloudflare Login erfolgreich!'
+      };
+    } catch {
+      return {
+        success: false,
+        message: 'Login nicht abgeschlossen. Bitte im Browser bestätigen.',
+        needsManualStep: true
+      };
+    }
+  } catch (error) {
+    return {
+      success: false,
+      message: `Cloudflare Login fehlgeschlagen: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`
+    };
+  }
+}
+
+// ============================================================================
+// Hetzner Auto-Setup (SSH Key Generation)
+// ============================================================================
+
+interface HetznerSetupResult {
+  success: boolean;
+  message: string;
+  sshKey?: string;
+  sshCommand?: string;
+}
+
+async function setupHetznerAuto(host: string, user: string = 'root', port: number = 22): Promise<HetznerSetupResult> {
+  const sshDir = join(process.env.HOME || '/tmp', '.ssh');
+  const keyPath = join(sshDir, 'agent-girl-hetzner');
+  const pubKeyPath = `${keyPath}.pub`;
+
+  try {
+    // Ensure .ssh directory exists
+    if (!existsSync(sshDir)) {
+      execSync(`mkdir -p ${sshDir} && chmod 700 ${sshDir}`, { stdio: 'pipe' });
+    }
+
+    // Generate SSH key if not exists
+    if (!existsSync(keyPath)) {
+      execSync(`ssh-keygen -t ed25519 -f ${keyPath} -N "" -C "agent-girl-deploy"`, { stdio: 'pipe' });
+    }
+
+    // Read public key
+    const publicKey = readFileSync(pubKeyPath, 'utf-8').trim();
+
+    // Test if we can connect (key might already be on server)
+    try {
+      execSync(
+        `ssh -i ${keyPath} -p ${port} -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes ${user}@${host} "echo ok"`,
+        { stdio: 'pipe' }
+      );
+
+      // Connection works! Save config
+      saveHetznerConfig({ host, user, port, path: '/var/www/html' });
+
+      return {
+        success: true,
+        message: `SSH-Verbindung zu ${host} erfolgreich! Bereit für Deploy.`
+      };
+    } catch {
+      // Key not on server yet - user needs to add it
+      const sshCopyCommand = `ssh-copy-id -i ${pubKeyPath} -p ${port} ${user}@${host}`;
+      const manualCommand = `cat ${pubKeyPath} | ssh -p ${port} ${user}@${host} "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys"`;
+
+      return {
+        success: false,
+        message: 'SSH-Key generiert. Bitte auf Server kopieren:',
+        sshKey: publicKey,
+        sshCommand: sshCopyCommand
+      };
+    }
+  } catch (error) {
+    return {
+      success: false,
+      message: `Hetzner Setup fehlgeschlagen: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`
+    };
+  }
+}
+
+async function testHetznerConnection(host: string, user: string = 'root', port: number = 22): Promise<LoginResult> {
+  const keyPath = join(process.env.HOME || '/tmp', '.ssh', 'agent-girl-hetzner');
+
+  try {
+    // Try with our generated key first
+    if (existsSync(keyPath)) {
+      try {
+        execSync(
+          `ssh -i ${keyPath} -p ${port} -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes ${user}@${host} "echo ok"`,
+          { stdio: 'pipe' }
+        );
+        return { success: true, message: 'Verbindung erfolgreich!' };
+      } catch {}
+    }
+
+    // Try with default SSH key
+    try {
+      execSync(
+        `ssh -p ${port} -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes ${user}@${host} "echo ok"`,
+        { stdio: 'pipe' }
+      );
+      return { success: true, message: 'Verbindung erfolgreich!' };
+    } catch {}
+
+    return {
+      success: false,
+      message: 'SSH-Verbindung fehlgeschlagen. Bitte SSH-Key einrichten.',
+      needsManualStep: true
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Test fehlgeschlagen: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`
+    };
   }
 }
 
@@ -931,6 +1182,82 @@ export async function handleDeployRoutes(req: Request, url: URL): Promise<Respon
       }), { status: 200, headers: corsHeaders });
     }
 
+    // POST /api/deploy/auth/login - Browser-based CLI login (easiest method)
+    if (path === '/api/deploy/auth/login' && req.method === 'POST') {
+      const body = await req.json();
+      const { platform } = body;
+
+      if (!platform) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'platform erforderlich'
+        }), { status: 400, headers: corsHeaders });
+      }
+
+      let result: LoginResult;
+      switch (platform) {
+        case 'vercel':
+          result = await loginVercel();
+          break;
+        case 'netlify':
+          result = await loginNetlify();
+          break;
+        case 'cloudflare':
+          result = await loginCloudflare();
+          break;
+        default:
+          return new Response(JSON.stringify({
+            success: false,
+            error: 'Ungültige Platform. Erlaubt: vercel, netlify, cloudflare'
+          }), { status: 400, headers: corsHeaders });
+      }
+
+      return new Response(JSON.stringify(result), {
+        status: result.success ? 200 : 400,
+        headers: corsHeaders
+      });
+    }
+
+    // POST /api/deploy/hetzner/setup - Auto SSH key setup
+    if (path === '/api/deploy/hetzner/setup' && req.method === 'POST') {
+      const body = await req.json();
+      const { host, user = 'root', port = 22 } = body;
+
+      if (!host) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'host erforderlich'
+        }), { status: 400, headers: corsHeaders });
+      }
+
+      const result = await setupHetznerAuto(host, user, port);
+
+      return new Response(JSON.stringify(result), {
+        status: result.success ? 200 : 400,
+        headers: corsHeaders
+      });
+    }
+
+    // POST /api/deploy/hetzner/test - Test SSH connection
+    if (path === '/api/deploy/hetzner/test' && req.method === 'POST') {
+      const body = await req.json();
+      const { host, user = 'root', port = 22 } = body;
+
+      if (!host) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'host erforderlich'
+        }), { status: 400, headers: corsHeaders });
+      }
+
+      const result = await testHetznerConnection(host, user, port);
+
+      return new Response(JSON.stringify(result), {
+        status: result.success ? 200 : 400,
+        headers: corsHeaders
+      });
+    }
+
     // POST /api/deploy/hetzner/config - Configure Hetzner VPS
     if (path === '/api/deploy/hetzner/config' && req.method === 'POST') {
       const body = await req.json();
@@ -960,8 +1287,11 @@ export async function handleDeployRoutes(req: Request, url: URL): Promise<Respon
         'POST /api/deploy/quick',
         'POST /api/deploy/vercel/config',
         'POST /api/deploy/hetzner/config',
+        'POST /api/deploy/hetzner/setup',
+        'POST /api/deploy/hetzner/test',
         'POST /api/deploy/auth/token',
-        'POST /api/deploy/auth/disconnect'
+        'POST /api/deploy/auth/disconnect',
+        'POST /api/deploy/auth/login'
       ]
     }), { status: 404, headers: corsHeaders });
 

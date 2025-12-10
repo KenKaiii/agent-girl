@@ -1,8 +1,9 @@
 /**
  * Deploy Dropdown Component
  *
- * Frictionless deployment with easy token-based auth.
- * One-click login links + copy-paste tokens for all platforms.
+ * Frictionless deployment with dual auth options:
+ * 1. Browser login (easiest) - opens browser, one-click auth
+ * 2. Token paste (fallback) - copy-paste for headless environments
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -21,7 +22,9 @@ import {
   Copy,
   Check,
   LogIn,
-  Settings
+  Settings,
+  ChevronRight,
+  Terminal
 } from 'lucide-react';
 
 interface PlatformStatus {
@@ -71,6 +74,7 @@ export function DeployDropdown({ isOpen, onClose, projectPath, anchorRef }: Depl
 
   // Config forms
   const [configPlatform, setConfigPlatform] = useState<string | null>(null);
+  const [authMethod, setAuthMethod] = useState<'login' | 'token'>('login'); // Default to easiest
   const [tokenInput, setTokenInput] = useState('');
   const [accountId, setAccountId] = useState(''); // For Cloudflare
   const [hetznerConfig, setHetznerConfig] = useState<HetznerConfig>({
@@ -79,7 +83,9 @@ export function DeployDropdown({ isOpen, onClose, projectPath, anchorRef }: Depl
     path: '/var/www/html',
     port: 22
   });
+  const [hetznerSetupResult, setHetznerSetupResult] = useState<{ sshKey?: string; sshCommand?: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -292,6 +298,108 @@ export function DeployDropdown({ isOpen, onClose, projectPath, anchorRef }: Depl
       checkPlatformStatus();
     } catch (error) {
       console.error('Disconnect failed:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Browser-based login (easiest method - opens browser for OAuth)
+  const handleBrowserLogin = async (platform: string) => {
+    try {
+      setIsLoggingIn(true);
+      setDeployResult(null);
+
+      const res = await fetch('/api/deploy/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platform })
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        setConfigPlatform(null);
+        checkPlatformStatus();
+        setDeployResult({
+          success: true,
+          platform,
+          message: data.message || `${platform} erfolgreich verbunden!`
+        });
+      } else {
+        setDeployResult({
+          success: false,
+          platform,
+          message: data.message || 'Login fehlgeschlagen'
+        });
+
+        // If CLI not installed, show the command
+        if (data.needsManualStep && data.command) {
+          setDeployResult({
+            success: false,
+            platform,
+            message: `CLI nicht installiert. Führe aus: ${data.command}`
+          });
+        }
+      }
+    } catch (error) {
+      setDeployResult({
+        success: false,
+        platform,
+        message: error instanceof Error ? error.message : 'Login fehlgeschlagen'
+      });
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  // Auto Hetzner SSH key setup
+  const handleHetznerAutoSetup = async () => {
+    if (!hetznerConfig.host) return;
+
+    try {
+      setIsLoading(true);
+      setHetznerSetupResult(null);
+
+      const res = await fetch('/api/deploy/hetzner/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          host: hetznerConfig.host,
+          user: hetznerConfig.user,
+          port: hetznerConfig.port
+        })
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        setConfigPlatform(null);
+        checkPlatformStatus();
+        setDeployResult({
+          success: true,
+          platform: 'hetzner',
+          message: data.message
+        });
+      } else {
+        // Show SSH key if generated but not yet on server
+        if (data.sshKey) {
+          setHetznerSetupResult({
+            sshKey: data.sshKey,
+            sshCommand: data.sshCommand
+          });
+        }
+        setDeployResult({
+          success: false,
+          platform: 'hetzner',
+          message: data.message
+        });
+      }
+    } catch (error) {
+      setDeployResult({
+        success: false,
+        platform: 'hetzner',
+        message: error instanceof Error ? error.message : 'Setup fehlgeschlagen'
+      });
     } finally {
       setIsLoading(false);
     }
