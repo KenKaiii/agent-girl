@@ -58,6 +58,10 @@ import { handleBuildRoutes } from "./routes/build";
 import { handlePremiumRoutes } from "./routes/premium";
 import { handleCloneRoutes } from "./routes/clone";
 import { handleContentRoutes } from "./routes/content";
+import { handleComponentRoutes } from "./routes/components";
+import { handleTemplateRoutes } from "./routes/templates";
+import { handleGitHubRoutes } from "./routes/github";
+import { handleDeployRoutes } from "./routes/deploy";
 import { handleWebSocketMessage } from "./websocket/messageHandlers";
 import { removeWebSocketFromBuilds } from "./websocket/handlers/premiumHandler";
 import { handleHealthCheck, handleLivenessProbe, handleReadinessProbe, updateWsStats } from "./routes/health";
@@ -257,6 +261,26 @@ const server = Bun.serve({
     const contentResponse = await handleContentRoutes(req, url);
     if (contentResponse) {
       return contentResponse;
+    }
+
+    // Try component routes (for AI component generation)
+    if (url.pathname.startsWith('/api/components')) {
+      return handleComponentRoutes(req, url);
+    }
+
+    // Try template routes (for project templates)
+    if (url.pathname.startsWith('/api/templates')) {
+      return handleTemplateRoutes(req, url);
+    }
+
+    // Try GitHub routes (for git operations)
+    if (url.pathname.startsWith('/api/git')) {
+      return handleGitHubRoutes(req, url);
+    }
+
+    // Try deploy routes (for one-click deployment)
+    if (url.pathname.startsWith('/api/deploy')) {
+      return handleDeployRoutes(req, url);
     }
 
     // CLI API endpoint for external control
