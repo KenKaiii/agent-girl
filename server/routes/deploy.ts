@@ -61,18 +61,94 @@ interface HetznerConfig {
 }
 
 interface PlatformStatus {
-  vercel: { installed: boolean; authenticated: boolean };
-  netlify: { installed: boolean; authenticated: boolean };
-  cloudflare: { installed: boolean; authenticated: boolean };
+  vercel: { installed: boolean; authenticated: boolean; hasToken?: boolean };
+  netlify: { installed: boolean; authenticated: boolean; hasToken?: boolean };
+  cloudflare: { installed: boolean; authenticated: boolean; hasToken?: boolean };
   hetzner: { configured: boolean; host?: string };
+}
+
+interface TokenStorage {
+  vercel?: string;
+  netlify?: string;
+  cloudflare?: { token: string; accountId?: string };
 }
 
 // ============================================================================
 // Platform Detection & Setup
 // ============================================================================
 
-// Hetzner config file path
+// Config file paths
 const HETZNER_CONFIG_PATH = join(process.env.HOME || '/tmp', '.agent-girl-hetzner.json');
+const TOKEN_STORAGE_PATH = join(process.env.HOME || '/tmp', '.agent-girl-tokens.json');
+
+// Token storage functions
+function loadTokens(): TokenStorage {
+  try {
+    if (existsSync(TOKEN_STORAGE_PATH)) {
+      return JSON.parse(readFileSync(TOKEN_STORAGE_PATH, 'utf-8'));
+    }
+  } catch {}
+  return {};
+}
+
+function saveTokens(tokens: TokenStorage): void {
+  writeFileSync(TOKEN_STORAGE_PATH, JSON.stringify(tokens, null, 2), { mode: 0o600 });
+}
+
+function saveToken(platform: 'vercel' | 'netlify' | 'cloudflare', token: string, accountId?: string): void {
+  const tokens = loadTokens();
+  if (platform === 'cloudflare') {
+    tokens.cloudflare = { token, accountId };
+  } else {
+    tokens[platform] = token;
+  }
+  saveTokens(tokens);
+}
+
+function removeToken(platform: 'vercel' | 'netlify' | 'cloudflare'): void {
+  const tokens = loadTokens();
+  delete tokens[platform];
+  saveTokens(tokens);
+}
+
+function getToken(platform: 'vercel' | 'netlify' | 'cloudflare'): string | { token: string; accountId?: string } | undefined {
+  const tokens = loadTokens();
+  return tokens[platform];
+}
+
+// Token verification functions
+async function verifyVercelToken(token: string): Promise<boolean> {
+  try {
+    const res = await fetch('https://api.vercel.com/v2/user', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function verifyNetlifyToken(token: string): Promise<boolean> {
+  try {
+    const res = await fetch('https://api.netlify.com/api/v1/user', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function verifyCloudflareToken(token: string, accountId?: string): Promise<boolean> {
+  try {
+    const res = await fetch('https://api.cloudflare.com/client/v4/user/tokens/verify', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
 function loadHetznerConfig(): HetznerConfig | null {
   try {

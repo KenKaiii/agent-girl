@@ -41,6 +41,7 @@ export interface Session {
   context_input_tokens?: number;
   context_window?: number;
   context_percentage?: number;
+  projects?: Project[];
 }
 
 export interface SessionMessage {
@@ -49,6 +50,24 @@ export interface SessionMessage {
   type: 'user' | 'assistant';
   content: string;
   timestamp: string;
+}
+
+export type ProjectType = 'clone' | 'build' | 'custom' | 'astro' | 'next' | 'react';
+export type ProjectStatus = 'creating' | 'ready' | 'building' | 'serving' | 'error';
+
+export interface Project {
+  id: string;
+  session_id: string | null;
+  name: string;
+  type: ProjectType;
+  status: ProjectStatus;
+  path: string;
+  source_url?: string;
+  preview_url?: string;
+  preview_port?: number;
+  created_at: string;
+  updated_at: string;
+  metadata?: string;
 }
 
 // Use dynamic URL based on current window location (works on any port)
