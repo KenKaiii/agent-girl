@@ -1,11 +1,11 @@
 /**
  * Utility Exports
  * Central export point for all server utilities
+ * REFACTORED: Imports now route through organized subfolders (core, async, validation, api)
+ * Backward compatibility: All exports remain unchanged for existing code
  */
 
-// Rate Limiting
-export { TokenBucketRateLimiter, wsRateLimiter, expensiveOpLimiter } from './rateLimiter';
-
+// CORE UTILITIES
 // Path Security
 export {
   sanitizePath,
@@ -15,7 +15,7 @@ export {
   getSafeRelativePath,
   sanitizeFilename,
   getDefaultAllowedBases,
-} from './pathSecurity';
+} from './core/pathSecurity';
 
 // Cryptography
 export {
@@ -28,9 +28,14 @@ export {
   generateSecureToken,
   hashValue,
   maskSensitive,
-} from './crypto';
-export type { EncryptedData } from './crypto';
+} from './core/crypto';
+export type { EncryptedData } from './core/crypto';
 
+// Logger
+export { logger } from './core/logger';
+export type { LogLevel, LogContext, LogEntry } from './core/logger';
+
+// VALIDATION UTILITIES
 // Input Validation
 export {
   ChatMessageSchema,
@@ -48,11 +53,7 @@ export {
   validateInput,
   withValidation,
   sanitizeForDisplay,
-} from './validation';
-
-// Logger
-export { logger } from './logger';
-export type { LogLevel, LogContext, LogEntry } from './logger';
+} from './validation/validation';
 
 // Result Type & Error Handling
 export {
@@ -74,5 +75,9 @@ export {
   PermissionError,
   RateLimitError,
   toUserMessage,
-} from './Result';
-export type { Result } from './Result';
+} from './validation/Result';
+export type { Result } from './validation/Result';
+
+// API UTILITIES
+// Rate Limiting
+export { TokenBucketRateLimiter, wsRateLimiter, expensiveOpLimiter } from './api/rateLimiter';

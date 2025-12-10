@@ -164,10 +164,11 @@ function saveHetznerConfig(config: HetznerConfig): void {
 }
 
 async function checkPlatformStatus(): Promise<PlatformStatus> {
+  const tokens = loadTokens();
   const status: PlatformStatus = {
-    vercel: { installed: false, authenticated: false },
-    netlify: { installed: false, authenticated: false },
-    cloudflare: { installed: false, authenticated: false },
+    vercel: { installed: false, authenticated: false, hasToken: !!tokens.vercel },
+    netlify: { installed: false, authenticated: false, hasToken: !!tokens.netlify },
+    cloudflare: { installed: false, authenticated: false, hasToken: !!tokens.cloudflare?.token },
     hetzner: { configured: false }
   };
 
@@ -850,6 +851,86 @@ export async function handleDeployRoutes(req: Request, url: URL): Promise<Respon
       });
     }
 
+    // POST /api/deploy/auth/token - Save and verify platform token
+    if (path === '/api/deploy/auth/token' && req.method === 'POST') {
+      const body = await req.json();
+      const { platform, token, accountId } = body;
+
+      if (!platform || !token) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'platform und token erforderlich'
+        }), { status: 400, headers: corsHeaders });
+      }
+
+      if (!['vercel', 'netlify', 'cloudflare'].includes(platform)) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Ungültige Platform. Erlaubt: vercel, netlify, cloudflare'
+        }), { status: 400, headers: corsHeaders });
+      }
+
+      // Verify token before saving
+      let isValid = false;
+      try {
+        switch (platform) {
+          case 'vercel':
+            isValid = await verifyVercelToken(token);
+            break;
+          case 'netlify':
+            isValid = await verifyNetlifyToken(token);
+            break;
+          case 'cloudflare':
+            isValid = await verifyCloudflareToken(token, accountId);
+            break;
+        }
+      } catch {
+        isValid = false;
+      }
+
+      if (!isValid) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: `Token für ${platform} ist ungültig. Bitte überprüfe den Token.`
+        }), { status: 400, headers: corsHeaders });
+      }
+
+      // Save token
+      saveToken(platform as 'vercel' | 'netlify' | 'cloudflare', token, accountId);
+
+      return new Response(JSON.stringify({
+        success: true,
+        message: `${platform} Token erfolgreich gespeichert`
+      }), { status: 200, headers: corsHeaders });
+    }
+
+    // POST /api/deploy/auth/disconnect - Remove platform token
+    if (path === '/api/deploy/auth/disconnect' && req.method === 'POST') {
+      const body = await req.json();
+      const { platform } = body;
+
+      if (!platform) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'platform erforderlich'
+        }), { status: 400, headers: corsHeaders });
+      }
+
+      if (!['vercel', 'netlify', 'cloudflare'].includes(platform)) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Ungültige Platform. Erlaubt: vercel, netlify, cloudflare'
+        }), { status: 400, headers: corsHeaders });
+      }
+
+      removeToken(platform as 'vercel' | 'netlify' | 'cloudflare');
+
+      return new Response(JSON.stringify({
+        success: true,
+        message: `${platform} Token entfernt`
+      }), { status: 200, headers: corsHeaders });
+    }
+
     // POST /api/deploy/hetzner/config - Configure Hetzner VPS
     if (path === '/api/deploy/hetzner/config' && req.method === 'POST') {
       const body = await req.json();
@@ -878,7 +959,9 @@ export async function handleDeployRoutes(req: Request, url: URL): Promise<Respon
         'POST /api/deploy',
         'POST /api/deploy/quick',
         'POST /api/deploy/vercel/config',
-        'POST /api/deploy/hetzner/config'
+        'POST /api/deploy/hetzner/config',
+        'POST /api/deploy/auth/token',
+        'POST /api/deploy/auth/disconnect'
       ]
     }), { status: 404, headers: corsHeaders });
 

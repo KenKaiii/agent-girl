@@ -6,8 +6,8 @@
  */
 
 import { useState, useCallback } from 'react';
-import type { Message } from '../../message/types';
-import type { Question } from '../../question/QuestionModal';
+import type { Message } from '../../components/message/types';
+import type { Question } from '../../components/question/QuestionModal';
 
 interface UseModeManagementProps {
   currentSessionId: string | null;

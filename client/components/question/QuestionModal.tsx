@@ -6,4 +6,4 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-export { QuestionModal } from '../modals/QuestionModal';
+export { QuestionModal, type Question, type QuestionOption } from '../modals/QuestionModal';

@@ -6,9 +6,9 @@
  */
 
 import { useCallback } from 'react';
-import type { Message, SystemMessage, PreviewActionMetadata, PreviewElement, FileAttachment } from '../../message/types';
-import type { AIEditRequest } from '../types';
-import type { Template } from '../../preview/BuildLauncher';
+import type { Message, SystemMessage, PreviewActionMetadata, PreviewElement, FileAttachment } from '../../components/message/types';
+import type { AIEditRequest } from '../../components/chat/types';
+import type { Template } from '../../components/preview/BuildLauncher';
 
 interface UseBuildHandlersProps {
   setIsBuildWizardOpen: (open: boolean) => void;

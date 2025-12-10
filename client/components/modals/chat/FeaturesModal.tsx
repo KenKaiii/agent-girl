@@ -27,7 +27,7 @@ import {
   ProjectTypeCard,
   FeatureCard,
   useFeatureSelection,
-} from '../features';
+} from '../../features';
 
 interface FeaturesModalProps {
   onComplete: (prompt: string) => void;

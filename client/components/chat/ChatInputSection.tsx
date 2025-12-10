@@ -10,10 +10,12 @@ import { ChatInput } from './ChatInput';
 import { CommandQueueDisplay } from '../queue/CommandQueueDisplay';
 import { ActivityProgressBar } from './ActivityProgressBar';
 import { WorkingDirectoryPanel } from './WorkingDirectoryPanel';
+import { ProjectsPanel } from './ProjectsPanel';
 import type { BackgroundProcess } from '../process/BackgroundProcessMonitor';
 import type { SlashCommand } from '../../hooks/useWebSocket';
 import type { AIProgressState } from './types';
 import type { SelectedElement } from '../preview/ElementSelector';
+import type { Project } from '../../hooks/useSessionAPI';
 
 interface ChatInputSectionProps {
   // Session info
@@ -70,6 +72,12 @@ interface ChatInputSectionProps {
   onInsertText: (text: string) => void;
   isWorkingDirPanelCollapsed: boolean;
   onToggleWorkingDirCollapse: () => void;
+
+  // Projects
+  projects?: Project[];
+  isProjectsPanelCollapsed?: boolean;
+  onToggleProjectsCollapse?: () => void;
+  onOpenProjectPreview?: (url: string) => void;
 }
 
 export function ChatInputSection({

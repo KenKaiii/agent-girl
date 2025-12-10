@@ -7,10 +7,10 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { flushSync } from 'react-dom';
-import type { Message } from '../../message/types';
-import type { Session } from '../../../hooks/useSessionAPI';
-import type { SlashCommand } from '../../../hooks/useWebSocket';
-import { toast } from '../../../utils/toast';
+import type { Message } from '../../components/message/types';
+import type { Session } from '../useSessionAPI';
+import type { SlashCommand } from '../useWebSocket';
+import { toast } from '../../utils/toast';
 
 interface UseSessionStateProps {
   sessionAPI: {

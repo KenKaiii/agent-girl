@@ -7,13 +7,13 @@
 
 import { useCallback } from 'react';
 import { flushSync } from 'react-dom';
-import type { Message } from '../../message/types';
-import type { Question } from '../../question/QuestionModal';
-import type { Session } from '../../../hooks/useSessionAPI';
+import type { Message } from '../../components/message/types';
+import type { Question } from '../../components/question/QuestionModal';
+import type { Session } from '../useSessionAPI';
 import type { AIProgressState, ActionHistoryEntry } from '../types';
-import type { BackgroundProcess } from '../../process/BackgroundProcessMonitor';
-import { toast } from '../../../utils/toast';
-import { showError } from '../../../utils/errorMessages';
+import type { BackgroundProcess } from '../../components/process/BackgroundProcessMonitor';
+import { toast } from '../../utils/toast';
+import { showError } from '../../utils/errorMessages';
 
 // Tools that modify files (should trigger preview refresh)
 export const FILE_EDIT_TOOLS = ['Edit', 'Write', 'NotebookEdit'];

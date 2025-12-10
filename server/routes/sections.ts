@@ -3,8 +3,8 @@
  * Generate, preview, and manage niche-optimized sections
  */
 
-import { generateSectionId, generateComponentIds } from '../utils/sectionIdGenerator';
-import { NICHE_PRESETS, generateNicheSuperprompt, getNicheResearchQueries, type NicheType, type ToneType } from '../utils/nicheSuperprompt';
+import { generateSectionId, generateComponentIds } from '../utils/core/sectionIdGenerator';
+import { NICHE_PRESETS, generateNicheSuperprompt, getNicheResearchQueries, type NicheType, type ToneType } from '../utils/api/nicheSuperprompt';
 
 // Helper to create JSON response
 function jsonResponse(data: unknown, status = 200): Response {

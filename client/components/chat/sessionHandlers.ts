@@ -6,13 +6,13 @@
  */
 
 import { flushSync } from 'react-dom';
-import type { Message } from '../../message/types';
-import type { Session } from '../../../hooks/useSessionAPI';
-import type { SlashCommand } from '../../../hooks/useWebSocket';
-import { toast } from '../../../utils/toast';
+import type { Message } from '../message/types';
+import type { Session } from '../../hooks/useSessionAPI';
+import type { SlashCommand } from '../../hooks/useWebSocket';
+import { toast } from '../../utils/toast';
 
 // SessionAPI is not exported, we need to use the return type of useSessionAPI
-type SessionAPI = ReturnType<typeof import('../../../hooks/useSessionAPI').useSessionAPI>;
+type SessionAPI = ReturnType<typeof import('../../hooks/useSessionAPI').useSessionAPI>;
 
 export interface SessionHandlers {
   handleNewChat: () => void;

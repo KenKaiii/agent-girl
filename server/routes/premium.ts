@@ -35,7 +35,7 @@ import {
   detectNiche,
   type NicheConfig,
 } from '../presets/niches';
-import { premiumBuildLimiter, premiumEditLimiter } from '../utils/rateLimiter';
+import { premiumBuildLimiter, premiumEditLimiter } from '../utils/api/rateLimiter';
 
 // Helper to create JSON response (matching build.ts pattern)
 function jsonResponse(data: unknown, status = 200): Response {

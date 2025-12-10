@@ -6,9 +6,9 @@
  */
 
 import { useCallback } from 'react';
-import type { Message, FileAttachment } from '../../message/types';
-import { toast } from '../../../utils/toast';
-import { showError } from '../../../utils/errorMessages';
+import type { Message, FileAttachment } from '../../components/message/types';
+import { toast } from '../../utils/toast';
+import { showError } from '../../utils/errorMessages';
 
 interface UseMessageSubmissionProps {
   currentSessionId: string | null;

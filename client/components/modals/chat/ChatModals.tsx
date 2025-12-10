@@ -6,11 +6,11 @@
  */
 
 import React from 'react';
-import { PlanApprovalModal } from '../plan/PlanApprovalModal';
-import { QuestionModal, type Question } from '../question/QuestionModal';
-import { BuildLauncher, type Template } from '../preview/BuildLauncher';
-import { BuildWizard } from '../build-wizard/BuildWizard';
-import { KeyboardShortcuts } from '../ui/KeyboardShortcuts';
+import { PlanApprovalModal } from '../../plan/PlanApprovalModal';
+import { QuestionModal, type Question } from '../../question/QuestionModal';
+import { BuildLauncher, type Template } from '../../preview/BuildLauncher';
+import { BuildWizard } from '../../build-wizard/BuildWizard';
+import { KeyboardShortcuts } from '../../ui/KeyboardShortcuts';
 import { Rocket, Hammer, X } from 'lucide-react';
 
 interface ChatModalsProps {

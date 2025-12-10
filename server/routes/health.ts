@@ -5,7 +5,7 @@
 
 import { sessionDb } from '../database';
 import { getProviders } from '../providers';
-import { logger } from '../utils/logger';
+import { logger } from '../utils/core/logger';
 
 interface HealthCheckResult {
   status: 'healthy' | 'degraded' | 'unhealthy';

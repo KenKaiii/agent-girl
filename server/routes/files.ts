@@ -18,7 +18,7 @@ import {
   generateComponent,
   type Framework,
   type SearchResult,
-} from '../utils/fileSync';
+} from '../utils/api/fileSync';
 
 // Helper to create JSON response
 function jsonResponse(data: unknown, status = 200): Response {
