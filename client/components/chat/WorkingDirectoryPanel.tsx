@@ -220,50 +220,48 @@ const TreeNode = memo(function TreeNode({
           </span>
         )}
 
-        {/* Action buttons - show when selected */}
-        {isSelected && (
-          <div className="flex items-center gap-0.5 ml-1">
+        {/* Action buttons - show on hover or when selected */}
+        <div className={`flex items-center gap-0.5 ml-1 transition-opacity ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+          <button
+            onClick={(e) => { e.stopPropagation(); onCopyPath(node.path); }}
+            className="p-1 rounded hover:bg-white/10 text-white/50 hover:text-white/80 transition-colors"
+            title="Copy path"
+          >
+            <Copy className="w-3 h-3" />
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onOpenInFinder(node.path); }}
+            className="p-1 rounded hover:bg-white/10 text-white/50 hover:text-white/80 transition-colors"
+            title={isDirectory ? "Open in Finder" : "Reveal in Finder"}
+          >
+            <ExternalLink className="w-3 h-3" />
+          </button>
+          {!isDirectory && (
             <button
-              onClick={(e) => { e.stopPropagation(); onCopyPath(node.path); }}
+              onClick={(e) => { e.stopPropagation(); onOpenFile(node.path); }}
               className="p-1 rounded hover:bg-white/10 text-white/50 hover:text-white/80 transition-colors"
-              title="Copy path"
+              title="Open file"
             >
-              <Copy className="w-3 h-3" />
+              <File className="w-3 h-3" />
             </button>
+          )}
+          {isDirectory && (
             <button
-              onClick={(e) => { e.stopPropagation(); onOpenInFinder(node.path); }}
-              className="p-1 rounded hover:bg-white/10 text-white/50 hover:text-white/80 transition-colors"
-              title={isDirectory ? "Open in Finder" : "Reveal in Finder"}
+              onClick={(e) => { e.stopPropagation(); onNavigate(node.path); }}
+              className="p-1 rounded hover:bg-white/10 text-blue-400 hover:text-blue-300 transition-colors"
+              title="Navigate into folder"
             >
-              <ExternalLink className="w-3 h-3" />
+              <CornerDownLeft className="w-3 h-3" />
             </button>
-            {!isDirectory && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onOpenFile(node.path); }}
-                className="p-1 rounded hover:bg-white/10 text-white/50 hover:text-white/80 transition-colors"
-                title="Open file"
-              >
-                <File className="w-3 h-3" />
-              </button>
-            )}
-            {isDirectory && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onNavigate(node.path); }}
-                className="p-1 rounded hover:bg-white/10 text-blue-400 hover:text-blue-300 transition-colors"
-                title="Navigate into folder"
-              >
-                <CornerDownLeft className="w-3 h-3" />
-              </button>
-            )}
-            <button
-              onClick={(e) => { e.stopPropagation(); onInsertToChat(node.path, node.type); }}
-              className="p-1 rounded hover:bg-white/10 text-green-400 hover:text-green-300 transition-colors"
-              title="Insert to chat"
-            >
-              <MessageSquare className="w-3 h-3" />
-            </button>
-          </div>
-        )}
+          )}
+          <button
+            onClick={(e) => { e.stopPropagation(); onInsertToChat(node.path, node.type); }}
+            className="p-1 rounded hover:bg-white/10 text-green-400 hover:text-green-300 transition-colors"
+            title="Insert to chat"
+          >
+            <MessageSquare className="w-3 h-3" />
+          </button>
+        </div>
       </div>
 
       {isDirectory && isExpanded && node.children && (
