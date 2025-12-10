@@ -4,7 +4,7 @@
  * Solves cross-origin restrictions for element selection
  */
 
-import { logger } from "../utils/logger";
+import { logger } from "../utils/core/logger";
 
 // Cache for responses to reduce latency
 const responseCache = new Map<string, { content: string; contentType: string; timestamp: number }>();

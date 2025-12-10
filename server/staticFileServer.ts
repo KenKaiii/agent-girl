@@ -4,8 +4,8 @@
  */
 
 import path from 'path';
-import { sanitizePath } from './utils/pathSecurity';
-import { logger } from './utils/logger';
+import { sanitizePath } from './utils/core/pathSecurity';
+import { logger } from './utils/core/logger';
 
 interface StaticFileServerOptions {
   binaryDir: string;

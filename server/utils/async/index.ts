@@ -7,6 +7,8 @@
  */
 
 export { AsyncQueue } from './AsyncQueue';
-export { withTimeout, createTimeout } from './timeout';
-export { withRetry, exponentialBackoff } from './retry';
-export { createQueue, ProcessQueue } from './queueHelper';
+export { withTimeout, withTimeoutGenerator, TimeoutController, ActivityTimeoutController, TimeoutError, HangError } from './timeout';
+export type { TimeoutOptions, ActivityTimeoutOptions } from './timeout';
+export { withRetry, withRetryGenerator, shouldRetry, getRetryDelay } from './retry';
+export type { RetryOptions } from './retry';
+export { getTaskProgressMessage, getRecommendedAction, calculatePriorityWeight, formatQueueStatusMessage, isQueueNeedingAttention, generateQueueReport } from './queueHelper';

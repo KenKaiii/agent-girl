@@ -5,7 +5,7 @@
 
 import type { SDKUserMessage, Query } from "@anthropic-ai/claude-agent-sdk";
 import type { ServerWebSocket } from "bun";
-import { AsyncQueue } from "./utils/AsyncQueue";
+import { AsyncQueue } from "./utils/async/AsyncQueue";
 
 interface SessionStream {
   messageQueue: AsyncQueue<string>;

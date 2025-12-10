@@ -1,8 +1,8 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { OAuthTokens } from './oauth';
-import { encrypt, decrypt, isEncrypted, EncryptedData } from './utils/crypto';
-import { logger } from './utils/logger';
+import { encrypt, decrypt, isEncrypted, EncryptedData } from './utils/core/crypto';
+import { logger } from './utils/core/logger';
 
 const CONFIG_DIR = path.join(process.env.HOME || process.env.USERPROFILE || '.', '.agent-girl');
 const TOKEN_FILE = path.join(CONFIG_DIR, 'oauth-tokens.json');

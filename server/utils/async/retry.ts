@@ -3,7 +3,7 @@
  * Automatic retry with exponential backoff for transient failures
  */
 
-import { parseApiError, type ParsedApiError } from './apiErrors';
+import { parseApiError, type ParsedApiError } from '../validation/apiErrors';
 
 export interface RetryOptions {
   /** Maximum number of retry attempts (default: 3) */

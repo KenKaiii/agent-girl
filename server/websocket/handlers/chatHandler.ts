@@ -17,8 +17,8 @@ import { validateDirectory, getDefaultWorkingDirectory } from "../../directoryUt
 import { saveImageToSessionPictures, saveFileToSessionFiles } from "../../imageUtils";
 import { backgroundProcessManager } from "../../backgroundProcessManager";
 import { loadUserConfig } from "../../userConfig";
-import { parseApiError, getUserFriendlyMessage } from "../../utils/apiErrors";
-import { ActivityTimeoutController } from "../../utils/timeout";
+import { parseApiError, getUserFriendlyMessage } from "../../utils/validation/apiErrors";
+import { ActivityTimeoutController } from "../../utils/async/timeout";
 import { sessionStreamManager } from "../../sessionStreamManager";
 import { expandSlashCommand } from "../../slashCommandExpander";
 import { renameSessionFolderFromFirstMessage, updateSessionTitleFromFirstMessage } from "../../folderNaming";
@@ -28,8 +28,8 @@ import {
   getBudgetSummary,
   AUTONOM_BUDGET_CONFIG,
   DEFAULT_BUDGET_CONFIG,
-} from "../../utils/costTracker";
-import { handleAutonomContinuation } from "../../utils/autonomChain";
+} from "../../utils/api/costTracker";
+import { handleAutonomContinuation } from "../../utils/api/autonomChain";
 import { createAskUserQuestionServer, setQuestionCallback } from "../../mcp/askUserQuestion";
 
 interface ChatWebSocketData {

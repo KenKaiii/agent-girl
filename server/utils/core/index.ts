@@ -6,7 +6,10 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-export { Logger, log, error, warn, info, debug } from './logger';
-export { crypto, generateSessionId } from './crypto';
-export { validatePath, isPathInBounds, resolvePath } from './pathSecurity';
+export { logger } from './logger';
+export type { LogLevel, LogContext, LogEntry } from './logger';
+export { encrypt, decrypt, encryptObject, decryptObject, isEncrypted, generateSecureToken, hashValue, maskSensitive, secureCompare } from './crypto';
+export type { EncryptedData } from './crypto';
+export { sanitizePath, isPathSafe, validateDirectoryPath, validateFilePath, getSafeRelativePath, sanitizeFilename, getDefaultAllowedBases } from './pathSecurity';
+export type { PathValidationResult } from './pathSecurity';
 export { generateSectionId } from './sectionIdGenerator';

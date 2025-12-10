@@ -68,7 +68,7 @@ import { initializeQueueSystem, startQueueSystem } from "./queue";
 import { handleWebSocketMessage } from "./websocket/messageHandlers";
 import { removeWebSocketFromBuilds } from "./websocket/handlers/premiumHandler";
 import { handleHealthCheck, handleLivenessProbe, handleReadinessProbe, updateWsStats } from "./routes/health";
-import { logger } from "./utils/logger";
+import { logger } from "./utils/core/logger";
 import { sessionStreamManager } from "./sessionStreamManager";
 import type { ServerWebSocket, Server as ServerType } from "bun";
 

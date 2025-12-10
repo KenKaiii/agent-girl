@@ -4,7 +4,7 @@
  */
 
 import type { ServerWebSocket } from "bun";
-import { logger } from "../../utils/logger";
+import { logger } from "../../utils/core/logger";
 import { cloneService } from "../../modules/clone/service";
 import type { CloneOptions } from "../../modules/clone/types";
 

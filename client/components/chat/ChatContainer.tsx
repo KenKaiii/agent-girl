@@ -1450,12 +1450,15 @@ export function ChatContainer({
               onToggleProjectsCollapse={() => setIsProjectsPanelCollapsed(!isProjectsPanelCollapsed)}
               onOpenProjectPreview={(url) => {
                 // Open preview URL in split screen or external browser
-                if (onLayoutModeChange && layoutMode !== 'split-screen') {
+                if (onBuildPreviewStart) {
+                  // Use build preview start which handles layout mode switching and URL setting
+                  onBuildPreviewStart(url);
+                } else if (onLayoutModeChange) {
+                  // Fallback: just switch to split-screen mode
                   onLayoutModeChange('split-screen');
-                }
-                if (_onSetPreviewUrl) {
-                  _onSetPreviewUrl(url);
+                  window.open(url, '_blank');
                 } else {
+                  // Last resort: open in new tab
                   window.open(url, '_blank');
                 }
               }}

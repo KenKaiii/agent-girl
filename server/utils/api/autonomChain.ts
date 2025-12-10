@@ -7,7 +7,7 @@ import {
   AUTONOM_BUDGET_CONFIG,
   getSessionBudget,
 } from './costTracker';
-import type { SessionStreamManager } from '../sessionStreamManager';
+import type { SessionStreamManager } from '../../sessionStreamManager';
 
 export interface AutonomState {
   turnCount: number;

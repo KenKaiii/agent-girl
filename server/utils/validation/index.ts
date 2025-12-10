@@ -6,6 +6,9 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-export { ApiError, BadRequestError, NotFoundError, UnauthorizedError } from './apiErrors';
-export { Result, success, failure, isSuccess, isFailure } from './Result';
-export { validateInput, validateSchema } from './validation';
+export { parseApiError, getUserFriendlyMessage, isRetryableError } from './apiErrors';
+export type { ApiErrorType, ParsedApiError } from './apiErrors';
+export { Ok, Err, isOk, isErr, unwrap, unwrapOr, map, mapErr, andThen } from './Result';
+export type { Result } from './Result';
+export { ChatMessageSchema, ImageAttachmentSchema, FileAttachmentSchema, AttachmentSchema, SessionIdSchema, CreateSessionSchema, UpdateSessionSchema } from './validation';
+export type { ChatMessage, Attachment, CreateSession } from './validation';

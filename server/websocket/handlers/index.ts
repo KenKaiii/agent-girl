@@ -4,8 +4,8 @@
  */
 
 import type { ServerWebSocket } from "bun";
-import { wsRateLimiter } from "../../utils/rateLimiter";
-import { logger } from "../../utils/logger";
+import { wsRateLimiter } from "../../utils/api/rateLimiter";
+import { logger } from "../../utils/core/logger";
 import { handleChatMessage } from "./chatHandler";
 import { handleApprovePlan, handleSetPermissionMode } from "./sessionHandler";
 import { handleKillBackgroundProcess, handleStopGeneration } from "./cancelHandler";
