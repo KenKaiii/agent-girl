@@ -13,7 +13,6 @@ import { join, dirname, basename, extname } from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { createHash } from 'crypto';
-import sharp from 'sharp';
 
 const execAsync = promisify(exec);
 
@@ -23,6 +22,14 @@ const IMAGE_DEFAULTS = {
   quality: 85,
   format: 'webp' as const,
 };
+
+// Try to load Sharp, but make it optional
+let sharp: typeof import('sharp') | null = null;
+try {
+  sharp = (await import('sharp')).default;
+} catch {
+  console.warn('Sharp not available - image optimization disabled');
+}
 
 // Helper to create JSON response
 function jsonResponse(data: unknown, status = 200): Response {
@@ -392,7 +399,12 @@ interface ImageGenerateRequest {
 async function optimizeImage(
   buffer: Buffer,
   options: ImageUploadRequest['optimize'] = {}
-): Promise<{ buffer: Buffer; format: string; width: number; height: number; savings: number }> {
+): Promise<{ buffer: Buffer; format: string; width: number; height: number; savings: number } | null> {
+  // Sharp not available - skip optimization
+  if (!sharp) {
+    return null;
+  }
+
   const format = options.format || IMAGE_DEFAULTS.format;
   const maxWidth = options.maxWidth || IMAGE_DEFAULTS.maxWidth;
   const quality = options.quality || IMAGE_DEFAULTS.quality;
@@ -490,23 +502,25 @@ async function uploadImage(req: ImageUploadRequest): Promise<{
     // Determine output path - adjust extension if format changes
     let targetPath = req.targetPath;
 
-    // Optimize if requested or by default for large images
-    const shouldOptimize = req.optimize !== undefined || originalSize > 100 * 1024; // > 100KB
+    // Optimize if Sharp is available and (explicitly requested or large image)
+    const shouldOptimize = sharp && (req.optimize !== undefined || originalSize > 100 * 1024); // > 100KB
 
     if (shouldOptimize) {
       try {
         const optimizeOptions = req.optimize || {};
         const result = await optimizeImage(buffer, optimizeOptions);
-        finalBuffer = result.buffer;
-        optimized = true;
-        savings = result.savings;
-        dimensions = { width: result.width, height: result.height };
+        if (result) {
+          finalBuffer = result.buffer;
+          optimized = true;
+          savings = result.savings;
+          dimensions = { width: result.width, height: result.height };
 
-        // Update file extension if format changed
-        const newExt = `.${result.format === 'jpg' ? 'jpg' : result.format}`;
-        const currentExt = extname(targetPath).toLowerCase();
-        if (currentExt !== newExt && result.format !== 'png') {
-          targetPath = targetPath.replace(/\.[^.]+$/, newExt);
+          // Update file extension if format changed
+          const newExt = `.${result.format === 'jpg' ? 'jpg' : result.format}`;
+          const currentExt = extname(targetPath).toLowerCase();
+          if (currentExt !== newExt && result.format !== 'png') {
+            targetPath = targetPath.replace(/\.[^.]+$/, newExt);
+          }
         }
       } catch (optError) {
         // If optimization fails, use original buffer
@@ -514,8 +528,8 @@ async function uploadImage(req: ImageUploadRequest): Promise<{
       }
     }
 
-    // Get dimensions if not optimized
-    if (!optimized) {
+    // Get dimensions if not optimized and Sharp is available
+    if (!optimized && sharp) {
       try {
         const meta = await sharp(buffer).metadata();
         dimensions = { width: meta.width || 0, height: meta.height || 0 };

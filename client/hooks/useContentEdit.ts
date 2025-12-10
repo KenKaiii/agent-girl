@@ -106,14 +106,23 @@ export function useContentEdit(projectPath: string | null) {
 
       const result = await response.json();
 
-      if (!result.success) {
+      if (result.success) {
+        toast.success('Änderung gespeichert', {
+          description: result.file ? `${result.file}:${result.lineNumber}` : undefined,
+          duration: 2000,
+        });
+      } else {
         setLastError(result.error || 'Failed to save changes');
+        toast.error('Speichern fehlgeschlagen', {
+          description: result.error,
+        });
       }
 
       return result;
     } catch (error) {
       const errorMsg = (error as Error).message;
       setLastError(errorMsg);
+      toast.error('Fehler', { description: errorMsg });
       return { success: false, error: errorMsg };
     } finally {
       setIsLoading(false);
@@ -163,14 +172,26 @@ export function useContentEdit(projectPath: string | null) {
 
       const result = await response.json();
 
-      if (!result.success) {
+      if (result.success) {
+        const savingsText = result.optimized && result.savings > 0
+          ? ` (${result.savings}% kleiner)`
+          : '';
+        toast.success(`Bild hochgeladen${savingsText}`, {
+          description: result.path,
+          duration: 3000,
+        });
+      } else {
         setLastError(result.error || 'Failed to upload image');
+        toast.error('Upload fehlgeschlagen', {
+          description: result.error,
+        });
       }
 
       return result;
     } catch (error) {
       const errorMsg = (error as Error).message;
       setLastError(errorMsg);
+      toast.error('Fehler', { description: errorMsg });
       return { success: false, error: errorMsg };
     } finally {
       setIsLoading(false);
@@ -289,14 +310,23 @@ export function useContentEdit(projectPath: string | null) {
 
       const result = await response.json();
 
-      if (!result.success) {
+      if (result.success) {
+        toast.success('Backup wiederhergestellt', {
+          description: result.file,
+          duration: 2000,
+        });
+      } else {
         setLastError(result.error || 'Failed to restore backup');
+        toast.error('Wiederherstellung fehlgeschlagen', {
+          description: result.error,
+        });
       }
 
       return result;
     } catch (error) {
       const errorMsg = (error as Error).message;
       setLastError(errorMsg);
+      toast.error('Fehler', { description: errorMsg });
       return { success: false, error: errorMsg };
     } finally {
       setIsLoading(false);

@@ -8,6 +8,10 @@ import { existsSync, readdirSync, copyFileSync, statSync } from 'fs';
 import { join, dirname, basename } from 'path';
 import { mkdir, readdir, writeFile, readFile, rm } from 'fs/promises';
 import { randomUUID } from 'crypto';
+// @ts-ignore - No type definitions available
+import scrape from 'website-scraper';
+// @ts-ignore - No type definitions available
+import PuppeteerPlugin from 'website-scraper-puppeteer';
 import type {
   CloneOptions,
   CloneResult,
@@ -38,87 +42,6 @@ export class CloneService {
     }
   }
 
-  /**
-   * Generate clone script content
-   */
-  private generateCloneScript(url: string, outputDir: string, options: CloneOptions): string {
-    const domain = this.extractDomain(url);
-    return `
-import scrape from 'website-scraper';
-import PuppeteerPlugin from 'website-scraper-puppeteer';
-
-const TARGET_URL = '${url}';
-const OUTPUT_DIR = '${outputDir}';
-const DOMAIN = '${domain}';
-
-const options = {
-  urls: [TARGET_URL],
-  directory: OUTPUT_DIR,
-  plugins: [
-    new PuppeteerPlugin({
-      launchOptions: {
-        headless: 'new',
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-      },
-      scrollToBottom: ${options.scrollToBottom !== false ? '{ timeout: 10000, viewportN: 10 }' : 'false'},
-      blockNavigation: true
-    })
-  ],
-  request: {
-    headers: {
-      'User-Agent': '${options.userAgent || DEFAULT_USER_AGENT}'
-    }
-  },
-  sources: [
-    { selector: 'img', attr: 'src' },
-    { selector: 'img', attr: 'srcset' },
-    { selector: 'link[rel="stylesheet"]', attr: 'href' },
-    { selector: 'link[rel="icon"]', attr: 'href' },
-    { selector: 'link[rel="preload"]', attr: 'href' },
-    { selector: 'script', attr: 'src' },
-    { selector: 'video', attr: 'src' },
-    { selector: 'video source', attr: 'src' },
-    { selector: 'video', attr: 'poster' },
-    { selector: 'source', attr: 'src' },
-    { selector: 'source', attr: 'srcset' },
-    { selector: 'a[href$=".pdf"]', attr: 'href' },
-    { selector: '[style*="background"]', attr: 'style' }
-  ],
-  subdirectories: [
-    { directory: 'images', extensions: ['.jpg', '.jpeg', '.png', '.gif', '.svg', '.webp', '.avif', '.ico', '.bmp'] },
-    { directory: 'css', extensions: ['.css'] },
-    { directory: 'js', extensions: ['.js', '.mjs'] },
-    { directory: 'fonts', extensions: ['.woff', '.woff2', '.ttf', '.eot', '.otf'] },
-    { directory: 'media', extensions: ['.mp4', '.webm', '.mp3', '.ogg', '.wav'] },
-    { directory: 'docs', extensions: ['.pdf', '.doc', '.docx'] }
-  ],
-  filenameGenerator: 'bySiteStructure',
-  prettifyUrls: true,
-  recursive: true,
-  maxRecursiveDepth: ${options.maxDepth || 3},
-  urlFilter: (url) => url.includes(DOMAIN) || url.includes('cdn') || url.includes('static'),
-  ignoreRobotsTxt: true
-};
-
-console.log(JSON.stringify({ type: 'start', url: TARGET_URL }));
-
-scrape(options)
-  .then(result => {
-    console.log(JSON.stringify({
-      type: 'complete',
-      files: result.length,
-      outputDir: OUTPUT_DIR
-    }));
-  })
-  .catch(err => {
-    console.log(JSON.stringify({
-      type: 'error',
-      message: err.message
-    }));
-    process.exit(1);
-  });
-`;
-  }
 
   /**
    * Find HTML directory (where index.html is)
@@ -297,6 +220,8 @@ scrape(options)
    */
   private async runClone(job: CloneJob, options: CloneOptions): Promise<void> {
     const startTime = Date.now();
+    const domain = this.extractDomain(options.url);
+    let filesDownloaded = 0;
 
     // Update status
     job.status = 'cloning';
@@ -310,76 +235,81 @@ scrape(options)
     }
     // Note: Do NOT mkdir here - website-scraper creates the directory itself
 
-    // Generate and save clone script in agent-girl directory (where node_modules lives)
-    // Node resolves packages from script location, not cwd
-    const tempDir = join(process.cwd(), '.clone-temp');
-    await mkdir(tempDir, { recursive: true });
-    const scriptPath = join(tempDir, `clone-${job.id}.mjs`);
-    const scriptContent = this.generateCloneScript(options.url, job.outputDir!, options);
-    await writeFile(scriptPath, scriptContent);
-
-    // Run clone script
-    const cloneProc = spawn(['node', scriptPath], {
-      cwd: process.cwd(),
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
-
-    // Process output
-    const reader = cloneProc.stdout.getReader();
-    const stderrReader = cloneProc.stderr.getReader();
-    let filesDownloaded = 0;
-    let stderrOutput = '';
-
-    // Read stderr in background
-    (async () => {
-      try {
-        while (true) {
-          const { done, value } = await stderrReader.read();
-          if (done) break;
-          stderrOutput += new TextDecoder().decode(value);
-        }
-      } catch {
-        // Stream ended
-      }
-    })();
-
     try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      // Configure scraper options
+      const scraperOptions: any = {
+        urls: [options.url],
+        directory: job.outputDir!,
+        plugins: [
+          new PuppeteerPlugin({
+            launchOptions: {
+              headless: 'new',
+              args: ['--no-sandbox', '--disable-setuid-sandbox'],
+            },
+            scrollToBottom: options.scrollToBottom !== false ? { timeout: 10000, viewportN: 10 } : false,
+            blockNavigation: true,
+          }),
+        ],
+        request: {
+          headers: {
+            'User-Agent': options.userAgent || DEFAULT_USER_AGENT,
+          },
+        },
+        sources: [
+          { selector: 'img', attr: 'src' },
+          { selector: 'img', attr: 'srcset' },
+          { selector: 'link[rel="stylesheet"]', attr: 'href' },
+          { selector: 'link[rel="icon"]', attr: 'href' },
+          { selector: 'link[rel="preload"]', attr: 'href' },
+          { selector: 'script', attr: 'src' },
+          { selector: 'video', attr: 'src' },
+          { selector: 'video source', attr: 'src' },
+          { selector: 'video', attr: 'poster' },
+          { selector: 'source', attr: 'src' },
+          { selector: 'source', attr: 'srcset' },
+          { selector: 'a[href$=".pdf"]', attr: 'href' },
+          { selector: '[style*="background"]', attr: 'style' },
+        ],
+        subdirectories: [
+          { directory: 'images', extensions: ['.jpg', '.jpeg', '.png', '.gif', '.svg', '.webp', '.avif', '.ico', '.bmp'] },
+          { directory: 'css', extensions: ['.css'] },
+          { directory: 'js', extensions: ['.js', '.mjs'] },
+          { directory: 'fonts', extensions: ['.woff', '.woff2', '.ttf', '.eot', '.otf'] },
+          { directory: 'media', extensions: ['.mp4', '.webm', '.mp3', '.ogg', '.wav'] },
+          { directory: 'docs', extensions: ['.pdf', '.doc', '.docx'] },
+        ],
+        filenameGenerator: 'bySiteStructure',
+        prettifyUrls: true,
+        recursive: true,
+        maxRecursiveDepth: options.maxDepth || 3,
+        urlFilter: (url: string) => url.includes(domain) || url.includes('cdn') || url.includes('static'),
+        ignoreRobotsTxt: true,
+      };
 
-        const text = new TextDecoder().decode(value);
-        const lines = text.split('\n').filter((l) => l.trim());
+      // Run scraper with timeout
+      const timeout = options.timeout || 300000;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error(`Clone timeout after ${timeout / 1000}s`));
+        }, timeout);
+      });
 
-        for (const line of lines) {
-          try {
-            const data = JSON.parse(line);
-            if (data.type === 'complete') {
-              filesDownloaded = data.files || 0;
-            }
-          } catch {
-            // Not JSON, ignore
-          }
-        }
-      }
-    } catch {
-      // Stream ended
-    }
+      const result = await Promise.race([scrape(scraperOptions), timeoutPromise]);
+      filesDownloaded = Array.isArray(result) ? result.length : 0;
 
-    // Wait for process with timeout (5 minutes default)
-    const timeout = options.timeout || 300000;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => {
-        cloneProc.kill();
-        reject(new Error(`Clone timeout after ${timeout / 1000}s`));
-      }, timeout);
-    });
-
-    const exitCode = await Promise.race([cloneProc.exited, timeoutPromise]);
-    if (exitCode !== 0) {
-      const errorMsg = stderrOutput.trim() || 'Clone process failed with exit code ' + exitCode;
-      throw new Error(errorMsg);
+      console.log('✅ Clone complete:', {
+        url: options.url,
+        files: filesDownloaded,
+        outputDir: job.outputDir,
+      });
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      console.error('❌ Clone failed:', {
+        url: options.url,
+        error: errorMsg,
+        outputDir: job.outputDir,
+      });
+      throw err;
     }
 
     job.progress = 60;
@@ -404,17 +334,6 @@ scrape(options)
     job.updatedAt = new Date();
     const server = await this.startServer(htmlDir);
     job.server = server;
-
-    // Cleanup temp script
-    try {
-      const tempDir = join(process.cwd(), '.clone-temp');
-      const scriptPath = join(tempDir, `clone-${job.id}.mjs`);
-      if (existsSync(scriptPath)) {
-        await rm(scriptPath);
-      }
-    } catch {
-      // Ignore cleanup errors
-    }
 
     // Complete
     job.status = 'complete';
