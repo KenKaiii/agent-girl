@@ -546,6 +546,125 @@ export class QueueDatabase {
     return result.changes || 0;
   }
 
+  // ==================== TRANSACTION SUPPORT ====================
+
+  /**
+   * Begin a database transaction for batch operations
+   */
+  beginTransaction(): void {
+    this.db.exec('BEGIN TRANSACTION');
+  }
+
+  /**
+   * Commit the current transaction
+   */
+  commitTransaction(): void {
+    this.db.exec('COMMIT');
+  }
+
+  /**
+   * Rollback the current transaction
+   */
+  rollbackTransaction(): void {
+    this.db.exec('ROLLBACK');
+  }
+
+  /**
+   * Update task priority
+   */
+  updateTaskPriority(taskId: string, priority: 'critical' | 'high' | 'normal' | 'low'): void {
+    const stmt = this.db.prepare(`
+      UPDATE queue_tasks
+      SET priority = ?, updated_at = ?
+      WHERE id = ?
+    `);
+    stmt.run(priority, Date.now(), taskId);
+  }
+
+  /**
+   * Get pending tasks with weighted priority scoring
+   * Critical = 100, High = 75, Normal = 50, Low = 25
+   * Also considers wait time to prevent starvation
+   */
+  getPendingTasksWeighted(limit: number = 50): Task[] {
+    const now = Date.now();
+    const stmt = this.db.prepare(`
+      SELECT *,
+        CASE priority
+          WHEN 'critical' THEN 100
+          WHEN 'high' THEN 75
+          WHEN 'normal' THEN 50
+          WHEN 'low' THEN 25
+          ELSE 50
+        END +
+        MIN((? - created_at) / 60000, 50) as priority_score
+      FROM queue_tasks
+      WHERE status IN ('pending', 'retry')
+      AND (scheduled_for IS NULL OR scheduled_for <= ?)
+      ORDER BY priority_score DESC, created_at ASC
+      LIMIT ?
+    `);
+
+    const rows = stmt.all(now, now, limit) as any[];
+    return rows.map(row => this.parseTaskRow(row));
+  }
+
+  /**
+   * Batch update task statuses
+   */
+  updateTasksBatch(taskIds: string[], status: TaskStatus): number {
+    if (taskIds.length === 0) return 0;
+
+    const placeholders = taskIds.map(() => '?').join(',');
+    const stmt = this.db.prepare(`
+      UPDATE queue_tasks
+      SET status = ?, updated_at = ?
+      WHERE id IN (${placeholders})
+    `);
+
+    const result = stmt.run(status, Date.now(), ...taskIds);
+    return result.changes || 0;
+  }
+
+  /**
+   * Get queue statistics with average attempts
+   */
+  getQueueStatsExtended(sessionId?: string): Record<string, number> {
+    let where = '';
+    const params: any[] = [];
+
+    if (sessionId) {
+      where = 'WHERE session_id = ?';
+      params.push(sessionId);
+    }
+
+    const stmt = this.db.prepare(`
+      SELECT
+        COUNT(*) as totalTasks,
+        COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) as pendingTasks,
+        COALESCE(SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END), 0) as runningTasks,
+        COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0) as completedTasks,
+        COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) as failedTasks,
+        COALESCE(AVG(attempts), 1) as averageAttempts,
+        COALESCE(SUM(CASE WHEN priority = 'critical' THEN 1 ELSE 0 END), 0) as criticalTasks,
+        COALESCE(SUM(CASE WHEN priority = 'high' THEN 1 ELSE 0 END), 0) as highPriorityTasks
+      FROM queue_tasks
+      ${where}
+    `);
+
+    const row = stmt.get(...params) as Record<string, number | null>;
+    return {
+      totalTasks: row?.totalTasks ?? 0,
+      pendingTasks: row?.pendingTasks ?? 0,
+      runningTasks: row?.runningTasks ?? 0,
+      completedTasks: row?.completedTasks ?? 0,
+      failedTasks: row?.failedTasks ?? 0,
+      averageAttempts: row?.averageAttempts ?? 1,
+      criticalTasks: row?.criticalTasks ?? 0,
+      highPriorityTasks: row?.highPriorityTasks ?? 0,
+    };
+  }
+
   // ==================== HELPER METHODS ====================
 
   private parseTaskRow(row: any): Task {

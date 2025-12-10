@@ -19,9 +19,18 @@ const execAsync = promisify(exec);
 
 const DeploySchema = z.object({
   projectPath: z.string(),
-  platform: z.enum(['vercel', 'netlify', 'cloudflare']),
+  platform: z.enum(['vercel', 'netlify', 'cloudflare', 'hetzner']),
   production: z.boolean().default(false),
-  envVars: z.record(z.string()).optional(),
+  envVars: z.record(z.string(), z.string()).optional(),
+});
+
+const HetznerConfigSchema = z.object({
+  host: z.string(),
+  user: z.string().default('root'),
+  path: z.string().default('/var/www/html'),
+  port: z.number().default(22),
+  buildCommand: z.string().optional(),
+  outputDir: z.string().optional(),
 });
 
 const VercelConfigSchema = z.object({
@@ -42,21 +51,48 @@ interface DeploymentResult {
   logs?: string[];
 }
 
+interface HetznerConfig {
+  host: string;
+  user: string;
+  path: string;
+  port: number;
+  buildCommand?: string;
+  outputDir?: string;
+}
+
 interface PlatformStatus {
   vercel: { installed: boolean; authenticated: boolean };
   netlify: { installed: boolean; authenticated: boolean };
   cloudflare: { installed: boolean; authenticated: boolean };
+  hetzner: { configured: boolean; host?: string };
 }
 
 // ============================================================================
 // Platform Detection & Setup
 // ============================================================================
 
+// Hetzner config file path
+const HETZNER_CONFIG_PATH = join(process.env.HOME || '/tmp', '.agent-girl-hetzner.json');
+
+function loadHetznerConfig(): HetznerConfig | null {
+  try {
+    if (existsSync(HETZNER_CONFIG_PATH)) {
+      return JSON.parse(readFileSync(HETZNER_CONFIG_PATH, 'utf-8'));
+    }
+  } catch {}
+  return null;
+}
+
+function saveHetznerConfig(config: HetznerConfig): void {
+  writeFileSync(HETZNER_CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
+}
+
 async function checkPlatformStatus(): Promise<PlatformStatus> {
   const status: PlatformStatus = {
     vercel: { installed: false, authenticated: false },
     netlify: { installed: false, authenticated: false },
-    cloudflare: { installed: false, authenticated: false }
+    cloudflare: { installed: false, authenticated: false },
+    hetzner: { configured: false }
   };
 
   // Check Vercel
@@ -88,6 +124,13 @@ async function checkPlatformStatus(): Promise<PlatformStatus> {
       status.cloudflare.authenticated = true;
     } catch {}
   } catch {}
+
+  // Check Hetzner (rsync + SSH config)
+  const hetznerConfig = loadHetznerConfig();
+  if (hetznerConfig?.host) {
+    status.hetzner.configured = true;
+    status.hetzner.host = hetznerConfig.host;
+  }
 
   return status;
 }
@@ -410,6 +453,143 @@ async function deployToCloudflare(
 }
 
 // ============================================================================
+// Hetzner VPS Deployment (rsync over SSH)
+// ============================================================================
+
+async function deployToHetzner(
+  projectPath: string,
+  config?: Partial<HetznerConfig>
+): Promise<DeploymentResult> {
+  const logs: string[] = [];
+
+  try {
+    // Load or use provided config
+    const savedConfig = loadHetznerConfig();
+    const hetznerConfig: HetznerConfig = {
+      host: config?.host || savedConfig?.host || '',
+      user: config?.user || savedConfig?.user || 'root',
+      path: config?.path || savedConfig?.path || '/var/www/html',
+      port: config?.port || savedConfig?.port || 22,
+      buildCommand: config?.buildCommand || savedConfig?.buildCommand,
+      outputDir: config?.outputDir || savedConfig?.outputDir,
+    };
+
+    if (!hetznerConfig.host) {
+      return {
+        success: false,
+        platform: 'hetzner',
+        message: 'Hetzner nicht konfiguriert. Bitte zuerst Server-Daten eingeben.'
+      };
+    }
+
+    // Check rsync is available
+    try {
+      execSync('which rsync', { stdio: 'pipe' });
+    } catch {
+      return {
+        success: false,
+        platform: 'hetzner',
+        message: 'rsync nicht installiert. Führe aus: brew install rsync'
+      };
+    }
+
+    // Detect framework and output directory
+    const framework = detectFramework(projectPath);
+    let outputDir = hetznerConfig.outputDir || 'dist';
+    if (!hetznerConfig.outputDir) {
+      if (framework === 'astro') outputDir = 'dist';
+      else if (framework === 'nextjs') outputDir = 'out'; // static export
+      else if (framework === 'nuxt') outputDir = '.output/public';
+      else if (framework === 'svelte') outputDir = 'build';
+      else if (framework === 'react') outputDir = 'dist';
+    }
+
+    // Build the project
+    logs.push('Building project...');
+    const buildCmd = hetznerConfig.buildCommand || 'bun run build';
+    try {
+      execSync(buildCmd, { cwd: projectPath, stdio: 'pipe' });
+      logs.push('Build erfolgreich');
+    } catch (buildError) {
+      logs.push(`Build-Warnung: ${buildError instanceof Error ? buildError.message : 'Build fehlgeschlagen'}`);
+    }
+
+    // Check if output directory exists
+    const outputPath = join(projectPath, outputDir);
+    if (!existsSync(outputPath)) {
+      return {
+        success: false,
+        platform: 'hetzner',
+        message: `Output-Verzeichnis "${outputDir}" nicht gefunden. Bitte Build ausführen.`,
+        logs
+      };
+    }
+
+    // Deploy with rsync
+    logs.push(`Deploying to ${hetznerConfig.host}:${hetznerConfig.path}...`);
+    const rsyncCmd = `rsync -avz --delete -e "ssh -p ${hetznerConfig.port} -o StrictHostKeyChecking=no" ${outputPath}/ ${hetznerConfig.user}@${hetznerConfig.host}:${hetznerConfig.path}/`;
+
+    const { stdout, stderr } = await execAsync(rsyncCmd, { cwd: projectPath });
+
+    if (stderr && !stderr.includes('sending incremental file list')) {
+      logs.push(`rsync output: ${stderr}`);
+    }
+
+    // Count transferred files
+    const fileCount = (stdout.match(/\n/g) || []).length;
+    logs.push(`${fileCount} Dateien synchronisiert`);
+    logs.push('Deployment erfolgreich');
+
+    // Construct URL (assuming standard web setup)
+    const url = `https://${hetznerConfig.host}`;
+
+    return {
+      success: true,
+      platform: 'hetzner',
+      url,
+      message: `Erfolgreich auf ${hetznerConfig.host} deployed`,
+      logs
+    };
+  } catch (error) {
+    return {
+      success: false,
+      platform: 'hetzner',
+      message: `Hetzner Deployment fehlgeschlagen: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`,
+      logs
+    };
+  }
+}
+
+async function configureHetzner(config: HetznerConfig): Promise<{ success: boolean; message: string }> {
+  try {
+    // Test SSH connection
+    const testCmd = `ssh -p ${config.port} -o ConnectTimeout=5 -o StrictHostKeyChecking=no ${config.user}@${config.host} "echo 'Connection successful'"`;
+
+    try {
+      execSync(testCmd, { stdio: 'pipe' });
+    } catch {
+      return {
+        success: false,
+        message: `SSH-Verbindung zu ${config.host} fehlgeschlagen. Stelle sicher, dass SSH-Key eingerichtet ist.`
+      };
+    }
+
+    // Save config
+    saveHetznerConfig(config);
+
+    return {
+      success: true,
+      message: `Hetzner konfiguriert: ${config.user}@${config.host}:${config.path}`
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Konfiguration fehlgeschlagen: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`
+    };
+  }
+}
+
+// ============================================================================
 // Quick Deploy (Auto-detect best platform)
 // ============================================================================
 
@@ -419,7 +599,7 @@ async function quickDeploy(
 ): Promise<DeploymentResult> {
   const status = await checkPlatformStatus();
 
-  // Priority: Vercel > Netlify > Cloudflare
+  // Priority: Vercel > Netlify > Cloudflare > Hetzner
   if (status.vercel.authenticated) {
     return deployToVercel(projectPath, production);
   }
@@ -457,10 +637,15 @@ async function quickDeploy(
     };
   }
 
+  // Try Hetzner if configured
+  if (status.hetzner.configured) {
+    return deployToHetzner(projectPath);
+  }
+
   return {
     success: false,
     platform: 'none',
-    message: 'Keine Deployment-Plattform konfiguriert. Installiere: vercel, netlify-cli, oder wrangler'
+    message: 'Keine Deployment-Plattform konfiguriert. Installiere: vercel, netlify-cli, wrangler, oder konfiguriere Hetzner'
   };
 }
 

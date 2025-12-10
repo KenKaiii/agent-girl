@@ -14,11 +14,25 @@ export class TaskQueue extends EventEmitter {
   private isRunning: boolean = false;
   private pollInterval: NodeJS.Timer | null = null;
   private pollIntervalMs: number = 1000;
+  private processingScheduled: boolean = false;
 
   constructor(db: QueueDatabase, maxConcurrentTasks: number = 50) {
     super();
     this.db = db;
     this.maxConcurrentTasks = maxConcurrentTasks;
+  }
+
+  /**
+   * Trigger immediate task processing (event-driven)
+   * More efficient than waiting for next poll cycle
+   */
+  private scheduleProcessing(): void {
+    if (this.processingScheduled || !this.isRunning) return;
+    this.processingScheduled = true;
+    setImmediate(() => {
+      this.processingScheduled = false;
+      this.processPendingTasks();
+    });
   }
 
   /**
@@ -207,7 +221,40 @@ export class TaskQueue extends EventEmitter {
     const createdTask = this.db.createTask(task);
     console.log(`➕ Task added: ${createdTask.id}`);
     this.emit('task:added', createdTask);
+    // Trigger immediate processing (event-driven)
+    this.scheduleProcessing();
     return createdTask;
+  }
+
+  /**
+   * Add multiple tasks at once (batch processing)
+   * More efficient than individual addTask calls
+   */
+  async addTasksBatch(tasks: Array<Omit<Task, 'id' | 'createdAt' | 'updatedAt'>>): Promise<Task[]> {
+    if (!tasks || tasks.length === 0) return [];
+
+    const createdTasks: Task[] = [];
+
+    // Use database transaction for batch insert
+    this.db.beginTransaction();
+    try {
+      for (const task of tasks) {
+        const createdTask = this.db.createTask(task);
+        createdTasks.push(createdTask);
+      }
+      this.db.commitTransaction();
+    } catch (error) {
+      this.db.rollbackTransaction();
+      throw error;
+    }
+
+    console.log(`➕ Batch added: ${createdTasks.length} tasks`);
+    this.emit('tasks:batch_added', { count: createdTasks.length, tasks: createdTasks });
+
+    // Trigger immediate processing (event-driven)
+    this.scheduleProcessing();
+
+    return createdTasks;
   }
 
   /**

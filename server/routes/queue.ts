@@ -3,45 +3,14 @@
  * Handles task, trigger, and workflow operations
  */
 
-import { TaskQueue } from '../queue/taskQueue';
-import { WorkerPool } from '../queue/workerPool';
-import { TriggerEngine } from '../queue/triggerEngine';
-import { HealthMonitor } from '../queue/healthMonitor';
-import { AIIntegration } from '../queue/aiIntegration';
-
-// Queue system singleton instance
-let queueSystem: {
-  taskQueue: TaskQueue;
-  workerPool: WorkerPool;
-  triggerEngine: TriggerEngine;
-  healthMonitor: HealthMonitor;
-  aiIntegration: AIIntegration;
-} | null = null;
-
-/**
- * Initialize queue system
- */
-export function initializeQueueSystem(
-  taskQueue: TaskQueue,
-  workerPool: WorkerPool,
-  triggerEngine: TriggerEngine,
-  healthMonitor: HealthMonitor,
-  aiIntegration: AIIntegration
-): void {
-  queueSystem = {
-    taskQueue,
-    workerPool,
-    triggerEngine,
-    healthMonitor,
-    aiIntegration,
-  };
-  console.log('📡 Queue system initialized for API routes');
-}
+import { getQueueSystem, type QueueSystem } from '../queue';
 
 /**
  * Handle queue API routes
  */
 export async function handleQueueRoutes(req: Request, url: URL): Promise<Response | undefined> {
+  const queueSystem = getQueueSystem();
+
   if (!queueSystem) {
     return new Response(JSON.stringify({ error: 'Queue system not initialized' }), {
       status: 500,
@@ -50,6 +19,94 @@ export async function handleQueueRoutes(req: Request, url: URL): Promise<Respons
   }
 
   // ==================== TASK ROUTES ====================
+
+  // POST /api/queue/tasks/batch - Create multiple tasks at once
+  if (url.pathname === '/api/queue/tasks/batch' && req.method === 'POST') {
+    try {
+      const body = await req.json() as any;
+
+      if (!body.sessionId || !body.tasks || !Array.isArray(body.tasks)) {
+        return new Response(JSON.stringify({ error: 'sessionId and tasks array required' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      if (body.tasks.length > 100) {
+        return new Response(JSON.stringify({ error: 'Maximum 100 tasks per batch' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      const createdTasks = await queueSystem.taskQueue.addTasksBatch(
+        body.tasks.map((t: any) => ({
+          sessionId: body.sessionId,
+          prompt: t.prompt,
+          mode: t.mode || 'general',
+          model: t.model || 'claude-3-5-sonnet',
+          status: 'pending' as const,
+          priority: t.priority || 'normal',
+          attempts: 0,
+          maxAttempts: t.maxAttempts || 3,
+          timeout: t.timeout,
+          metadata: t.metadata,
+          tags: t.tags,
+        }))
+      );
+
+      return new Response(JSON.stringify({
+        success: true,
+        created: createdTasks.length,
+        tasks: createdTasks
+      }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      return new Response(JSON.stringify({ error: msg }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+
+  // PUT /api/queue/tasks/reprioritize - Update task priorities
+  if (url.pathname === '/api/queue/tasks/reprioritize' && req.method === 'PUT') {
+    try {
+      const body = await req.json() as { sessionId: string; priorities: Record<string, string> };
+
+      if (!body.sessionId || !body.priorities) {
+        return new Response(JSON.stringify({ error: 'sessionId and priorities required' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      let updated = 0;
+      for (const [taskId, priority] of Object.entries(body.priorities)) {
+        const task = queueSystem.taskQueue.getTask(taskId);
+        if (task && task.sessionId === body.sessionId && task.status === 'pending') {
+          // Access db through taskQueue's internal db reference
+          (queueSystem.taskQueue as any).db.updateTaskPriority(taskId, priority);
+          updated++;
+        }
+      }
+
+      return new Response(JSON.stringify({
+        success: true,
+        updated,
+      }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      return new Response(JSON.stringify({ error: msg }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
 
   // POST /api/queue/tasks - Create a new task
   if (url.pathname === '/api/queue/tasks' && req.method === 'POST') {

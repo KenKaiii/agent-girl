@@ -109,6 +109,105 @@ export class QueueAPI {
   }
 
   /**
+   * Create multiple tasks at once with optimized batch processing
+   */
+  async createTasksBatch(
+    sessionId: string,
+    tasks: Array<{
+      prompt: string;
+      priority?: 'critical' | 'high' | 'normal' | 'low';
+      mode?: string;
+      model?: string;
+      timeout?: number;
+      metadata?: Record<string, unknown>;
+      tags?: string[];
+    }>
+  ): Promise<APIResponse> {
+    try {
+      if (!tasks || tasks.length === 0) {
+        return {
+          success: false,
+          error: 'No tasks provided',
+          timestamp: Date.now(),
+        };
+      }
+
+      const maxBatchSize = 100;
+      if (tasks.length > maxBatchSize) {
+        return {
+          success: false,
+          error: `Batch size exceeds limit (${maxBatchSize})`,
+          timestamp: Date.now(),
+        };
+      }
+
+      const createdTasks = await this.taskQueue.addTasksBatch(
+        tasks.map((t) => ({
+          sessionId,
+          prompt: t.prompt,
+          mode: (t.mode || 'general') as 'general' | 'coder' | 'intense-research' | 'spark',
+          model: t.model || 'claude-3-5-sonnet',
+          priority: t.priority || 'normal',
+          attempts: 0,
+          maxAttempts: 3,
+          timeout: t.timeout || 30000,
+          metadata: t.metadata,
+          tags: t.tags,
+          status: 'pending' as const,
+        }))
+      );
+
+      return {
+        success: true,
+        data: {
+          created: createdTasks.length,
+          tasks: createdTasks,
+        },
+        message: `Created ${createdTasks.length} tasks`,
+        timestamp: Date.now(),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to create batch',
+        timestamp: Date.now(),
+      };
+    }
+  }
+
+  /**
+   * Reprioritize tasks with weighted scoring
+   */
+  async reprioritizeTasks(
+    sessionId: string,
+    priorityMap: Record<string, 'critical' | 'high' | 'normal' | 'low'>
+  ): Promise<APIResponse> {
+    try {
+      let updated = 0;
+      for (const [taskId, priority] of Object.entries(priorityMap)) {
+        const task = this.taskQueue.getTask(taskId);
+        if (task && task.sessionId === sessionId && task.status === 'pending') {
+          this.db.updateTaskPriority(taskId, priority);
+          updated++;
+        }
+      }
+
+      return {
+        success: true,
+        data: { updated },
+        message: `Updated priority for ${updated} tasks`,
+        timestamp: Date.now(),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to reprioritize',
+        timestamp: Date.now(),
+      };
+    }
+  }
+
+  /**
    * Bulk task operations
    */
   async cancelSessionTasks(sessionId: string): Promise<APIResponse> {
@@ -156,10 +255,7 @@ export class QueueAPI {
           percentFailed: stats.totalTasks > 0
             ? Math.round((stats.failedTasks / stats.totalTasks) * 100)
             : 0,
-          averageAttempts:
-            stats.totalTasks > 0
-              ? (stats.totalTasks * 1.2) / stats.totalTasks
-              : 1,
+          averageAttempts: stats.averageAttempts || 1,
         },
         workers: {
           ...workerStats,

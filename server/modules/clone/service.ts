@@ -12,6 +12,7 @@ import { randomUUID } from 'crypto';
 import scrape from 'website-scraper';
 // @ts-ignore - No type definitions available
 import PuppeteerPlugin from 'website-scraper-puppeteer';
+import { getAppDataDirectory, ensureDirectory } from '../../directoryUtils';
 import type {
   CloneOptions,
   CloneResult,
@@ -21,7 +22,8 @@ import type {
   CloneEvent,
 } from './types';
 
-const DEFAULT_OUTPUT_BASE = '/Users/master/astro-clones';
+// Use app data directory for clones (same as sessions.db)
+const DEFAULT_OUTPUT_BASE = join(getAppDataDirectory(), 'clones');
 const DEFAULT_USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36';
 
@@ -66,6 +68,38 @@ export class CloneService {
       return null;
     };
     return findIndexHtml(outputDir);
+  }
+
+  /**
+   * Flatten nested directory structure (move contents up one level)
+   * website-scraper creates: outputDir/domain.com/index.html
+   * We want: outputDir/index.html
+   */
+  private async flattenDirectory(outputDir: string): Promise<void> {
+    try {
+      const entries = await readdir(outputDir, { withFileTypes: true });
+      // Check if there's exactly one subdirectory (the domain folder)
+      const subdirs = entries.filter(e => e.isDirectory());
+      if (subdirs.length === 1) {
+        const nestedDir = join(outputDir, subdirs[0].name);
+        const nestedEntries = await readdir(nestedDir);
+
+        // Move all contents from nested dir to outputDir
+        for (const item of nestedEntries) {
+          const src = join(nestedDir, item);
+          const dest = join(outputDir, item);
+          // Use spawn for reliable move
+          const proc = spawn(['mv', src, dest]);
+          await proc.exited;
+        }
+
+        // Remove the now-empty nested directory
+        await rm(nestedDir, { recursive: true, force: true });
+      }
+    } catch (err) {
+      console.error('Error flattening directory:', err);
+      // Non-fatal: continue with nested structure if flatten fails
+    }
   }
 
   /**
@@ -189,7 +223,12 @@ export class CloneService {
   async clone(options: CloneOptions): Promise<CloneJob> {
     const jobId = randomUUID();
     const domain = this.extractDomain(options.url);
-    const outputDir = options.outputDir || join(DEFAULT_OUTPUT_BASE, `cloned-${domain}`);
+
+    // Ensure base clones directory exists
+    ensureDirectory(DEFAULT_OUTPUT_BASE);
+
+    // Clean folder name: just the domain, no prefix
+    const outputDir = options.outputDir || join(DEFAULT_OUTPUT_BASE, domain);
 
     const job: CloneJob = {
       id: jobId,
@@ -312,10 +351,16 @@ export class CloneService {
       throw err;
     }
 
+    job.progress = 50;
+    this.emit(job.id, { type: 'progress', jobId: job.id, data: { progress: 50, status: 'flattening' } });
+
+    // Flatten directory structure (remove nested domain folder)
+    await this.flattenDirectory(job.outputDir!);
+
     job.progress = 60;
     this.emit(job.id, { type: 'progress', jobId: job.id, data: { progress: 60, status: 'sanitizing' } });
 
-    // Find HTML directory
+    // Find HTML directory (should now be outputDir itself)
     const htmlDir = await this.findHtmlDir(job.outputDir!);
     if (!htmlDir) {
       throw new Error('Could not find index.html in cloned output');
@@ -380,7 +425,7 @@ export class CloneService {
    */
   async quickClone(url: string, port: number = 4321): Promise<{ htmlDir: string; server: ServerInfo }> {
     const domain = this.extractDomain(url);
-    const outputDir = join(DEFAULT_OUTPUT_BASE, `cloned-${domain}`);
+    const outputDir = join(DEFAULT_OUTPUT_BASE, domain);
 
     // Clone
     const job = await this.clone({ url, outputDir });

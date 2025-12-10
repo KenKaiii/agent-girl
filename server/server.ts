@@ -62,6 +62,8 @@ import { handleComponentRoutes } from "./routes/components";
 import { handleTemplateRoutes } from "./routes/templates";
 import { handleGitHubRoutes } from "./routes/github";
 import { handleDeployRoutes } from "./routes/deploy";
+import { handleQueueRoutes } from "./routes/queue";
+import { initializeQueueSystem, startQueueSystem } from "./queue";
 import { handleWebSocketMessage } from "./websocket/messageHandlers";
 import { removeWebSocketFromBuilds } from "./websocket/handlers/premiumHandler";
 import { handleHealthCheck, handleLivenessProbe, handleReadinessProbe, updateWsStats } from "./routes/health";
@@ -104,6 +106,10 @@ const { isStandalone: IS_STANDALONE, binaryDir: BINARY_DIR } = await initializeS
 
 // Check Node.js availability for Claude SDK subprocess
 await checkNodeAvailability();
+
+// Initialize queue system for task management
+const queueSystem = initializeQueueSystem();
+startQueueSystem();
 
 // Initialize default working directory
 const DEFAULT_WORKING_DIR = getDefaultWorkingDirectory();
@@ -281,6 +287,14 @@ const server = Bun.serve({
     // Try deploy routes (for one-click deployment)
     if (url.pathname.startsWith('/api/deploy')) {
       return handleDeployRoutes(req, url);
+    }
+
+    // Try queue routes (for task queue management)
+    if (url.pathname.startsWith('/api/queue')) {
+      const queueResponse = await handleQueueRoutes(req, url);
+      if (queueResponse) {
+        return queueResponse;
+      }
     }
 
     // CLI API endpoint for external control

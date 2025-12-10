@@ -21,7 +21,11 @@ import {
 } from '../preview';
 import type { SelectedElement, SelectionMode } from '../preview';
 import { CloneModal } from '../clone';
+import { DevToolsPanel } from '../devtools';
 import { SmartEditToolbar, useEditHistory, type EditHistoryEntry, type PageSection } from '../preview/SmartEditToolbar';
+import { ComponentGeneratorPanel } from '../component-generator';
+import { TemplateWizardPanel, TemplateWizardBackdrop } from '../template-wizard';
+import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useContentEdit } from '../../hooks/useContentEdit';
 import { useProjectDiscovery } from '../../hooks/useProjectDiscovery';
 import {
@@ -47,6 +51,7 @@ import {
   CheckCircle2,
   XCircle,
   PenTool,
+  Rocket,
 } from 'lucide-react';
 
 // Extended device types with real device presets
@@ -226,6 +231,9 @@ export function SplitScreenLayout() {
   const [isAIEditPanelOpen, setIsAIEditPanelOpen] = useState(false);
   const [isLocalDataManagerOpen, setIsLocalDataManagerOpen] = useState(false);
   const [isCloneModalOpen, setIsCloneModalOpen] = useState(false);
+  const [isDevToolsOpen, setIsDevToolsOpen] = useState(false);
+  const [isComponentGeneratorOpen, setIsComponentGeneratorOpen] = useState(false);
+  const [isTemplateWizardOpen, setIsTemplateWizardOpen] = useState(false);
   const [showFloatingPrompt, setShowFloatingPrompt] = useState(false);
   const [_floatingPromptPosition, _setFloatingPromptPosition] = useState({ x: 0, y: 0 });
   const { fields: localDataFields, setFields: setLocalDataFields } = useLocalData();
@@ -310,6 +318,17 @@ export function SplitScreenLayout() {
     previewUrl,
     () => console.log('HMR update detected')
   );
+
+  // Global keyboard shortcuts for DevTools, Component Generator, Template Wizard
+  useKeyboardShortcuts({
+    onToggleDevTools: () => setIsDevToolsOpen(prev => !prev),
+    onToggleGitPanel: () => setIsDevToolsOpen(true), // Opens DevTools with Git tab
+    onToggleDeployPanel: () => setIsDevToolsOpen(true), // Opens DevTools with Deploy tab
+    onOpenComponentGenerator: () => setIsComponentGeneratorOpen(true),
+    onOpenTemplateWizard: () => setIsTemplateWizardOpen(true),
+    onToggleSidebar: () => {/* Sidebar toggle handled by parent */},
+    onNewChat: () => {/* New chat handled by ChatContainer */},
+  });
 
   // Handle AI progress changes - auto-refresh after file edits complete
   const handleAIProgressChange = useCallback((progress: AIProgressState & { newAction?: ActionHistoryEntry }) => {
@@ -1701,6 +1720,21 @@ Was soll das neue Bild sein?`;
                 )}
               </div>
 
+              {/* Deploy Button */}
+              <button
+                onClick={() => setIsDevToolsOpen(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-all text-xs font-medium"
+                style={{
+                  background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
+                  color: '#fff',
+                  boxShadow: '0 1px 3px rgba(59, 130, 246, 0.3)',
+                }}
+                title="Deploy project (⌘+Shift+P)"
+              >
+                <Rocket size={12} />
+                <span>Deploy</span>
+              </button>
+
               {/* Divider */}
               <div className="w-px h-4 bg-white/10 mx-1" />
 
@@ -1892,6 +1926,36 @@ Was soll das neue Bild sein?`;
       <CloneModal
         isOpen={isCloneModalOpen}
         onClose={() => setIsCloneModalOpen(false)}
+      />
+
+      {/* DevTools Panel (Git & Deploy) */}
+      <DevToolsPanel
+        projectPath={currentProjectPath || ''}
+        isOpen={isDevToolsOpen}
+        onClose={() => setIsDevToolsOpen(false)}
+      />
+
+      {/* Component Generator Panel */}
+      <ComponentGeneratorPanel
+        projectPath={currentProjectPath || ''}
+        isOpen={isComponentGeneratorOpen}
+        onClose={() => setIsComponentGeneratorOpen(false)}
+      />
+
+      {/* Template Wizard Modal */}
+      <TemplateWizardBackdrop
+        isOpen={isTemplateWizardOpen}
+        onClose={() => setIsTemplateWizardOpen(false)}
+      />
+      <TemplateWizardPanel
+        isOpen={isTemplateWizardOpen}
+        onClose={() => setIsTemplateWizardOpen(false)}
+        defaultOutputPath={currentProjectPath ? currentProjectPath.replace(/\/[^/]+$/, '') : '/Users/master/projects'}
+        onOpenProject={(path) => {
+          // Could trigger project open action here
+          console.log('Open project:', path);
+          setIsTemplateWizardOpen(false);
+        }}
       />
       </div>
     </PreviewProvider>
