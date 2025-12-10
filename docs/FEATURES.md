@@ -420,7 +420,7 @@ return Ok(result.value);
 
 ---
 
-## 🆚 Vergleich: Agent Girl vs. Alternativen
+## 🆚 Vergleich: Agent Girl vs. Alternativen (Aktualisiert Dezember 2025)
 
 ### Feature Matrix
 
@@ -440,157 +440,332 @@ return Ok(result.value);
 | **Drag & Drop** | ⚠️ Basic | ✅ Advanced | ✅ Ja | ✅ Ja |
 | **Figma Import** | ❌ Nein | ✅ Ja | ⚠️ Limited | ✅ Ja |
 | **Animation Builder** | ⚠️ CSS | ✅ Visual | ⚠️ Basic | ⚠️ Basic |
+| **AI Wireframing** | ❌ Nein | ✅ NEU 2025 | ⚠️ Basic | ⚠️ Basic |
 | **Component Library** | ⚠️ Manual | ✅ Built-in | ✅ Built-in | ✅ Built-in |
 | **Hosting inkludiert** | ❌ External | ✅ Ja | ✅ Ja | ✅ Ja |
-| **Team Collaboration** | ❌ Nein | ✅ Ja | ✅ Ja | ✅ Ja |
+| **Team Collaboration** | ❌ Nein | ✅ Ja | ✅ Ja | ✅ Multiplayer |
 | **Version History** | ✅ Git | ✅ Built-in | ✅ Built-in | ✅ Built-in |
-| **CMS Integration** | ⚠️ Manual | ⚠️ Limited | ✅ Built-in | ✅ Built-in |
+| **CMS Integration** | ⚠️ Manual | ✅ Built-in | ✅ Built-in | ✅ Built-in |
+| **A/B Testing** | ❌ Nein | ✅ NEU 2025 | ❌ Nein | ❌ Nein |
+| **Visual Element Click-Edit** | ⚠️ Basic | ✅ Ja | ✅ Ja | ✅ NEU 2.0 |
+| **AI Chat Agent** | ✅ Voll | ⚠️ Limited | ✅ Ja | ✅ NEU 2.0 |
 
-### Detailvergleich
+### Detailvergleich (Dezember 2025)
 
-#### Framer (framer.com)
+#### Framer (framer.com) - Spring 2025 Update
+
+**Neueste Features (2025):**
+- 🆕 **Wireframer** - AI-generierte Wireframes aus Text-Prompts mit automatischem Responsive Design
+- 🆕 **Workshop** - AI-powered Custom Components ohne Code (Tab Sections, Cookie Banner, 3D Cards)
+- 🆕 **Vectors 2.0** - Scalable Sets, Variable Styling, Stroke Animations, Instant SVG Editing
+- 🆕 **Analytics** - Built-in A/B Testing, Funnels, User Behavior Insights
+- 🆕 **Masonry Grids** - Pinterest-like Layouts mit einem Klick
+
 **Stärken:**
 - Erstklassiger Visual Editor mit WYSIWYG
-- Integrierte Animations-Engine (Motion)
+- Integrierte Animations-Engine (Framer Motion)
 - Figma-to-Framer Import
 - CMS für Content Management
-- Hosting inklusive
+- Hosting inklusive mit Custom Domains
 - Component Variants System
+- **NEU:** AI Wireframing in Sekunden
 
 **Schwächen:**
 - Kein Code-Export (Vendor Lock-in)
 - Keine lokale Entwicklung
 - Begrenzte Backend-Logik
-- Hohe Preise für Teams
+- Hohe Preise für Teams ($20-$60/month)
 
 **Agent Girl kann lernen:**
+- ✅ **AI Wireframer** - Text zu Layout Wireframe
+- ✅ **Workshop-Style Component Generator** - Natural Language zu Component
 - ✅ Visual Drag & Drop Builder
-- ✅ Animation Timeline Editor
-- ✅ Figma Plugin für Import
+- ✅ Animation Timeline Editor mit Keyframes
+- ✅ A/B Testing Integration
+- ✅ Masonry Grid Support
 
-#### Bolt.new (bolt.new)
+#### Bolt.new (bolt.new) - StackBlitz
+
+**Core Features:**
+- **WebContainers** - Browser-basierte Node.js Umgebung
+- **Full Environment Control** - AI hat Zugriff auf Filesystem, Server, Package Manager, Terminal
+- **Multi-Framework** - Astro, Vite, Next.js, Svelte, Vue, Remix
+- **Smart Error Handling** - AI erkennt und behebt Fehler automatisch
+- **Claude Integration** - Powered by Anthropic Claude
+
 **Stärken:**
-- Schnelle Prototypen in Sekunden
-- Full-Stack Apps (Frontend + Backend)
+- Schnelle Prototypen in Sekunden (Zero to MVP in Stunden)
+- Full-Stack Apps (Frontend + Backend + DB)
 - Supabase Integration
 - Code Export möglich
 - AI-first Workflow
+- Gutes Error Recovery
 
 **Schwächen:**
 - Cloud-only (keine lokale Entwicklung)
 - Begrenzte Customization
 - Keine Desktop-Integration
 - Weniger Control über Code-Qualität
+- Token-Limits pro Tier
+
+**Preise:**
+- Free: Limited tokens
+- Pro ($9/mo): Mehr tokens, private Projekte
+- Team: Custom domains, SEO, Token Rollover
 
 **Agent Girl kann lernen:**
-- ✅ Supabase Quick-Setup Integration
+- ✅ **Supabase Quick-Setup** - One-Click Backend
 - ✅ Faster Prototyping Flow
 - ✅ One-Click Full-Stack Templates
+- ✅ Smart Error Detection & Auto-Fix
 
-#### Lovable (lovable.dev)
+#### Lovable (lovable.dev) - Lovable 2.0 Update
+
+**Neueste Features (2.0 - 2025):**
+- 🆕 **Chat Mode Agent** - Multi-step Reasoning, File Search, Log Check, DB Queries
+- 🆕 **Visual Element Editing** - Click auf Element → direkt ändern (Farbe, Style, Text)
+- 🆕 **Multiplayer** - Real-time Team Collaboration
+- 🆕 **Security Scan** - Vulnerability Detection vor Deploy
+- 🆕 **Supabase Integration 2.0** - Smarter Debugging, Custom Signup Pages
+
+**Stats:** 500,000+ Users, 25,000+ neue Produkte täglich
+
 **Stärken:**
-- Sehr guter AI Code Generator
-- GitHub Integration
+- Sehr guter AI Code Generator (Full-Stack Engineer Qualität)
+- GitHub Sync & Export
 - Figma Import
 - Supabase Backend Support
-- Iterative Refinement
+- React + TypeScript native
+- Stripe Integration
+- **NEU:** Visual Click-to-Edit ohne AI Credits
 
 **Schwächen:**
-- Cloud-based
+- Cloud-based only
 - Begrenzte lokale Entwicklung
 - Weniger Control über Build-Prozess
 - Keine deutschen Business-Features
 
 **Agent Girl kann lernen:**
+- ✅ **Visual Click-to-Edit** - Element anklicken, direkt ändern
+- ✅ **Chat Mode Agent** - Multi-step AI mit Debugging
+- ✅ **Security Scan** vor Deployment
 - ✅ GitHub-first Workflow
-- ✅ Bessere AI Refinement Loops
-- ✅ Supabase Auto-Configuration
+- ✅ Supabase Auto-Configuration mit Custom Auth Pages
 
 ---
 
-## 🚀 Essenzielle Features (Roadmap)
+## 🚀 Essenzielle Features (Roadmap - Aktualisiert Dezember 2025)
 
-Basierend auf dem Vergleich - Features die Agent Girl noch braucht:
+Basierend auf Konkurrenzanalyse - Features die Agent Girl noch braucht um wettbewerbsfähig zu sein:
 
-### 1. Visual Drag & Drop Builder
-**Priority: HIGH**
+---
+
+### 🔴 KRITISCH (Sofort implementieren)
+
+#### 1. AI Wireframer (wie Framer)
+**Priority: CRITICAL** | **Aufwand: 2-3 Wochen**
 ```
-Wie Framer/Webflow - aber mit Clean Code Export
-- Canvas-basierter Editor
-- Drag & Drop Components
-- Visual Responsive Breakpoints
-- Animation Timeline
+Text-Prompt → Responsive Wireframe in Sekunden
+```
+**Implementation:**
+- Natural Language Parser für Layout-Beschreibungen
+- Grid System Generator (CSS Grid / Flexbox)
+- Automatische Breakpoint-Generierung
+- Integration mit Premium Builder als Step 1-5
+
+**Beispiel:**
+```typescript
+await wireframe("Landing page mit Hero, 3 Features, Testimonials, CTA");
+// → Generiert HTML/Tailwind Wireframe mit responsive Breakpoints
 ```
 
-### 2. Figma Import
-**Priority: HIGH**
+#### 2. Visual Click-to-Edit (wie Lovable 2.0)
+**Priority: CRITICAL** | **Aufwand: 1-2 Wochen**
 ```
-Figma Design → Agent Girl → Production Website
-- Figma Plugin oder URL Import
-- Auto-Extract Design Tokens
-- Component Mapping
-- Asset Download
+Element anklicken → Direkt ändern (ohne AI Credits)
 ```
+**Implementation:**
+- Element Selector mit Overlay
+- Inline Style Editor (Color Picker, Font, Spacing)
+- Direkte Text-Bearbeitung
+- Source Code Sync mit Framework
 
-### 3. Integrated CMS
-**Priority: MEDIUM**
+**Bereits vorhanden in Agent Girl:**
+- `useContentEdit.ts` Hook - Erweitern!
+- Visual Editor Mode - Verbessern!
+
+#### 3. One-Click Supabase Setup (wie Bolt.new + Lovable)
+**Priority: CRITICAL** | **Aufwand: 1 Woche**
+```
+"Add auth" → Komplettes Auth-System mit DB
+```
+**Implementation:**
+- Supabase CLI Integration
+- Auth Provider Setup (Google, GitHub, Email, Magic Link)
+- Auto-Generate Tables (users, profiles)
+- RLS Policies automatisch
+- TypeScript Types Generation
+
+---
+
+### 🟠 HOCH (Q1 2025)
+
+#### 4. Workshop-Style Component Generator (wie Framer Workshop)
+**Priority: HIGH** | **Aufwand: 2 Wochen**
+```
+"Cookie Banner mit Accept/Decline" → Funktionale Component
+```
+**Implementation:**
+- Natural Language → React/Astro Component
+- Interactive Preview
+- Accessibility built-in
+- Export als wiederverwendbare Component
+
+#### 5. Figma Import
+**Priority: HIGH** | **Aufwand: 3-4 Wochen**
+```
+Figma URL/Plugin → Production-Ready Code
+```
+**Implementation:**
+- Figma API Integration
+- Design Token Extraction (Colors, Fonts, Spacing)
+- Auto Layout → CSS Grid/Flexbox
+- Component Detection
+- Asset Download & Optimization
+
+#### 6. Security Scan (wie Lovable 2.0)
+**Priority: HIGH** | **Aufwand: 1 Woche**
+```
+Pre-Deploy Security Check
+```
+**Implementation:**
+- Dependency Vulnerability Check (npm audit)
+- Secret Detection (API Keys in Code)
+- XSS/CSRF Pattern Detection
+- OWASP Top 10 Scan
+- Report mit Fix-Suggestions
+
+---
+
+### 🟡 MITTEL (Q2 2025)
+
+#### 7. Animation Timeline Editor (wie Framer)
+**Priority: MEDIUM** | **Aufwand: 3 Wochen**
+```
+Visual Keyframe Editor für Animationen
+```
+**Implementation:**
+- Timeline UI Component
+- Keyframe-based Animation
+- Easing Curves Visual Editor
+- Scroll-triggered Animations
+- Export als CSS/Framer Motion
+
+#### 8. A/B Testing Integration (wie Framer)
+**Priority: MEDIUM** | **Aufwand: 2 Wochen**
+```
+Variant Testing ohne externe Tools
+```
+**Implementation:**
+- Variant Creation UI
+- Traffic Splitting Logic
+- Conversion Tracking
+- Analytics Dashboard
+- Winner Detection
+
+#### 9. Integrated CMS
+**Priority: MEDIUM** | **Aufwand: 3-4 Wochen**
 ```
 Headless CMS für Content Management
-- Collections (Blog, Products, etc.)
-- Content Types
-- Media Library
-- API Endpoint Generation
 ```
+**Implementation:**
+- Content Collections (Blog, Products, Team)
+- Rich Text Editor (Markdown/WYSIWYG)
+- Media Library mit Optimization
+- API Generation (REST + GraphQL)
+- Astro Content Collections Integration
 
-### 4. Animation Builder
-**Priority: MEDIUM**
+#### 10. Team Collaboration / Multiplayer (wie Lovable 2.0)
+**Priority: MEDIUM** | **Aufwand: 4 Wochen**
 ```
-Visual Animation Editor
-- Keyframe Timeline
-- Scroll Animations
-- Hover/Click Triggers
-- Export als CSS/Framer Motion
+Real-time Multi-User Editing
 ```
+**Implementation:**
+- WebSocket Presence System
+- Cursor Sharing (wie Figma)
+- Comment System
+- Role-based Access (Owner, Editor, Viewer)
+- Change History mit Blame
 
-### 5. Team Collaboration
-**Priority: MEDIUM**
-```
-Multi-User Support
-- Real-time Editing
-- Comments/Feedback
-- Role-based Access
-- Change History
-```
+---
 
-### 6. One-Click Supabase
-**Priority: MEDIUM**
-```
-Backend in Sekunden
-- Auth Setup (Google, GitHub, Email)
-- Database Tables
-- Row Level Security
-- API Generation
-```
+### 🟢 NIEDRIG (Q3+ 2025)
 
-### 7. Component Marketplace
-**Priority: LOW**
+#### 11. Component Marketplace
+**Priority: LOW** | **Aufwand: 4+ Wochen**
 ```
 Pre-built Components kaufen/teilen
-- Premium Sections
+```
+**Features:**
+- Premium Section Templates
 - Animation Presets
-- Niche-specific Blocks
+- Niche-specific Blocks (SaaS, Portfolio, Restaurant)
 - Community Contributions
-```
+- Monetization für Creator
 
-### 8. Hosting Integration
-**Priority: LOW**
+#### 12. Built-in Hosting
+**Priority: LOW** | **Aufwand: 4+ Wochen**
 ```
-One-Click Deploy mit Custom Domains
-- Vercel/Netlify simplified
+One-Click Deploy mit Custom Domain
+```
+**Features:**
+- Vercel/Netlify/Cloudflare abstraction
+- Custom Domain Setup
 - SSL automatisch
-- Analytics Dashboard
 - Preview Deployments
-```
+- Analytics Dashboard
+
+---
+
+### 📊 Implementation Priority Matrix
+
+| Feature | Impact | Aufwand | Priority | Empfehlung |
+|---------|:------:|:-------:|:--------:|------------|
+| AI Wireframer | 🔥🔥🔥 | Medium | CRITICAL | Woche 1-2 |
+| Visual Click-Edit | 🔥🔥🔥 | Low | CRITICAL | Woche 1 |
+| Supabase Setup | 🔥🔥🔥 | Low | CRITICAL | Woche 2 |
+| Component Generator | 🔥🔥 | Medium | HIGH | Woche 3-4 |
+| Figma Import | 🔥🔥 | High | HIGH | Woche 5-8 |
+| Security Scan | 🔥🔥 | Low | HIGH | Woche 4 |
+| Animation Editor | 🔥 | High | MEDIUM | Q2 |
+| A/B Testing | 🔥 | Medium | MEDIUM | Q2 |
+| CMS | 🔥 | High | MEDIUM | Q2 |
+| Multiplayer | 🔥 | High | MEDIUM | Q2 |
+| Marketplace | ⭐ | Very High | LOW | Q3+ |
+| Hosting | ⭐ | High | LOW | Q3+ |
+
+---
+
+### 🎯 Quick Wins (Diese Woche machbar)
+
+1. **Visual Click-Edit verbessern** - `useContentEdit.ts` erweitern
+2. **Security Scan** - npm audit + secret detection
+3. **Supabase CLI Integration** - `supabase init` + `supabase gen types`
+
+### 💡 Agent Girl Unique Selling Points (USPs)
+
+Diese Features haben nur wir - behalten & ausbauen:
+
+| USP | Konkurrenz hat NICHT |
+|-----|----------------------|
+| **Desktop Native** | Alle cloud-only |
+| **100-Step Builder** | Keine strukturierte Phasen |
+| **AUTONOM Mode 24h** | Nur basic auto-continue |
+| **German Compliance** | Keine DE Business Features |
+| **Full File System** | Sandboxed/Limited |
+| **Self-Hosted** | Vendor Lock-in |
+| **MCP Integration** | Keine Tool Ecosystem |
+| **Clean Code Export** | Framer locked |
 
 ---
 
