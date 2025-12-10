@@ -178,8 +178,46 @@ TECHNISCH:
 - SEO-optimierte Meta-Tags
 - Analytics-ready (GA4 / Plausible)`,
   },
+  {
+    id: 'portfolio-site',
+    name: 'Portfolio Website',
+    description: 'Professionelles Portfolio für Freelancer, Agenturen oder Kreative',
+    category: 'business-us',
+    tags: ['portfolio', 'freelance', 'creative', 'personal-brand'],
+    tier: 1,
+    estimatedTime: '10-20 min',
+    recommendAutonom: true,
+    variables: [
+      { key: 'name', placeholder: 'Max Mustermann', description: 'Name' },
+      { key: 'profession', placeholder: 'UI/UX Designer', description: 'Beruf/Titel' },
+      { key: 'style', placeholder: 'Minimalistisch', description: 'Design-Stil' },
+    ],
+    prompt: `/workflow portfolio
 
-  // === TIER 2: High ROI ===
+Erstelle eine professionelle Portfolio-Website:
+
+PERSON/AGENTUR:
+- Name: [{{name}}]
+- Beruf: [{{profession}}]
+- Design-Stil: [{{style}}]
+
+SEKTIONEN:
+1. Hero mit Statement
+2. About / Bio
+3. Projekte / Case Studies Grid
+4. Skills / Services
+5. Testimonials
+6. Kontakt-Sektion
+
+FEATURES:
+- Smooth Scroll Animations
+- Projekt-Detailseiten
+- Dark/Light Mode
+- Kontaktformular
+- SEO-optimiert`,
+  },
+
+  // === TIER 2: Advanced Workflows ===
   {
     id: 'website-clone',
     name: 'Website Clone & Modernize',
@@ -317,8 +355,116 @@ OPTIONEN:
 - Production: true
 - Preview: false`,
   },
+  {
+    id: 'fullstack-auth',
+    name: 'Authentication System',
+    description: 'Vollständiges Auth-System mit Login, Register, OAuth und Session-Management',
+    category: 'development',
+    tags: ['auth', 'login', 'oauth', 'security', 'session'],
+    tier: 2,
+    estimatedTime: '15-30 min',
+    recommendAutonom: true,
+    variables: [
+      { key: 'providers', placeholder: 'Google, GitHub', description: 'OAuth Provider' },
+      { key: 'features', placeholder: 'Email verify, Password reset', description: 'Auth Features' },
+    ],
+    prompt: `/workflow auth-system
 
-  // === TIER 3: Productivity ===
+Erstelle ein vollständiges Authentication System:
+
+PROVIDERS:
+- Email/Password
+- OAuth: [{{providers}}]
+
+FEATURES:
+[{{features}}]
+
+KOMPONENTEN:
+1. Login Page
+2. Register Page
+3. Forgot Password
+4. Email Verification
+5. User Profile
+6. Session Management
+
+TECH:
+- Next.js App Router
+- NextAuth.js / Lucia
+- Prisma + PostgreSQL
+- Secure Cookies
+- CSRF Protection`,
+  },
+  {
+    id: 'dashboard-builder',
+    name: 'Admin Dashboard',
+    description: 'Vollständiges Admin-Dashboard mit Charts, Tables und CRUD',
+    category: 'development',
+    tags: ['dashboard', 'admin', 'charts', 'crud', 'analytics'],
+    tier: 2,
+    estimatedTime: '20-40 min',
+    recommendAutonom: true,
+    variables: [
+      { key: 'entities', placeholder: 'Users, Orders, Products', description: 'Zu verwaltende Entitäten' },
+      { key: 'charts', placeholder: 'Revenue, Signups', description: 'Dashboard Metriken' },
+    ],
+    prompt: `/workflow admin-dashboard
+
+Erstelle ein vollständiges Admin Dashboard:
+
+ENTITÄTEN: [{{entities}}]
+METRIKEN: [{{charts}}]
+
+FEATURES:
+1. Overview mit KPI Cards
+2. Charts (Line, Bar, Pie)
+3. Data Tables mit Sort/Filter
+4. CRUD für alle Entitäten
+5. User Management
+6. Activity Log
+
+DESIGN:
+- Sidebar Navigation
+- Dark/Light Mode
+- Responsive
+- Loading States
+- Toast Notifications`,
+  },
+  {
+    id: 'mobile-app',
+    name: 'Mobile App (React Native)',
+    description: 'Cross-platform Mobile App mit Expo und nativer Performance',
+    category: 'development',
+    tags: ['mobile', 'react-native', 'expo', 'ios', 'android'],
+    tier: 2,
+    estimatedTime: '30-60 min',
+    recommendAutonom: true,
+    variables: [
+      { key: 'app_name', placeholder: 'MyApp', description: 'App Name' },
+      { key: 'screens', placeholder: 'Home, Profile, Settings', description: 'Hauptscreens' },
+    ],
+    prompt: `/workflow mobile-app
+
+Erstelle eine Cross-Platform Mobile App:
+
+APP: [{{app_name}}]
+SCREENS: [{{screens}}]
+
+FEATURES:
+- Bottom Tab Navigation
+- Stack Navigation
+- Pull-to-Refresh
+- Offline Support
+- Push Notifications Setup
+
+TECH-STACK:
+- Expo SDK 50+
+- React Native
+- TypeScript
+- Expo Router
+- AsyncStorage`,
+  },
+
+  // === TIER 3: Utility Workflows ===
   {
     id: 'doc-generator',
     name: 'Documentation Generator',
@@ -517,6 +663,250 @@ AUSGABE:
 - Types-Datei
 - Test-Datei
 - Story-Datei (optional)`,
+  },
+  {
+    id: 'git-workflow',
+    name: 'Git Workflow Setup',
+    description: 'Professioneller Git-Workflow mit Branching, CI/CD und Releases',
+    category: 'productivity',
+    tags: ['git', 'ci-cd', 'workflow', 'github-actions'],
+    tier: 3,
+    estimatedTime: '5-10 min',
+    recommendAutonom: false,
+    variables: [
+      { key: 'project_type', placeholder: 'Web App', description: 'Projekttyp' },
+      { key: 'deploy_target', placeholder: 'Vercel', description: 'Deploy-Ziel' },
+    ],
+    prompt: `/workflow git-setup
+
+Richte einen professionellen Git-Workflow ein:
+
+PROJEKT: [{{project_type}}]
+DEPLOY: [{{deploy_target}}]
+
+SETUP:
+1. Branch Strategy (main, develop, feature/*)
+2. Commit Convention (Conventional Commits)
+3. PR Template
+4. GitHub Actions CI/CD
+5. Semantic Versioning
+6. Changelog Generation
+
+DATEIEN:
+- .github/workflows/ci.yml
+- .github/pull_request_template.md
+- .commitlintrc
+- .releaserc`,
+  },
+  {
+    id: 'seo-audit',
+    name: 'SEO Audit & Fix',
+    description: 'Vollständiges SEO-Audit mit technischen und inhaltlichen Verbesserungen',
+    category: 'productivity',
+    tags: ['seo', 'audit', 'meta-tags', 'sitemap', 'performance'],
+    tier: 3,
+    estimatedTime: '10-20 min',
+    recommendAutonom: false,
+    variables: [
+      { key: 'url', placeholder: 'https://example.com', description: 'Website URL' },
+      { key: 'focus_keywords', placeholder: 'keyword1, keyword2', description: 'Ziel-Keywords' },
+    ],
+    prompt: `/workflow seo-audit
+
+Führe ein SEO-Audit durch und implementiere Fixes:
+
+WEBSITE: [{{url}}]
+KEYWORDS: [{{focus_keywords}}]
+
+PRÜFE:
+1. Meta Tags (Title, Description)
+2. Heading Hierarchy
+3. Image Alt Tags
+4. Sitemap.xml
+5. robots.txt
+6. Core Web Vitals
+7. Mobile-Friendliness
+8. Structured Data (JSON-LD)
+
+AUSGABE:
+- Problemliste mit Priorität
+- Konkrete Fixes
+- Optimierte Meta-Tags
+- Schema.org Markup`,
+  },
+  {
+    id: 'test-suite',
+    name: 'Test Suite Generator',
+    description: 'Umfassende Tests für Units, Integration und E2E',
+    category: 'development',
+    tags: ['testing', 'vitest', 'playwright', 'e2e', 'unit'],
+    tier: 3,
+    estimatedTime: '10-20 min',
+    recommendAutonom: false,
+    variables: [
+      { key: 'path', placeholder: './src', description: 'Zu testender Code' },
+      { key: 'coverage_target', placeholder: '80%', description: 'Coverage-Ziel' },
+    ],
+    prompt: `/workflow test-suite
+
+Erstelle eine vollständige Test-Suite:
+
+PFAD: [{{path}}]
+COVERAGE-ZIEL: [{{coverage_target}}]
+
+TESTS:
+1. Unit Tests (Vitest)
+   - Utilities
+   - Hooks
+   - Components
+2. Integration Tests
+   - API Routes
+   - Database Operations
+3. E2E Tests (Playwright)
+   - Critical User Flows
+   - Form Submissions
+
+SETUP:
+- Vitest Config
+- Playwright Config
+- Test Utils
+- Mocks`,
+  },
+  {
+    id: 'email-templates',
+    name: 'Email Templates',
+    description: 'Responsive HTML-Email-Templates für Transaktionen und Marketing',
+    category: 'productivity',
+    tags: ['email', 'templates', 'marketing', 'transactional'],
+    tier: 3,
+    estimatedTime: '5-10 min',
+    recommendAutonom: false,
+    variables: [
+      { key: 'brand_name', placeholder: 'MyBrand', description: 'Markenname' },
+      { key: 'template_type', placeholder: 'Welcome', description: 'Template-Typ' },
+    ],
+    prompt: `/workflow email-template
+
+Erstelle responsive Email-Templates:
+
+MARKE: [{{brand_name}}]
+TEMPLATE: [{{template_type}}]
+
+TEMPLATES:
+1. Welcome Email
+2. Password Reset
+3. Order Confirmation
+4. Newsletter
+
+ANFORDERUNGEN:
+- Gmail/Outlook kompatibel
+- Mobile-responsive (media queries)
+- Dark Mode Support
+- Inline CSS
+- Text-Fallback`,
+  },
+  {
+    id: 'database-schema',
+    name: 'Database Schema Design',
+    description: 'Optimiertes Datenbankschema mit Relations und Migrations',
+    category: 'development',
+    tags: ['database', 'prisma', 'postgresql', 'schema', 'migrations'],
+    tier: 3,
+    estimatedTime: '10-20 min',
+    recommendAutonom: false,
+    variables: [
+      { key: 'entities', placeholder: 'User, Post, Comment', description: 'Entitäten' },
+      { key: 'database', placeholder: 'PostgreSQL', description: 'Datenbank' },
+    ],
+    prompt: `/workflow db-schema
+
+Entwerfe ein optimiertes Datenbankschema:
+
+ENTITÄTEN: [{{entities}}]
+DATENBANK: [{{database}}]
+
+ANFORDERUNGEN:
+1. Normalisierte Struktur
+2. Sinnvolle Relations
+3. Indexes für Performance
+4. Timestamps (createdAt, updatedAt)
+5. Soft Deletes (optional)
+
+AUSGABE:
+- Prisma Schema
+- ER-Diagramm (Mermaid)
+- Seed Data
+- Migrations`,
+  },
+  {
+    id: 'performance-audit',
+    name: 'Performance Audit',
+    description: 'Vollständige Performance-Analyse und Optimierung',
+    category: 'productivity',
+    tags: ['performance', 'lighthouse', 'optimization', 'web-vitals'],
+    tier: 3,
+    estimatedTime: '10-20 min',
+    recommendAutonom: false,
+    variables: [
+      { key: 'url', placeholder: 'https://example.com', description: 'Website URL' },
+      { key: 'target_score', placeholder: '90+', description: 'Lighthouse-Ziel' },
+    ],
+    prompt: `/workflow performance-audit
+
+Führe eine Performance-Analyse durch:
+
+WEBSITE: [{{url}}]
+ZIEL: [{{target_score}}] Lighthouse Score
+
+PRÜFE:
+1. Core Web Vitals (LCP, FID, CLS)
+2. Bundle Size
+3. Image Optimization
+4. Code Splitting
+5. Caching Strategy
+6. Font Loading
+
+OPTIMIERUNGEN:
+- Lazy Loading
+- Image Compression
+- CSS/JS Minification
+- CDN Configuration
+- Service Worker`,
+  },
+  {
+    id: 'security-audit',
+    name: 'Security Audit',
+    description: 'Sicherheitsanalyse und Härtung für Web-Applikationen',
+    category: 'development',
+    tags: ['security', 'audit', 'owasp', 'hardening'],
+    tier: 3,
+    estimatedTime: '15-30 min',
+    recommendAutonom: false,
+    variables: [
+      { key: 'project_path', placeholder: './src', description: 'Projekt-Pfad' },
+      { key: 'focus', placeholder: 'Authentication', description: 'Security-Fokus' },
+    ],
+    prompt: `/workflow security-audit
+
+Führe ein Security Audit durch:
+
+PROJEKT: [{{project_path}}]
+FOKUS: [{{focus}}]
+
+PRÜFE (OWASP Top 10):
+1. Injection (SQL, XSS)
+2. Broken Authentication
+3. Sensitive Data Exposure
+4. Security Misconfiguration
+5. CSRF
+6. Insecure Dependencies
+
+FIXES:
+- Input Sanitization
+- CSP Headers
+- Secure Cookies
+- Rate Limiting
+- Environment Variables`,
   },
 ];
 

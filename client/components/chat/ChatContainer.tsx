@@ -1392,6 +1392,8 @@ export function ChatContainer({
             onToggleAutonomMode={handleToggleAutonomMode}
             availableCommands={availableCommands}
             onOpenBuildWizard={handleOpenBuildWizard}
+            onOpenPromptLibrary={handleOpenPromptLibrary}
+            onSelectPrompt={handleEditPrompt}
             mode={currentSessionMode}
             onModeChange={handleModeChange}
           />

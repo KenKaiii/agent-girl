@@ -19,11 +19,12 @@
  */
 
 import React, { useRef, useState, useEffect, memo, useCallback, useMemo } from 'react';
-import { Send, Plus, X, Square, Hammer } from 'lucide-react';
+import { Send, Plus, X, Square, Hammer, BookOpen, ArrowRight } from 'lucide-react';
 import type { FileAttachment } from '../message/types';
 import { ModeIndicator } from './ModeIndicator';
 import type { SlashCommand } from '../../hooks/useWebSocket';
 import { CommandTextRenderer } from '../message/CommandTextRenderer';
+import { promptTemplates, categoryIcons } from '../prompts/promptTemplates';
 
 interface NewChatWelcomeProps {
   inputValue: string;
@@ -38,6 +39,8 @@ interface NewChatWelcomeProps {
   onToggleAutonomMode?: () => void;
   availableCommands?: SlashCommand[];
   onOpenBuildWizard?: () => void;
+  onOpenPromptLibrary?: () => void;
+  onSelectPrompt?: (prompt: string) => void;
   mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified' | 'build';
   onModeChange?: (mode: 'general' | 'coder' | 'intense-research' | 'spark' | 'unified' | 'build') => void;
 }
@@ -102,7 +105,7 @@ const FileAttachmentPreview = memo(function FileAttachmentPreview({
   );
 });
 
-export const NewChatWelcome = memo(function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, disabled, isGenerating, isPlanMode, onTogglePlanMode, isAutonomMode, onToggleAutonomMode, availableCommands = [], onOpenBuildWizard, mode, onModeChange }: NewChatWelcomeProps) {
+export const NewChatWelcome = memo(function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, disabled, isGenerating, isPlanMode, onTogglePlanMode, isAutonomMode, onToggleAutonomMode, availableCommands = [], onOpenBuildWizard, onOpenPromptLibrary, onSelectPrompt, mode, onModeChange }: NewChatWelcomeProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [attachedFiles, setAttachedFiles] = useState<FileAttachment[]>([]);
@@ -641,6 +644,81 @@ export const NewChatWelcome = memo(function NewChatWelcome({ inputValue, onInput
               </div>
             </div>
           </form>
+
+          {/* Prompts Section */}
+          {onOpenPromptLibrary && (
+            <div className="mt-6 sm:mt-8">
+              {/* Section Header */}
+              <div className="flex items-center justify-between mb-3 sm:mb-4">
+                <div className="flex items-center gap-2">
+                  <BookOpen className="size-4 text-zinc-400" />
+                  <span className="text-sm font-medium text-zinc-300">Workflow Templates</span>
+                </div>
+                <button
+                  onClick={onOpenPromptLibrary}
+                  className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+                >
+                  <span>Browse all</span>
+                  <ArrowRight className="size-3" />
+                </button>
+              </div>
+
+              {/* Featured Templates Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
+                {promptTemplates.slice(0, 6).map((template) => {
+                  const IconComponent = categoryIcons[template.category] || BookOpen;
+                  return (
+                    <button
+                      key={template.id}
+                      onClick={() => {
+                        if (onSelectPrompt) {
+                          // Fill variables with placeholder text
+                          let filledPrompt = template.prompt;
+                          (template.variables || []).forEach(v => {
+                            filledPrompt = filledPrompt.replace(
+                              new RegExp(`\\{\\{${v.key}\\}\\}`, 'g'),
+                              v.placeholder
+                            );
+                          });
+                          onSelectPrompt(filledPrompt);
+                        }
+                      }}
+                      className="group relative flex flex-col items-start p-3 sm:p-4 rounded-xl bg-zinc-900/50 border border-zinc-800/50 hover:border-zinc-700 hover:bg-zinc-800/50 transition-all text-left"
+                    >
+                      {/* Tier indicator */}
+                      <div className={`absolute top-2 right-2 text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                        template.tier === 1
+                          ? 'bg-emerald-500/10 text-emerald-400'
+                          : template.tier === 2
+                            ? 'bg-sky-500/10 text-sky-400'
+                            : 'bg-zinc-700 text-zinc-400'
+                      }`}>
+                        T{template.tier}
+                      </div>
+
+                      {/* Icon & Name */}
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <IconComponent className="size-4 text-zinc-500 group-hover:text-zinc-400 transition-colors" />
+                        <span className="text-sm font-medium text-zinc-200 group-hover:text-white transition-colors truncate max-w-[120px] sm:max-w-[150px]">
+                          {template.name}
+                        </span>
+                      </div>
+
+                      {/* Description */}
+                      <p className="text-xs text-zinc-500 line-clamp-2 group-hover:text-zinc-400 transition-colors">
+                        {template.description}
+                      </p>
+
+                      {/* Time estimate */}
+                      <div className="mt-2 text-[10px] text-zinc-600">
+                        {template.estimatedTime}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
         </div>
       </div>
