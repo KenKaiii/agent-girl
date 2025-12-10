@@ -2,10 +2,18 @@
 
 A desktop-first chat interface for Claude Agent SDK with real-time streaming, persistent sessions, and specialized sub-agents, running locally with full file system access.
 
+## 📚 Documentation
+
+| Document | Description |
+|----------|-------------|
+| [docs/FEATURES.md](docs/FEATURES.md) | Complete feature documentation, competitive analysis, roadmap |
+| [docs/agent-girl-flows.md](docs/agent-girl-flows.md) | 285 functions reference with code examples |
+| [docs/BUILD-MODE-FLOWS.md](docs/BUILD-MODE-FLOWS.md) | Build mode specific workflows |
+
 ## Project Structure
 
 ```
-agent-boy2/
+agent-girl/
 ├── server/               # Backend (Bun + WebSocket)
 │   ├── server.ts         # Main entry point (port 3001)
 │   ├── agents.ts         # Agent configuration
@@ -23,6 +31,9 @@ agent-boy2/
 │   │   └── ui/           # Base components (Radix UI)
 │   ├── hooks/            # Custom React hooks
 │   └── utils/            # Client utilities
+├── docs/                 # Documentation
+│   ├── FEATURES.md       # Feature docs & roadmap
+│   └── agent-girl-flows.md # 285 functions reference
 ├── data/                 # SQLite session database
 └── dist/                 # Build output
 ```
