@@ -1313,7 +1313,7 @@ Was soll das neue Bild sein?`;
       {/* Resizable Divider */}
       {showPreview && !isPreviewMaximized && (
         <div
-          className="h-full flex-shrink-0 flex items-center justify-center group relative z-50"
+          className="h-full flex-shrink-0 flex items-center justify-center group relative z-10"
           style={{
             width: '8px',
             background: isDragging

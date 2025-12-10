@@ -8,6 +8,11 @@ import path from 'path';
 export const BUILT_IN_COMMANDS = new Set(['clear', 'compact']);
 
 /**
+ * Server commands directory (where mode-specific commands live)
+ */
+const SERVER_COMMANDS_DIR = path.join(__dirname, 'commands');
+
+/**
  * Parse frontmatter from markdown file
  */
 function parseFrontmatter(content: string): {
@@ -42,12 +47,47 @@ function parseFrontmatter(content: string): {
 }
 
 /**
+ * Find command file in multiple locations
+ * Priority: project .claude/commands/ > mode commands > shared commands
+ */
+function findCommandFile(commandName: string, workingDir: string, mode?: string): string | null {
+  const searchPaths: string[] = [];
+
+  // 1. Project-specific commands first
+  searchPaths.push(path.join(workingDir, '.claude', 'commands', `${commandName}.md`));
+
+  // 2. Mode-specific commands (if mode is provided)
+  if (mode) {
+    searchPaths.push(path.join(SERVER_COMMANDS_DIR, mode, `${commandName}.md`));
+  }
+
+  // 3. Search all mode folders
+  const modeFolders = ['build', 'coder', 'general', 'spark', 'intense-research', 'unified'];
+  for (const folder of modeFolders) {
+    searchPaths.push(path.join(SERVER_COMMANDS_DIR, folder, `${commandName}.md`));
+  }
+
+  // 4. Shared commands
+  searchPaths.push(path.join(SERVER_COMMANDS_DIR, 'shared', `${commandName}.md`));
+
+  // Find first existing file
+  for (const filePath of searchPaths) {
+    if (fs.existsSync(filePath)) {
+      return filePath;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Expand slash command to full prompt
  * Returns null if not a slash command or command not found
  */
 export function expandSlashCommand(
   message: string,
-  workingDir: string
+  workingDir: string,
+  mode?: string
 ): string | null {
   // Check if message starts with slash command
   const commandMatch = message.match(/^\/([a-z-]+)(\s+(.*))?$/);
@@ -63,14 +103,16 @@ export function expandSlashCommand(
     return message; // Return original message unchanged - SDK will handle it
   }
 
-  // Look for custom command file in .claude/commands/
-  const commandsDir = path.join(workingDir, '.claude', 'commands');
-  const commandFile = path.join(commandsDir, `${commandName}.md`);
+  // Find command file in multiple locations
+  const commandFile = findCommandFile(commandName, workingDir, mode);
 
-  if (!fs.existsSync(commandFile)) {
-    console.warn(`⚠️  Slash command not found: /${commandName} (looked in ${commandFile})`);
-    return null; // Command file not found
+  if (!commandFile) {
+    console.warn(`⚠️  Slash command not found: /${commandName}`);
+    console.warn(`   Searched in: ${workingDir}/.claude/commands/ and server/commands/`);
+    return null;
   }
+
+  console.log(`✨ Found command: /${commandName} at ${commandFile}`);
 
   try {
     // Read command file

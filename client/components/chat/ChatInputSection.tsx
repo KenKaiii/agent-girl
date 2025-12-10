@@ -54,6 +54,7 @@ interface ChatInputSectionProps {
   // Layout
   layoutMode?: 'chat-only' | 'split-screen';
   onOpenBuildWizard: () => void;
+  onOpenPromptLibrary: () => void;
 
   // Preview integration
   previewUrl?: string;
@@ -102,6 +103,7 @@ export function ChatInputSection({
   onKillProcess,
   layoutMode,
   onOpenBuildWizard,
+  onOpenPromptLibrary,
   previewUrl,
   selectedElements,
   onClearSelection,
@@ -148,6 +150,7 @@ export function ChatInputSection({
         selectedModel={selectedModel}
         layoutMode={layoutMode}
         onOpenBuildWizard={onOpenBuildWizard}
+        onOpenPromptLibrary={onOpenPromptLibrary}
         previewUrl={previewUrl}
         selectedElements={selectedElements}
         onClearSelection={onClearSelection}

@@ -265,6 +265,9 @@ export function ChatContainer({
   const [isBuildWizardOpen, setIsBuildWizardOpen] = useState(false);
   const [buildMode, setBuildMode] = useState<'launcher' | 'wizard'>('launcher');
 
+  // Prompt library state
+  const [isPromptLibraryOpen, setIsPromptLibraryOpen] = useState(false);
+
   // Command queue state
   const [commandQueue, setCommandQueue] = useState<Array<{ id: string; content: string; status: 'pending' | 'running' | 'completed' }>>(
     []
@@ -346,6 +349,26 @@ export function ChatContainer({
   const handleToggleCompact = useCallback(() => setDisplayMode(prev => prev === 'compact' ? 'full' : 'compact'), []);
   const handleToggleCode = useCallback(() => setShowCode(prev => !prev), []);
   const handleNewChatTab = useCallback(() => window.open(window.location.origin, '_blank'), []);
+
+  // Prompt library handlers
+  const handleOpenPromptLibrary = useCallback(() => setIsPromptLibraryOpen(true), []);
+  const handleClosePromptLibrary = useCallback(() => setIsPromptLibraryOpen(false), []);
+
+  // Handle prompt selection from library
+  const handleSelectPrompt = useCallback((prompt: string, useAutonom?: boolean) => {
+    setInputValue(prompt);
+    setIsPromptLibraryOpen(false);
+    // If autonom mode is recommended and not already active, toggle it
+    if (useAutonom && !isAutonomMode) {
+      setIsAutonomMode(true);
+    }
+  }, [isAutonomMode]);
+
+  // Handle prompt editing (just put in input)
+  const handleEditPrompt = useCallback((prompt: string) => {
+    setInputValue(prompt);
+    setIsPromptLibraryOpen(false);
+  }, []);
 
   // Navigation handlers - use refs to avoid dependency on handleSessionSelect/sessions
   const handleSidebarPreviousChat = useCallback(() => {
@@ -1427,6 +1450,7 @@ export function ChatContainer({
               onKillProcess={handleKillProcess}
               layoutMode={layoutMode}
               onOpenBuildWizard={handleOpenBuildWizard}
+              onOpenPromptLibrary={handleOpenPromptLibrary}
               previewUrl={previewUrl || undefined}
               selectedElements={selectedElements}
               onClearSelection={onClearSelection}
@@ -1485,6 +1509,10 @@ export function ChatContainer({
         onCloseBuildWizard={handleCloseBuildWizard}
         showKeyboardShortcuts={showKeyboardShortcuts}
         onCloseKeyboardShortcuts={() => setShowKeyboardShortcuts(false)}
+        isPromptLibraryOpen={isPromptLibraryOpen}
+        onSelectPrompt={handleSelectPrompt}
+        onEditPrompt={handleEditPrompt}
+        onClosePromptLibrary={handleClosePromptLibrary}
       />
 
       {/* Scroll Button - only show when messages exist */}

@@ -11,6 +11,7 @@ import { QuestionModal, type Question } from '../../question/QuestionModal';
 import { BuildLauncher, type Template } from '../../preview/BuildLauncher';
 import { BuildWizard } from '../../build-wizard/BuildWizard';
 import { KeyboardShortcuts } from '../../ui/KeyboardShortcuts';
+import { PromptLibrary } from '../../prompts/PromptLibrary';
 import { Rocket, Hammer, X } from 'lucide-react';
 
 interface ChatModalsProps {
@@ -40,6 +41,12 @@ interface ChatModalsProps {
   // Keyboard shortcuts
   showKeyboardShortcuts: boolean;
   onCloseKeyboardShortcuts: () => void;
+
+  // Prompt library
+  isPromptLibraryOpen: boolean;
+  onSelectPrompt: (prompt: string, useAutonom?: boolean) => void;
+  onEditPrompt: (prompt: string) => void;
+  onClosePromptLibrary: () => void;
 }
 
 export function ChatModals({
@@ -59,6 +66,10 @@ export function ChatModals({
   onCloseBuildWizard,
   showKeyboardShortcuts,
   onCloseKeyboardShortcuts,
+  isPromptLibraryOpen,
+  onSelectPrompt,
+  onEditPrompt,
+  onClosePromptLibrary,
 }: ChatModalsProps) {
   return (
     <>
@@ -148,6 +159,15 @@ export function ChatModals({
         isOpen={showKeyboardShortcuts}
         onClose={onCloseKeyboardShortcuts}
       />
+
+      {/* Prompt Library Modal */}
+      {isPromptLibraryOpen && (
+        <PromptLibrary
+          onSelectPrompt={onSelectPrompt}
+          onEditPrompt={onEditPrompt}
+          onClose={onClosePromptLibrary}
+        />
+      )}
     </>
   );
 }

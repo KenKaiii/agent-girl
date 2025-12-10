@@ -197,7 +197,7 @@ export async function handleChatMessage(
 
   // Expand slash commands if detected
   if (trimmedPrompt.startsWith('/')) {
-    const expandedPrompt = expandSlashCommand(trimmedPrompt, workingDir);
+    const expandedPrompt = expandSlashCommand(trimmedPrompt, workingDir, session.mode);
     if (expandedPrompt) {
       promptText = expandedPrompt;
     } else {

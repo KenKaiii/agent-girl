@@ -191,25 +191,22 @@ async function loginVercel(): Promise<LoginResult> {
       };
     }
 
-    // Start login process - this opens browser automatically
-    const { stdout, stderr } = await execAsync('vercel login --no-color 2>&1', {
-      timeout: 120000 // 2 min timeout for user to complete browser auth
-    });
-
-    // Check if login was successful
+    // Check if already logged in
     try {
-      execSync('vercel whoami', { stdio: 'pipe' });
+      execSync('vercel whoami', { stdio: 'pipe', timeout: 10000 });
       return {
         success: true,
-        message: 'Vercel Login erfolgreich!'
+        message: 'Vercel bereits eingeloggt!'
       };
-    } catch {
-      return {
-        success: false,
-        message: 'Login nicht abgeschlossen. Bitte im Browser bestätigen.',
-        needsManualStep: true
-      };
-    }
+    } catch {}
+
+    // CLI login requires interactive terminal - return instructions
+    return {
+      success: false,
+      message: 'Bitte führe "vercel login" in deinem Terminal aus, dann versuche es erneut.',
+      needsManualStep: true,
+      command: 'vercel login'
+    };
   } catch (error) {
     return {
       success: false,
@@ -232,25 +229,26 @@ async function loginNetlify(): Promise<LoginResult> {
       };
     }
 
-    // Start login process - opens browser
-    await execAsync('netlify login --new 2>&1', {
-      timeout: 120000
-    });
-
-    // Check if login was successful
+    // Check if already logged in
     try {
-      execSync('netlify status', { stdio: 'pipe' });
-      return {
-        success: true,
-        message: 'Netlify Login erfolgreich!'
-      };
-    } catch {
-      return {
-        success: false,
-        message: 'Login nicht abgeschlossen. Bitte im Browser bestätigen.',
-        needsManualStep: true
-      };
-    }
+      const { stdout } = await execAsync('netlify status --json 2>/dev/null || echo "{}"', { timeout: 10000 });
+      const status = JSON.parse(stdout);
+      if (status.account?.slug || status.user?.slug) {
+        return {
+          success: true,
+          message: 'Netlify bereits eingeloggt!'
+        };
+      }
+    } catch {}
+
+    // CLI login requires interactive terminal - return instructions
+    // The user should run this in their terminal manually
+    return {
+      success: false,
+      message: 'Bitte führe "netlify login" in deinem Terminal aus, dann versuche es erneut.',
+      needsManualStep: true,
+      command: 'netlify login'
+    };
   } catch (error) {
     return {
       success: false,
@@ -273,25 +271,24 @@ async function loginCloudflare(): Promise<LoginResult> {
       };
     }
 
-    // Start login process - opens browser with OAuth
-    await execAsync('wrangler login 2>&1', {
-      timeout: 120000
-    });
-
-    // Check if login was successful
+    // Check if already logged in
     try {
-      execSync('wrangler whoami', { stdio: 'pipe' });
-      return {
-        success: true,
-        message: 'Cloudflare Login erfolgreich!'
-      };
-    } catch {
-      return {
-        success: false,
-        message: 'Login nicht abgeschlossen. Bitte im Browser bestätigen.',
-        needsManualStep: true
-      };
-    }
+      const { stdout } = await execAsync('wrangler whoami 2>/dev/null', { timeout: 10000 });
+      if (stdout && !stdout.includes('not authenticated')) {
+        return {
+          success: true,
+          message: 'Cloudflare bereits eingeloggt!'
+        };
+      }
+    } catch {}
+
+    // CLI login requires interactive terminal - return instructions
+    return {
+      success: false,
+      message: 'Bitte führe "wrangler login" in deinem Terminal aus, dann versuche es erneut.',
+      needsManualStep: true,
+      command: 'wrangler login'
+    };
   } catch (error) {
     return {
       success: false,
@@ -918,6 +915,491 @@ async function configureHetzner(config: HetznerConfig): Promise<{ success: boole
 }
 
 // ============================================================================
+// Project Management - List, Duplicate, Download, Delete
+// ============================================================================
+
+interface Project {
+  id: string;
+  name: string;
+  platform: 'vercel' | 'netlify' | 'cloudflare';
+  url?: string;
+  createdAt: string;
+  updatedAt: string;
+  framework?: string;
+  repo?: string;
+  deployments?: number;
+  latestDeployment?: {
+    id: string;
+    url: string;
+    state: string;
+    createdAt: string;
+  };
+}
+
+interface ProjectsResult {
+  success: boolean;
+  projects: Project[];
+  message?: string;
+}
+
+async function fetchVercelProjects(): Promise<Project[]> {
+  try {
+    // Try CLI first
+    const { stdout } = await execAsync('vercel projects list --json 2>/dev/null || echo "[]"');
+    const cliProjects = JSON.parse(stdout);
+    if (Array.isArray(cliProjects) && cliProjects.length > 0) {
+      return cliProjects.map((p: Record<string, unknown>) => ({
+        id: String(p.id || ''),
+        name: String(p.name || ''),
+        platform: 'vercel' as const,
+        url: p.alias ? `https://${(p.alias as string[])[0]}` : undefined,
+        createdAt: String(p.createdAt || new Date().toISOString()),
+        updatedAt: String(p.updatedAt || new Date().toISOString()),
+        framework: String(p.framework || ''),
+        repo: p.link ? `${(p.link as Record<string, unknown>).org}/${(p.link as Record<string, unknown>).repo}` : undefined
+      }));
+    }
+
+    // Fallback to API with token
+    const token = getToken('vercel');
+    if (token && typeof token === 'string') {
+      const res = await fetch('https://api.vercel.com/v9/projects', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json() as { projects: Record<string, unknown>[] };
+        return data.projects.map((p) => ({
+          id: String(p.id || ''),
+          name: String(p.name || ''),
+          platform: 'vercel' as const,
+          url: p.alias ? `https://${(p.alias as string[])[0]}` : undefined,
+          createdAt: String(p.createdAt || new Date().toISOString()),
+          updatedAt: String(p.updatedAt || new Date().toISOString()),
+          framework: String(p.framework || ''),
+          repo: p.link ? `${(p.link as Record<string, unknown>).org}/${(p.link as Record<string, unknown>).repo}` : undefined
+        }));
+      }
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+async function fetchNetlifyProjects(): Promise<Project[]> {
+  try {
+    // Try CLI first
+    const { stdout } = await execAsync('netlify sites:list --json 2>/dev/null || echo "[]"');
+    const cliProjects = JSON.parse(stdout);
+    if (Array.isArray(cliProjects) && cliProjects.length > 0) {
+      return cliProjects.map((p: Record<string, unknown>) => ({
+        id: String(p.id || p.site_id || ''),
+        name: String(p.name || ''),
+        platform: 'netlify' as const,
+        url: p.ssl_url ? String(p.ssl_url) : p.url ? String(p.url) : undefined,
+        createdAt: String(p.created_at || new Date().toISOString()),
+        updatedAt: String(p.updated_at || new Date().toISOString()),
+        framework: String((p.build_settings as Record<string, unknown>)?.framework || ''),
+        repo: p.repo_url ? String(p.repo_url) : undefined
+      }));
+    }
+
+    // Fallback to API with token
+    const token = getToken('netlify');
+    if (token && typeof token === 'string') {
+      const res = await fetch('https://api.netlify.com/api/v1/sites', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json() as Record<string, unknown>[];
+        return data.map((p) => ({
+          id: String(p.id || p.site_id || ''),
+          name: String(p.name || ''),
+          platform: 'netlify' as const,
+          url: p.ssl_url ? String(p.ssl_url) : p.url ? String(p.url) : undefined,
+          createdAt: String(p.created_at || new Date().toISOString()),
+          updatedAt: String(p.updated_at || new Date().toISOString()),
+          framework: '',
+          repo: p.repo_url ? String(p.repo_url) : undefined
+        }));
+      }
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+async function fetchCloudflareProjects(): Promise<Project[]> {
+  try {
+    // Try CLI first
+    const { stdout } = await execAsync('wrangler pages project list --json 2>/dev/null || echo "[]"');
+    let cliProjects: Record<string, unknown>[] = [];
+    try {
+      cliProjects = JSON.parse(stdout);
+    } catch {
+      // Wrangler output might not be pure JSON, try parsing differently
+      const match = stdout.match(/\[[\s\S]*\]/);
+      if (match) {
+        cliProjects = JSON.parse(match[0]);
+      }
+    }
+
+    if (Array.isArray(cliProjects) && cliProjects.length > 0) {
+      return cliProjects.map((p) => {
+        const latestDeploy = p.latest_deployment as Record<string, unknown> | undefined;
+        const deployTrigger = latestDeploy?.deployment_trigger as Record<string, unknown> | undefined;
+        return {
+          id: String(p.id || p.name || ''),
+          name: String(p.name || ''),
+          platform: 'cloudflare' as const,
+          url: p.subdomain ? `https://${p.subdomain}.pages.dev` : undefined,
+          createdAt: String(p.created_on || new Date().toISOString()),
+          updatedAt: String(latestDeploy?.created_on || p.created_on || new Date().toISOString()),
+          framework: '',
+          deployments: typeof p.deployment_count === 'number' ? p.deployment_count : undefined,
+          latestDeployment: latestDeploy ? {
+            id: String(latestDeploy.id || ''),
+            url: String(latestDeploy.url || ''),
+            state: String(deployTrigger?.type || 'unknown'),
+            createdAt: String(latestDeploy.created_on || '')
+          } : undefined
+        };
+      });
+    }
+
+    // Fallback to API with token
+    const cfToken = getToken('cloudflare');
+    if (cfToken && typeof cfToken === 'object' && cfToken.token) {
+      const res = await fetch('https://api.cloudflare.com/client/v4/accounts/' + (cfToken.accountId || '') + '/pages/projects', {
+        headers: { Authorization: `Bearer ${cfToken.token}` }
+      });
+      if (res.ok) {
+        const data = await res.json() as { result: Record<string, unknown>[] };
+        return (data.result || []).map((p) => ({
+          id: String(p.id || p.name || ''),
+          name: String(p.name || ''),
+          platform: 'cloudflare' as const,
+          url: p.subdomain ? `https://${p.subdomain}.pages.dev` : undefined,
+          createdAt: String(p.created_on || new Date().toISOString()),
+          updatedAt: String(p.created_on || new Date().toISOString()),
+          framework: ''
+        }));
+      }
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+async function fetchAllProjects(): Promise<ProjectsResult> {
+  const status = await checkPlatformStatus();
+  const allProjects: Project[] = [];
+
+  // Fetch from all authenticated platforms in parallel
+  const promises: Promise<Project[]>[] = [];
+
+  if (status.vercel.authenticated || status.vercel.hasToken) {
+    promises.push(fetchVercelProjects());
+  }
+  if (status.netlify.authenticated || status.netlify.hasToken) {
+    promises.push(fetchNetlifyProjects());
+  }
+  if (status.cloudflare.authenticated || status.cloudflare.hasToken) {
+    promises.push(fetchCloudflareProjects());
+  }
+
+  const results = await Promise.all(promises);
+  results.forEach(projects => allProjects.push(...projects));
+
+  // Sort by updatedAt (most recent first)
+  allProjects.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+
+  return {
+    success: true,
+    projects: allProjects,
+    message: `${allProjects.length} Projekte gefunden`
+  };
+}
+
+async function fetchProjectsByPlatform(platform: 'vercel' | 'netlify' | 'cloudflare'): Promise<ProjectsResult> {
+  let projects: Project[] = [];
+
+  switch (platform) {
+    case 'vercel':
+      projects = await fetchVercelProjects();
+      break;
+    case 'netlify':
+      projects = await fetchNetlifyProjects();
+      break;
+    case 'cloudflare':
+      projects = await fetchCloudflareProjects();
+      break;
+  }
+
+  return {
+    success: true,
+    projects,
+    message: `${projects.length} ${platform} Projekte gefunden`
+  };
+}
+
+async function downloadProject(platform: string, projectId: string, targetPath: string): Promise<{ success: boolean; message: string; path?: string }> {
+  try {
+    // Ensure target directory exists
+    if (!existsSync(targetPath)) {
+      execSync(`mkdir -p ${targetPath}`, { stdio: 'pipe' });
+    }
+
+    switch (platform) {
+      case 'vercel': {
+        // Get project info and clone from git if available
+        const { stdout } = await execAsync(`vercel project ${projectId} --json 2>/dev/null || echo "{}"`, {
+          cwd: targetPath
+        });
+        const project = JSON.parse(stdout);
+
+        if (project.link?.repo) {
+          // Clone from git
+          const repoUrl = `https://github.com/${project.link.org}/${project.link.repo}.git`;
+          await execAsync(`git clone ${repoUrl} .`, { cwd: targetPath });
+          return {
+            success: true,
+            message: `Projekt von GitHub geklont: ${project.link.repo}`,
+            path: targetPath
+          };
+        }
+
+        // Pull from Vercel
+        await execAsync(`vercel pull --yes`, { cwd: targetPath });
+        return {
+          success: true,
+          message: `Vercel Projekt heruntergeladen`,
+          path: targetPath
+        };
+      }
+
+      case 'netlify': {
+        // Get site info
+        const { stdout: siteInfo } = await execAsync(`netlify api getSite --data '{"site_id": "${projectId}"}' 2>/dev/null || echo "{}"`, {
+          cwd: targetPath
+        });
+        const site = JSON.parse(siteInfo);
+
+        if (site.repo_url) {
+          // Clone from git
+          await execAsync(`git clone ${site.repo_url} .`, { cwd: targetPath });
+          return {
+            success: true,
+            message: `Projekt von Repository geklont`,
+            path: targetPath
+          };
+        }
+
+        // Link and pull
+        await execAsync(`netlify link --id ${projectId}`, { cwd: targetPath });
+        return {
+          success: true,
+          message: `Netlify Projekt verlinkt`,
+          path: targetPath
+        };
+      }
+
+      case 'cloudflare': {
+        // Cloudflare Pages projects are git-based
+        return {
+          success: false,
+          message: 'Cloudflare Pages Projekte werden über Git verwaltet. Bitte Repository direkt klonen.'
+        };
+      }
+
+      default:
+        return {
+          success: false,
+          message: `Unbekannte Platform: ${platform}`
+        };
+    }
+  } catch (error) {
+    return {
+      success: false,
+      message: `Download fehlgeschlagen: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`
+    };
+  }
+}
+
+async function duplicateProject(platform: string, projectId: string, newName: string): Promise<{ success: boolean; message: string; newProjectId?: string }> {
+  try {
+    switch (platform) {
+      case 'vercel': {
+        // Vercel doesn't have direct duplicate - need to create new and deploy
+        return {
+          success: false,
+          message: 'Vercel Projekt-Duplikation: Bitte Projekt lokal herunterladen und neu deployen.'
+        };
+      }
+
+      case 'netlify': {
+        // Netlify has clone functionality
+        const { stdout } = await execAsync(
+          `netlify api createSiteInTeam --data '{"name": "${newName}", "repo": {"provider": "manual"}}' 2>/dev/null || echo "{}"`
+        );
+        const result = JSON.parse(stdout);
+        if (result.id) {
+          return {
+            success: true,
+            message: `Neues Netlify Projekt erstellt: ${newName}`,
+            newProjectId: result.id
+          };
+        }
+        return {
+          success: false,
+          message: 'Konnte Projekt nicht duplizieren'
+        };
+      }
+
+      case 'cloudflare': {
+        // Create new project
+        const { stdout } = await execAsync(
+          `wrangler pages project create ${newName} 2>/dev/null || echo "failed"`
+        );
+        if (!stdout.includes('failed')) {
+          return {
+            success: true,
+            message: `Neues Cloudflare Pages Projekt erstellt: ${newName}`,
+            newProjectId: newName
+          };
+        }
+        return {
+          success: false,
+          message: 'Konnte Projekt nicht erstellen'
+        };
+      }
+
+      default:
+        return {
+          success: false,
+          message: `Unbekannte Platform: ${platform}`
+        };
+    }
+  } catch (error) {
+    return {
+      success: false,
+      message: `Duplikation fehlgeschlagen: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`
+    };
+  }
+}
+
+async function deleteProject(platform: string, projectId: string): Promise<{ success: boolean; message: string }> {
+  try {
+    switch (platform) {
+      case 'vercel': {
+        await execAsync(`vercel remove ${projectId} --yes`);
+        return {
+          success: true,
+          message: `Vercel Projekt gelöscht: ${projectId}`
+        };
+      }
+
+      case 'netlify': {
+        await execAsync(`netlify sites:delete ${projectId} --force`);
+        return {
+          success: true,
+          message: `Netlify Projekt gelöscht: ${projectId}`
+        };
+      }
+
+      case 'cloudflare': {
+        await execAsync(`wrangler pages project delete ${projectId} --yes`);
+        return {
+          success: true,
+          message: `Cloudflare Pages Projekt gelöscht: ${projectId}`
+        };
+      }
+
+      default:
+        return {
+          success: false,
+          message: `Unbekannte Platform: ${platform}`
+        };
+    }
+  } catch (error) {
+    return {
+      success: false,
+      message: `Löschen fehlgeschlagen: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`
+    };
+  }
+}
+
+async function getProjectDeployments(platform: string, projectId: string): Promise<{ success: boolean; deployments: Record<string, unknown>[]; message?: string }> {
+  try {
+    switch (platform) {
+      case 'vercel': {
+        const { stdout } = await execAsync(`vercel ls ${projectId} --json 2>/dev/null || echo "[]"`);
+        const deployments = JSON.parse(stdout);
+        return { success: true, deployments };
+      }
+
+      case 'netlify': {
+        const { stdout } = await execAsync(`netlify api listSiteDeploys --data '{"site_id": "${projectId}"}' 2>/dev/null || echo "[]"`);
+        const deployments = JSON.parse(stdout);
+        return { success: true, deployments };
+      }
+
+      case 'cloudflare': {
+        const { stdout } = await execAsync(`wrangler pages deployment list ${projectId} --json 2>/dev/null || echo "[]"`);
+        let deployments: Record<string, unknown>[] = [];
+        try {
+          deployments = JSON.parse(stdout);
+        } catch {
+          const match = stdout.match(/\[[\s\S]*\]/);
+          if (match) deployments = JSON.parse(match[0]);
+        }
+        return { success: true, deployments };
+      }
+
+      default:
+        return { success: false, deployments: [], message: `Unbekannte Platform: ${platform}` };
+    }
+  } catch (error) {
+    return {
+      success: false,
+      deployments: [],
+      message: `Fehler: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`
+    };
+  }
+}
+
+async function rollbackDeployment(platform: string, projectId: string, deploymentId: string): Promise<{ success: boolean; message: string }> {
+  try {
+    switch (platform) {
+      case 'vercel': {
+        await execAsync(`vercel promote ${deploymentId} --yes`);
+        return { success: true, message: `Vercel Deployment ${deploymentId} promoted` };
+      }
+
+      case 'netlify': {
+        await execAsync(`netlify api restoreSiteDeploy --data '{"site_id": "${projectId}", "deploy_id": "${deploymentId}"}'`);
+        return { success: true, message: `Netlify Deployment ${deploymentId} wiederhergestellt` };
+      }
+
+      case 'cloudflare': {
+        // Cloudflare doesn't have direct rollback - redeploy needed
+        return { success: false, message: 'Cloudflare Pages: Bitte manuell redeployen' };
+      }
+
+      default:
+        return { success: false, message: `Unbekannte Platform: ${platform}` };
+    }
+  } catch (error) {
+    return {
+      success: false,
+      message: `Rollback fehlgeschlagen: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`
+    };
+  }
+}
+
+// ============================================================================
 // Quick Deploy (Auto-detect best platform)
 // ============================================================================
 
@@ -1278,11 +1760,132 @@ export async function handleDeployRoutes(req: Request, url: URL): Promise<Respon
       });
     }
 
+    // ========================================================================
+    // Project Management Routes
+    // ========================================================================
+
+    // GET /api/deploy/projects - List all projects from all connected platforms
+    if (path === '/api/deploy/projects' && req.method === 'GET') {
+      const platform = url.searchParams.get('platform') as 'vercel' | 'netlify' | 'cloudflare' | null;
+
+      const result = platform
+        ? await fetchProjectsByPlatform(platform)
+        : await fetchAllProjects();
+
+      return new Response(JSON.stringify(result), {
+        status: 200,
+        headers: corsHeaders
+      });
+    }
+
+    // GET /api/deploy/projects/:projectId/deployments - Get deployment history
+    if (path.match(/^\/api\/deploy\/projects\/[^/]+\/deployments$/) && req.method === 'GET') {
+      const projectId = path.split('/')[4];
+      const platform = url.searchParams.get('platform');
+
+      if (!platform) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'platform Parameter erforderlich'
+        }), { status: 400, headers: corsHeaders });
+      }
+
+      const result = await getProjectDeployments(platform, projectId);
+
+      return new Response(JSON.stringify(result), {
+        status: result.success ? 200 : 400,
+        headers: corsHeaders
+      });
+    }
+
+    // POST /api/deploy/projects/download - Download project locally
+    if (path === '/api/deploy/projects/download' && req.method === 'POST') {
+      const body = await req.json();
+      const { platform, projectId, targetPath } = body;
+
+      if (!platform || !projectId || !targetPath) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'platform, projectId und targetPath erforderlich'
+        }), { status: 400, headers: corsHeaders });
+      }
+
+      const result = await downloadProject(platform, projectId, targetPath);
+
+      return new Response(JSON.stringify(result), {
+        status: result.success ? 200 : 400,
+        headers: corsHeaders
+      });
+    }
+
+    // POST /api/deploy/projects/duplicate - Duplicate a project
+    if (path === '/api/deploy/projects/duplicate' && req.method === 'POST') {
+      const body = await req.json();
+      const { platform, projectId, newName } = body;
+
+      if (!platform || !projectId || !newName) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'platform, projectId und newName erforderlich'
+        }), { status: 400, headers: corsHeaders });
+      }
+
+      const result = await duplicateProject(platform, projectId, newName);
+
+      return new Response(JSON.stringify(result), {
+        status: result.success ? 200 : 400,
+        headers: corsHeaders
+      });
+    }
+
+    // DELETE /api/deploy/projects/:projectId - Delete a project
+    if (path.match(/^\/api\/deploy\/projects\/[^/]+$/) && req.method === 'DELETE') {
+      const projectId = path.split('/')[4];
+      const platform = url.searchParams.get('platform');
+
+      if (!platform) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'platform Parameter erforderlich'
+        }), { status: 400, headers: corsHeaders });
+      }
+
+      const result = await deleteProject(platform, projectId);
+
+      return new Response(JSON.stringify(result), {
+        status: result.success ? 200 : 400,
+        headers: corsHeaders
+      });
+    }
+
+    // POST /api/deploy/projects/rollback - Rollback to a previous deployment
+    if (path === '/api/deploy/projects/rollback' && req.method === 'POST') {
+      const body = await req.json();
+      const { platform, projectId, deploymentId } = body;
+
+      if (!platform || !projectId || !deploymentId) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'platform, projectId und deploymentId erforderlich'
+        }), { status: 400, headers: corsHeaders });
+      }
+
+      const result = await rollbackDeployment(platform, projectId, deploymentId);
+
+      return new Response(JSON.stringify(result), {
+        status: result.success ? 200 : 400,
+        headers: corsHeaders
+      });
+    }
+
     return new Response(JSON.stringify({
       error: 'Nicht gefunden',
       availableEndpoints: [
         'GET /api/deploy/status',
         'GET /api/deploy/framework?projectPath=...',
+        'GET /api/deploy/projects',
+        'GET /api/deploy/projects?platform=vercel|netlify|cloudflare',
+        'GET /api/deploy/projects/:projectId/deployments?platform=...',
         'POST /api/deploy',
         'POST /api/deploy/quick',
         'POST /api/deploy/vercel/config',
@@ -1291,7 +1894,11 @@ export async function handleDeployRoutes(req: Request, url: URL): Promise<Respon
         'POST /api/deploy/hetzner/test',
         'POST /api/deploy/auth/token',
         'POST /api/deploy/auth/disconnect',
-        'POST /api/deploy/auth/login'
+        'POST /api/deploy/auth/login',
+        'POST /api/deploy/projects/download',
+        'POST /api/deploy/projects/duplicate',
+        'POST /api/deploy/projects/rollback',
+        'DELETE /api/deploy/projects/:projectId?platform=...'
       ]
     }), { status: 404, headers: corsHeaders });
 

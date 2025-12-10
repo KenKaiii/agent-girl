@@ -19,7 +19,7 @@
  */
 
 import React, { useRef, useState, useEffect, memo, useCallback, useMemo, useLayoutEffect } from 'react';
-import { Send, Plus, X, Square, Palette, List, ListOrdered, Hammer, Monitor, Link, ChevronDown, ChevronUp, Pencil, Type, Sparkles } from 'lucide-react';
+import { Send, Plus, X, Square, Palette, List, ListOrdered, Hammer, Monitor, Link, ChevronDown, ChevronUp, Pencil, Type, Sparkles, BookOpen } from 'lucide-react';
 import type { FileAttachment } from '../message/types';
 import type { BackgroundProcess } from '../process/BackgroundProcessMonitor';
 import type { SelectedElement } from '../preview/ElementSelector';
@@ -63,9 +63,10 @@ interface ChatInputProps {
   previewUrl?: string | null;
   selectedElements?: SelectedElement[];
   onClearSelection?: () => void;
+  onOpenPromptLibrary?: () => void;
 }
 
-export const ChatInput = memo(function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGenerating, placeholder, isPlanMode, onTogglePlanMode, isAutonomMode, onToggleAutonomMode, backgroundProcesses: _backgroundProcesses = [], onKillProcess: _onKillProcess, mode, onModeChange, availableCommands = [], contextUsage, selectedModel, layoutMode = 'chat-only', onOpenBuildWizard, previewUrl, selectedElements = [], onClearSelection }: ChatInputProps) {
+export const ChatInput = memo(function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGenerating, placeholder, isPlanMode, onTogglePlanMode, isAutonomMode, onToggleAutonomMode, backgroundProcesses: _backgroundProcesses = [], onKillProcess: _onKillProcess, mode, onModeChange, availableCommands = [], contextUsage, selectedModel, layoutMode = 'chat-only', onOpenBuildWizard, previewUrl, selectedElements = [], onClearSelection, onOpenPromptLibrary }: ChatInputProps) {
   const isCompact = layoutMode === 'split-screen';
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -825,6 +826,26 @@ export const ChatInput = memo(function ChatInput({ value, onChange, onSubmit, on
                   >
                     <Hammer size={isCompact ? 14 : 16} />
                     {!isCompact && <span>Build</span>}
+                  </button>
+                )}
+
+                {/* Prompts Library button */}
+                {onOpenPromptLibrary && (
+                  <button
+                    onClick={onOpenPromptLibrary}
+                    className="btn-icon rounded-lg flex items-center gap-1.5"
+                    title="Open Prompt Library - Browse workflow templates"
+                    type="button"
+                    style={{
+                      fontSize: '0.75rem',
+                      fontWeight: 500,
+                      padding: isCompact ? '0.375rem 0.5rem' : '0.375rem 0.75rem',
+                      background: 'linear-gradient(90deg, rgba(251, 146, 60, 0.15) 0%, rgba(234, 88, 12, 0.15) 100%)',
+                      border: '1px solid rgba(251, 146, 60, 0.3)',
+                    }}
+                  >
+                    <BookOpen size={isCompact ? 14 : 16} />
+                    {!isCompact && <span>Prompts</span>}
                   </button>
                 )}
 

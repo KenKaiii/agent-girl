@@ -21,7 +21,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Menu, Edit3, Search, Trash2, Edit, FolderOpen, Copy, Code2, Download, Upload, MessageSquare, FileText, BarChart3 } from 'lucide-react';
 import { toast } from '../../utils/toast';
-import { DeleteConfirmationModal } from '../ui/DeleteConfirmationModal';
 import { ChatListSkeleton, SearchResultsSkeleton, LoadingSpinner } from '../ui/Skeleton';
 
 // Resize constants
@@ -188,11 +187,6 @@ export function Sidebar({
 
   // Ref for infinite scroll sentinel
   const loadMoreRef = useRef<HTMLDivElement>(null);
-  const [deleteConfirmation, setDeleteConfirmation] = useState<{ isOpen: boolean; chatId: string; chatName: string }>({
-    isOpen: false,
-    chatId: '',
-    chatName: '',
-  });
   const [messageSearchResults, setMessageSearchResults] = useState<MessageSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -425,20 +419,11 @@ export function Sidebar({
   const handleDeleteClick = (chatId: string, chatName: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const chat = chats.find(c => c.id === chatId);
-    setDeleteConfirmation({
-      isOpen: true,
-      chatId,
-      chatName: chat?.title || chatName || 'Untitled Chat',
-    });
-  };
+    const displayName = chat?.title || chatName || 'Untitled Chat';
 
-  const handleConfirmDelete = () => {
-    onChatDelete?.(deleteConfirmation.chatId);
-    setDeleteConfirmation({ isOpen: false, chatId: '', chatName: '' });
-  };
-
-  const handleCancelDelete = () => {
-    setDeleteConfirmation({ isOpen: false, chatId: '', chatName: '' });
+    if (window.confirm(`Delete "${displayName}"?`)) {
+      onChatDelete?.(chatId);
+    }
   };
 
   const handleOpenChatFolder = async () => {
@@ -487,7 +472,7 @@ export function Sidebar({
               right: 0,
               width: '4px',
               cursor: 'col-resize',
-              zIndex: 100,
+              zIndex: 10,
               background: isDragging ? 'rgba(59, 130, 246, 0.8)' : 'rgba(255, 255, 255, 0.1)',
               transition: isDragging ? 'none' : 'background 0.15s ease',
             }}
@@ -875,13 +860,47 @@ export function Sidebar({
                             />
                           </div>
                         ) : (
-                          <>
-                            <button
-                              className={`sidebar-chat-item ${chat.isActive ? 'sidebar-chat-item-active' : ''}`}
-                              onClick={() => onChatSelect?.(chat.id)}
-                              title={chat.workingDirectory || chat.title}
-                            >
-                              <div className="sidebar-chat-title">
+                          <div
+                            className={`sidebar-chat-item-container ${chat.isActive ? 'sidebar-chat-item-active' : ''}`}
+                            onClick={() => onChatSelect?.(chat.id)}
+                            title={chat.workingDirectory || chat.title}
+                            style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              padding: '0.5rem 0.75rem',
+                              borderRadius: '0.375rem',
+                              cursor: 'pointer',
+                              transition: 'background 0.15s',
+                              background: chat.isActive ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!chat.isActive) {
+                                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.04)';
+                              }
+                              // Show actions row
+                              const actionsRow = e.currentTarget.querySelector('.sidebar-chat-actions') as HTMLElement;
+                              if (actionsRow) {
+                                actionsRow.style.opacity = '1';
+                                actionsRow.style.height = 'auto';
+                                actionsRow.style.marginTop = '0.375rem';
+                              }
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!chat.isActive) {
+                                e.currentTarget.style.background = 'transparent';
+                              }
+                              // Hide actions row
+                              const actionsRow = e.currentTarget.querySelector('.sidebar-chat-actions') as HTMLElement;
+                              if (actionsRow) {
+                                actionsRow.style.opacity = '0';
+                                actionsRow.style.height = '0';
+                                actionsRow.style.marginTop = '0';
+                              }
+                            }}
+                          >
+                            {/* Top row: Title + Time - always visible */}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+                              <div className="sidebar-chat-title" style={{ flex: 1, minWidth: 0 }}>
                                 {formatDisplayTitle(chat.title)}
                                 {chat.isLoading && (
                                   <span style={{
@@ -923,13 +942,27 @@ export function Sidebar({
                               <div style={{
                                 fontSize: '0.65rem',
                                 color: 'rgb(var(--text-secondary))',
-                                opacity: 0.7,
-                                marginTop: '2px',
+                                opacity: 0.6,
+                                flexShrink: 0,
+                                whiteSpace: 'nowrap',
                               }}>
                                 {formatRelativeTime(chat.timestamp)}
                               </div>
-                            </button>
-                            <div className={`sidebar-chat-menu ${chat.isActive ? '' : 'sidebar-chat-menu-hidden'}`} style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                            </div>
+                            {/* Bottom row: Action buttons - only visible on hover */}
+                            <div
+                              className="sidebar-chat-actions"
+                              style={{
+                                display: 'flex',
+                                gap: '0.25rem',
+                                alignItems: 'center',
+                                marginTop: '0.375rem',
+                                opacity: 0,
+                                height: 0,
+                                overflow: 'hidden',
+                                transition: 'opacity 0.15s, height 0.15s, margin-top 0.15s',
+                              }}
+                            >
                               <button
                                 className="sidebar-chat-menu-btn"
                                 aria-label="Rename Chat"
@@ -1216,7 +1249,7 @@ export function Sidebar({
                                 <Trash2 size={14} />
                               </button>
                             </div>
-                          </>
+                          </div>
                         )}
                       </div>
                     ))}
@@ -1270,14 +1303,6 @@ export function Sidebar({
         </div>
         </div>
       </div>
-
-
-      <DeleteConfirmationModal
-        isOpen={deleteConfirmation.isOpen}
-        chatName={deleteConfirmation.chatName}
-        onConfirm={handleConfirmDelete}
-        onCancel={handleCancelDelete}
-      />
     </div>
   );
 }

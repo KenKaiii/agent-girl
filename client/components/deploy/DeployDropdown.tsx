@@ -24,8 +24,10 @@ import {
   LogIn,
   Settings,
   ChevronRight,
-  Terminal
+  Terminal,
+  FolderOpen
 } from 'lucide-react';
+import { ProjectsPanel } from './ProjectsPanel';
 
 interface PlatformStatus {
   vercel: { installed: boolean; authenticated: boolean; hasToken?: boolean };
@@ -86,6 +88,8 @@ export function DeployDropdown({ isOpen, onClose, projectPath, anchorRef }: Depl
   const [hetznerSetupResult, setHetznerSetupResult] = useState<{ sshKey?: string; sshCommand?: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [activeTab, setActiveTab] = useState<'deploy' | 'projects'>('deploy');
+  const [projectsPanelOpen, setProjectsPanelOpen] = useState(false);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -303,7 +307,7 @@ export function DeployDropdown({ isOpen, onClose, projectPath, anchorRef }: Depl
     }
   };
 
-  // Browser-based login (easiest method - opens browser for OAuth)
+  // Check login status and show instructions if needed
   const handleBrowserLogin = async (platform: string) => {
     try {
       setIsLoggingIn(true);
@@ -326,20 +330,16 @@ export function DeployDropdown({ isOpen, onClose, projectPath, anchorRef }: Depl
           message: data.message || `${platform} erfolgreich verbunden!`
         });
       } else {
+        // Show instructions with command if available
+        const message = data.needsManualStep && data.command
+          ? `${data.message}\n\nTerminal: ${data.command}`
+          : data.message || 'Login fehlgeschlagen';
+
         setDeployResult({
           success: false,
           platform,
-          message: data.message || 'Login fehlgeschlagen'
+          message
         });
-
-        // If CLI not installed, show the command
-        if (data.needsManualStep && data.command) {
-          setDeployResult({
-            success: false,
-            platform,
-            message: `CLI nicht installiert. Führe aus: ${data.command}`
-          });
-        }
       }
     } catch (error) {
       setDeployResult({
@@ -441,6 +441,18 @@ export function DeployDropdown({ isOpen, onClose, projectPath, anchorRef }: Depl
            platformStatus[platform as keyof Omit<PlatformStatus, 'hetzner'>]?.hasToken;
   };
 
+  // Count connected platforms for Projects tab
+  const connectedPlatformCount = platformStatus ?
+    (['vercel', 'netlify', 'cloudflare'] as const).filter(p => isAuthenticated(p)).length : 0;
+
+  // Handle opening a project (download and open in editor)
+  const handleOpenProject = (projectPath: string) => {
+    setProjectsPanelOpen(false);
+    // The actual opening is handled by the editor/IDE
+    console.log('Opening project at:', projectPath);
+    // Could trigger editor open or set as current project
+  };
+
   if (!isOpen) return null;
 
   // Render config form
@@ -476,8 +488,9 @@ export function DeployDropdown({ isOpen, onClose, projectPath, anchorRef }: Depl
 
         <div className="p-4 space-y-4">
           {configPlatform === 'hetzner' ? (
-            // Hetzner SSH Config
+            // Hetzner SSH Config - Auto Setup Primary
             <>
+              {/* Server input */}
               <div className="space-y-2">
                 <input
                   type="text"
@@ -512,108 +525,193 @@ export function DeployDropdown({ isOpen, onClose, projectPath, anchorRef }: Depl
                 />
               </div>
 
-              <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                <p className="text-xs text-blue-700 dark:text-blue-400 mb-2">
-                  SSH-Key einrichten (einmalig):
+              {/* Auto Setup Button - Primary */}
+              <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                <p className="text-sm text-green-700 dark:text-green-400 font-medium mb-1">
+                  🚀 Auto Setup
                 </p>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 text-xs bg-blue-100 dark:bg-blue-900/40 px-2 py-1 rounded font-mono">
-                    ssh-copy-id {hetznerConfig.user || 'root'}@{hetznerConfig.host || 'server'}
-                  </code>
-                  <button
-                    onClick={() => copyToClipboard(`ssh-copy-id ${hetznerConfig.user || 'root'}@${hetznerConfig.host || 'server'}`)}
-                    className="p-1.5 hover:bg-blue-200 dark:hover:bg-blue-800 rounded transition-colors"
-                  >
-                    {copied ? <Check className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3 text-blue-600" />}
-                  </button>
-                </div>
+                <p className="text-xs text-green-600 dark:text-green-500 mb-2">
+                  Generiert SSH-Key automatisch und testet Verbindung
+                </p>
+                <button
+                  onClick={handleHetznerAutoSetup}
+                  disabled={!hetznerConfig.host || isLoading}
+                  className="w-full px-4 py-2.5 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg text-sm font-medium hover:from-green-700 hover:to-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                >
+                  {isLoading ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Teste Verbindung...
+                    </span>
+                  ) : (
+                    <span className="flex items-center justify-center gap-2">
+                      <Zap className="w-4 h-4" />
+                      Auto-Setup starten
+                    </span>
+                  )}
+                </button>
               </div>
 
-              <button
-                onClick={handleConfigureHetzner}
-                disabled={!hetznerConfig.host || isLoading}
-                className="w-full px-4 py-2.5 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg text-sm font-medium hover:from-purple-700 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-              >
-                {isLoading ? (
+              {/* Show SSH key if generated but not on server */}
+              {hetznerSetupResult?.sshCommand && (
+                <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg space-y-2">
+                  <p className="text-xs text-yellow-700 dark:text-yellow-400 font-medium">
+                    SSH-Key muss noch auf Server kopiert werden:
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 text-xs bg-yellow-100 dark:bg-yellow-900/40 px-2 py-1 rounded font-mono break-all">
+                      {hetznerSetupResult.sshCommand}
+                    </code>
+                    <button
+                      onClick={() => copyToClipboard(hetznerSetupResult.sshCommand || '')}
+                      className="p-1.5 hover:bg-yellow-200 dark:hover:bg-yellow-800 rounded transition-colors flex-shrink-0"
+                    >
+                      {copied ? <Check className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3 text-yellow-600" />}
+                    </button>
+                  </div>
+                  <p className="text-xs text-yellow-600 dark:text-yellow-500">
+                    Führe den Befehl aus, dann klicke nochmal Auto-Setup
+                  </p>
+                </div>
+              )}
+
+              {/* Manual Connect - Fallback */}
+              <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+                <button
+                  onClick={handleConfigureHetzner}
+                  disabled={!hetznerConfig.host || isLoading}
+                  className="w-full px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                >
                   <span className="flex items-center justify-center gap-2">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Teste Verbindung...
+                    <Settings className="w-4 h-4" />
+                    Manuell verbinden (mit vorhandenem Key)
                   </span>
-                ) : (
-                  <span className="flex items-center justify-center gap-2">
-                    <CheckCircle className="w-4 h-4" />
-                    Verbinden
-                  </span>
-                )}
-              </button>
+                </button>
+              </div>
             </>
           ) : (
-            // Token-based auth for Vercel, Netlify, Cloudflare
+            // Dual auth for Vercel, Netlify, Cloudflare
             <>
-              {/* Step 1: Open token page */}
-              <div className="space-y-2">
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  1. Token erstellen (öffnet neue Seite):
-                </p>
-                <a
-                  href={AUTH_URLS[configPlatform as keyof typeof AUTH_URLS]}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-2 w-full px-4 py-2.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium transition-colors"
+              {/* Auth Method Tabs */}
+              <div className="flex gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-lg">
+                <button
+                  onClick={() => setAuthMethod('login')}
+                  className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-all ${
+                    authMethod === 'login'
+                      ? 'bg-white dark:bg-gray-700 text-purple-600 dark:text-purple-400 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                  }`}
                 >
-                  <LogIn className="w-4 h-4" />
-                  {configPlatform.charAt(0).toUpperCase() + configPlatform.slice(1)} Token-Seite öffnen
-                  <ExternalLink className="w-3 h-3" />
-                </a>
+                  <Terminal className="w-4 h-4" />
+                  CLI Check
+                </button>
+                <button
+                  onClick={() => setAuthMethod('token')}
+                  className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-all ${
+                    authMethod === 'token'
+                      ? 'bg-white dark:bg-gray-700 text-purple-600 dark:text-purple-400 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                  }`}
+                >
+                  <Key className="w-4 h-4" />
+                  Token
+                </button>
               </div>
 
-              {/* Step 2: Paste token */}
-              <div className="space-y-2">
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  2. Token hier einfügen:
-                </p>
-                <input
-                  type="password"
-                  placeholder="Token hier einfügen..."
-                  value={tokenInput}
-                  onChange={(e) => setTokenInput(e.target.value)}
-                  className="w-full px-3 py-2.5 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono"
-                  autoFocus
-                />
+              {authMethod === 'login' ? (
+                // CLI Status Check
+                <div className="space-y-3">
+                  <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                    <p className="text-sm text-blue-700 dark:text-blue-400 font-medium mb-1">
+                      🔍 CLI Status prüfen
+                    </p>
+                    <p className="text-xs text-blue-600 dark:text-blue-500">
+                      Prüft ob CLI installiert und eingeloggt ist
+                    </p>
+                  </div>
 
-                {/* Cloudflare needs Account ID too */}
-                {configPlatform === 'cloudflare' && (
+                  <button
+                    onClick={() => handleBrowserLogin(configPlatform)}
+                    disabled={isLoggingIn}
+                    className="w-full px-4 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg text-sm font-medium hover:from-purple-700 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-purple-500/25"
+                  >
+                    {isLoggingIn ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Prüfe Status...
+                      </span>
+                    ) : (
+                      <span className="flex items-center justify-center gap-2">
+                        <LogIn className="w-4 h-4" />
+                        Status prüfen
+                        <ChevronRight className="w-4 h-4" />
+                      </span>
+                    )}
+                  </button>
+
+                  <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
+                    Benötigt {configPlatform === 'cloudflare' ? 'Wrangler' : configPlatform.charAt(0).toUpperCase() + configPlatform.slice(1)} CLI im Terminal
+                  </p>
+                </div>
+              ) : (
+                // Token-based auth (Fallback)
+                <div className="space-y-3">
+                  <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                    <p className="text-sm text-blue-700 dark:text-blue-400">
+                      Für Server/CI-Umgebungen ohne Browser
+                    </p>
+                  </div>
+
+                  {/* Step 1: Open token page */}
+                  <a
+                    href={AUTH_URLS[configPlatform as keyof typeof AUTH_URLS]}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-2 w-full px-4 py-2.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    Token-Seite öffnen
+                  </a>
+
+                  {/* Step 2: Paste token */}
                   <input
-                    type="text"
-                    placeholder="Account ID (aus Dashboard URL)"
-                    value={accountId}
-                    onChange={(e) => setAccountId(e.target.value)}
+                    type="password"
+                    placeholder="Token hier einfügen..."
+                    value={tokenInput}
+                    onChange={(e) => setTokenInput(e.target.value)}
                     className="w-full px-3 py-2.5 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono"
                   />
-                )}
-              </div>
 
-              <button
-                onClick={() => handleSaveToken(configPlatform)}
-                disabled={!tokenInput.trim() || (configPlatform === 'cloudflare' && !accountId.trim()) || isLoading}
-                className="w-full px-4 py-2.5 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg text-sm font-medium hover:from-purple-700 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-              >
-                {isLoading ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Verifiziere...
-                  </span>
-                ) : (
-                  <span className="flex items-center justify-center gap-2">
-                    <Key className="w-4 h-4" />
-                    Token speichern
-                  </span>
-                )}
-              </button>
+                  {/* Cloudflare needs Account ID too */}
+                  {configPlatform === 'cloudflare' && (
+                    <input
+                      type="text"
+                      placeholder="Account ID (aus Dashboard URL)"
+                      value={accountId}
+                      onChange={(e) => setAccountId(e.target.value)}
+                      className="w-full px-3 py-2.5 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono"
+                    />
+                  )}
 
-              <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
-                Token wird sicher lokal gespeichert
-              </p>
+                  <button
+                    onClick={() => handleSaveToken(configPlatform)}
+                    disabled={!tokenInput.trim() || (configPlatform === 'cloudflare' && !accountId.trim()) || isLoading}
+                    className="w-full px-4 py-2.5 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg text-sm font-medium hover:from-purple-700 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  >
+                    {isLoading ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Verifiziere...
+                      </span>
+                    ) : (
+                      <span className="flex items-center justify-center gap-2">
+                        <Key className="w-4 h-4" />
+                        Token speichern
+                      </span>
+                    )}
+                  </button>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -678,6 +776,39 @@ export function DeployDropdown({ isOpen, onClose, projectPath, anchorRef }: Depl
             <X className="w-4 h-4" />
           </button>
         </div>
+      </div>
+
+      {/* Tabs: Deploy / Projects */}
+      <div className="flex border-b border-gray-200 dark:border-gray-700">
+        <button
+          onClick={() => setActiveTab('deploy')}
+          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+            activeTab === 'deploy'
+              ? 'text-purple-600 dark:text-purple-400 border-b-2 border-purple-600 dark:border-purple-400 bg-purple-50 dark:bg-purple-900/20'
+              : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+          }`}
+        >
+          <Rocket className="w-4 h-4" />
+          Deploy
+        </button>
+        <button
+          onClick={() => connectedPlatformCount > 0 && setProjectsPanelOpen(true)}
+          disabled={connectedPlatformCount === 0}
+          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+            connectedPlatformCount > 0
+              ? 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+              : 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
+          }`}
+          title={connectedPlatformCount === 0 ? 'Verbinde mindestens eine Platform' : 'Projekte durchsuchen'}
+        >
+          <FolderOpen className="w-4 h-4" />
+          Projects
+          {connectedPlatformCount > 0 && (
+            <span className="text-[10px] px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 rounded-full">
+              {connectedPlatformCount}
+            </span>
+          )}
+        </button>
       </div>
 
       {/* Quick Deploy */}
@@ -826,6 +957,13 @@ export function DeployDropdown({ isOpen, onClose, projectPath, anchorRef }: Depl
           </p>
         </div>
       )}
+
+      {/* Projects Panel Modal */}
+      <ProjectsPanel
+        isOpen={projectsPanelOpen}
+        onClose={() => setProjectsPanelOpen(false)}
+        onOpenProject={handleOpenProject}
+      />
     </div>
   );
 }
