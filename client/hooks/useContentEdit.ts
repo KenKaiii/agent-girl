@@ -4,6 +4,7 @@
  */
 
 import { useState, useCallback } from 'react';
+import { toast } from 'sonner';
 
 // Types for the Content API
 interface TextEditRequest {

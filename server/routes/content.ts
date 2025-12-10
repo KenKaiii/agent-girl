@@ -13,8 +13,16 @@ import { join, dirname, basename, extname } from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { createHash } from 'crypto';
+import sharp from 'sharp';
 
 const execAsync = promisify(exec);
+
+// Image optimization defaults
+const IMAGE_DEFAULTS = {
+  maxWidth: 1920,
+  quality: 85,
+  format: 'webp' as const,
+};
 
 // Helper to create JSON response
 function jsonResponse(data: unknown, status = 200): Response {
@@ -61,7 +69,7 @@ interface TextEditResult {
 
 /**
  * Find and replace text content in source file
- * Uses text matching + context for reliable updates
+ * Uses AST-aware pattern matching for reliable updates
  */
 async function editTextInFile(
   filePath: string,
@@ -77,47 +85,73 @@ async function editTextInFile(
     const backupPath = `${filePath}.backup-${Date.now()}`;
     await writeFile(backupPath, content);
 
-    // Find the text to replace
+    // Find the text to replace - escape special regex characters
     const escapedOldText = oldText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-    // Build context-aware patterns based on file type
-    let pattern: RegExp;
-    let replacement: string;
+    // Track if we found and replaced the text
+    let newContent = content;
+    let matched = false;
 
-    if (ext === '.astro' || ext === '.tsx' || ext === '.jsx') {
-      // For Astro/React: look for text in JSX context
-      // Match text in: >{text}<  or  "{text}"  or  `{text}`
+    if (ext === '.astro' || ext === '.tsx' || ext === '.jsx' || ext === '.vue' || ext === '.svelte') {
+      // AST-aware patterns for JSX/Vue/Svelte - ordered by specificity
       const patterns = [
-        // Text content between tags: >oldText<
+        // 1. Text content between HTML tags: >text<
         new RegExp(`(>\\s*)${escapedOldText}(\\s*<)`, 'g'),
-        // String literals: "oldText" or 'oldText'
-        new RegExp(`(["'])${escapedOldText}\\1`, 'g'),
-        // Template literals: `...oldText...`
-        new RegExp(`(\`)([^\`]*?)${escapedOldText}([^\`]*?)(\`)`, 'g'),
-        // Props: title="oldText" or text="oldText"
-        new RegExp(`((?:title|text|label|heading|description|content|alt|placeholder)=["'])${escapedOldText}(["'])`, 'gi'),
+
+        // 2. Text content with only whitespace around: >  text  </tag>
+        new RegExp(`(>)\\s*${escapedOldText}\\s*(</)`, 'g'),
+
+        // 3. JSX expressions: {text} or {"text"} or {'text'}
+        new RegExp(`(\\{\\s*["'\`]?)${escapedOldText}(["'\`]?\\s*\\})`, 'g'),
+
+        // 4. Common props: title="text", alt="text", placeholder="text", etc.
+        new RegExp(`((?:title|alt|label|placeholder|aria-label|name|content|description|heading|text|value|message|tooltip)\\s*=\\s*["'])${escapedOldText}(["'])`, 'gi'),
+
+        // 5. Children prop: children="text"
+        new RegExp(`(children\\s*=\\s*["'])${escapedOldText}(["'])`, 'gi'),
+
+        // 6. String literals in double quotes: "text"
+        new RegExp(`(")${escapedOldText}(")`, 'g'),
+
+        // 7. String literals in single quotes: 'text'
+        new RegExp(`(')${escapedOldText}(')`, 'g'),
+
+        // 8. Template literals: `...text...`
+        new RegExp(`(\`[^\`]*?)${escapedOldText}([^\`]*?\`)`, 'g'),
+
+        // 9. Astro frontmatter variables: const x = "text"
+        new RegExp(`(const\\s+\\w+\\s*=\\s*["'])${escapedOldText}(["'])`, 'g'),
+
+        // 10. Object properties: key: "text" or key: 'text'
+        new RegExp(`(:\\s*["'])${escapedOldText}(["'])`, 'g'),
+
+        // 11. Array elements: ["text", or ['text',
+        new RegExp(`(\\[\\s*["'])${escapedOldText}(["'])`, 'g'),
+
+        // 12. Vue/Svelte bindings: :title="text" or bind:value="text"
+        new RegExp(`((?::|bind:)\\w+\\s*=\\s*["'])${escapedOldText}(["'])`, 'gi'),
+
+        // 13. Slot content: <slot>text</slot>
+        new RegExp(`(<slot[^>]*>)${escapedOldText}(</slot>)`, 'gi'),
       ];
 
-      let newContent = content;
-      let matched = false;
-
       for (const p of patterns) {
-        if (p.test(newContent)) {
-          newContent = newContent.replace(p, (match, ...groups) => {
+        // Reset lastIndex for global patterns
+        p.lastIndex = 0;
+        if (p.test(content)) {
+          p.lastIndex = 0;
+          newContent = newContent.replace(p, (match) => {
             matched = true;
-            // Replace only the old text part, keep surrounding syntax
             return match.replace(oldText, newText);
           });
           if (matched) break;
         }
       }
 
-      if (!matched) {
-        // Fallback: simple text replacement
-        if (content.includes(oldText)) {
-          newContent = content.replace(oldText, newText);
-          matched = true;
-        }
+      // Fallback: simple text replacement if patterns didn't match
+      if (!matched && content.includes(oldText)) {
+        newContent = content.replace(oldText, newText);
+        matched = true;
       }
 
       if (!matched) {
@@ -143,7 +177,7 @@ async function editTextInFile(
         return { success: false, error: 'Text not found in file' };
       }
 
-      const newContent = content.replace(oldText, newText);
+      newContent = content.replace(oldText, newText);
       const lineNumber = content.split('\n').findIndex(line => line.includes(oldText)) + 1;
 
       await writeFile(filePath, newContent, 'utf-8');
@@ -155,7 +189,7 @@ async function editTextInFile(
         return { success: false, error: 'Text not found in file' };
       }
 
-      const newContent = content.replace(oldText, newText);
+      newContent = content.replace(oldText, newText);
       const lineNumber = content.split('\n').findIndex(line => line.includes(oldText)) + 1;
 
       await writeFile(filePath, newContent, 'utf-8');
@@ -180,16 +214,16 @@ async function editTextInFile(
       } catch {
         return { success: false, error: 'Invalid JSON or text not found' };
       }
-    }
+    } else {
+      // Default: simple text replacement
+      if (!content.includes(oldText)) {
+        return { success: false, error: 'Text not found in file' };
+      }
 
-    // Default: simple text replacement
-    if (!content.includes(oldText)) {
-      return { success: false, error: 'Text not found in file' };
+      newContent = content.replace(oldText, newText);
+      await writeFile(filePath, newContent, 'utf-8');
+      return { success: true };
     }
-
-    const newContent = content.replace(oldText, newText);
-    await writeFile(filePath, newContent, 'utf-8');
-    return { success: true };
 
   } catch (error) {
     return { success: false, error: (error as Error).message };
@@ -198,43 +232,131 @@ async function editTextInFile(
 
 /**
  * Find which source file contains the given text
+ * Uses tiered search: prioritized directories first, then broader search
  */
 async function findFileWithText(
   projectPath: string,
   text: string,
   context?: TextEditRequest['context']
 ): Promise<string | null> {
-  // Common source directories to search
-  const searchDirs = [
+  // Escape text for grep and limit length
+  const escapedText = text.replace(/"/g, '\\"').replace(/\$/g, '\\$').substring(0, 100);
+
+  // All file extensions to search
+  const includeFlags = [
+    '--include="*.astro"',
+    '--include="*.tsx"',
+    '--include="*.jsx"',
+    '--include="*.ts"',
+    '--include="*.js"',
+    '--include="*.vue"',
+    '--include="*.svelte"',
+    '--include="*.html"',
+    '--include="*.md"',
+    '--include="*.mdx"',
+    '--include="*.json"',
+  ].join(' ');
+
+  // Tier 1: High-priority content directories (most likely to contain editable content)
+  const tier1Dirs = [
     'src/pages',
     'src/components',
     'src/layouts',
     'src/sections',
+    'src/content',
+    'src/templates',
     'app',
     'pages',
     'components',
+    'layouts',
   ];
 
-  // File extensions to check
-  const extensions = ['.astro', '.tsx', '.jsx', '.vue', '.svelte', '.html', '.md', '.mdx'];
+  // Tier 2: Additional source directories
+  const tier2Dirs = [
+    'src/views',
+    'src/screens',
+    'src/partials',
+    'src/blocks',
+    'src/features',
+    'src/modules',
+    'src/widgets',
+    'views',
+    'templates',
+    'partials',
+    'content',
+  ];
 
-  for (const dir of searchDirs) {
+  // Tier 3: Data and config (for JSON content, i18n, etc.)
+  const tier3Dirs = [
+    'src/data',
+    'src/config',
+    'src/i18n',
+    'src/locales',
+    'data',
+    'config',
+    'locales',
+    'i18n',
+    'public',
+  ];
+
+  // Search function for a single directory
+  const searchDir = async (dir: string): Promise<string | null> => {
     const dirPath = join(projectPath, dir);
-    if (!await fileExists(dirPath)) continue;
+    if (!await fileExists(dirPath)) return null;
 
     try {
-      // Use grep for fast text search
       const { stdout } = await execAsync(
-        `grep -rl "${text.replace(/"/g, '\\"').substring(0, 100)}" "${dirPath}" --include="*.astro" --include="*.tsx" --include="*.jsx" --include="*.html" --include="*.md" 2>/dev/null | head -5`
+        `grep -rl "${escapedText}" "${dirPath}" ${includeFlags} 2>/dev/null | head -3`,
+        { timeout: 5000 }
       );
 
       const files = stdout.trim().split('\n').filter(Boolean);
-      if (files.length > 0) {
-        return files[0];
-      }
+      return files.length > 0 ? files[0] : null;
     } catch {
-      // grep found nothing or errored
+      return null;
     }
+  };
+
+  // Search Tier 1 first (parallel for speed)
+  const tier1Results = await Promise.all(tier1Dirs.map(searchDir));
+  const tier1Match = tier1Results.find(r => r !== null);
+  if (tier1Match) return tier1Match;
+
+  // Search Tier 2
+  const tier2Results = await Promise.all(tier2Dirs.map(searchDir));
+  const tier2Match = tier2Results.find(r => r !== null);
+  if (tier2Match) return tier2Match;
+
+  // Search Tier 3
+  const tier3Results = await Promise.all(tier3Dirs.map(searchDir));
+  const tier3Match = tier3Results.find(r => r !== null);
+  if (tier3Match) return tier3Match;
+
+  // Tier 4: Fallback - search entire src directory
+  const srcPath = join(projectPath, 'src');
+  if (await fileExists(srcPath)) {
+    try {
+      const { stdout } = await execAsync(
+        `grep -rl "${escapedText}" "${srcPath}" ${includeFlags} 2>/dev/null | head -3`,
+        { timeout: 10000 }
+      );
+      const files = stdout.trim().split('\n').filter(Boolean);
+      if (files.length > 0) return files[0];
+    } catch {
+      // Continue to next fallback
+    }
+  }
+
+  // Tier 5: Last resort - search project root (excluding node_modules, .git, dist)
+  try {
+    const { stdout } = await execAsync(
+      `grep -rl "${escapedText}" "${projectPath}" ${includeFlags} --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist --exclude-dir=.next --exclude-dir=.astro --exclude-dir=build --exclude-dir=out 2>/dev/null | head -5`,
+      { timeout: 15000 }
+    );
+    const files = stdout.trim().split('\n').filter(Boolean);
+    if (files.length > 0) return files[0];
+  } catch {
+    // No matches found
   }
 
   return null;
@@ -264,48 +386,158 @@ interface ImageGenerateRequest {
 }
 
 /**
+ * Optimize image buffer using Sharp
+ * Returns optimized buffer and metadata
+ */
+async function optimizeImage(
+  buffer: Buffer,
+  options: ImageUploadRequest['optimize'] = {}
+): Promise<{ buffer: Buffer; format: string; width: number; height: number; savings: number }> {
+  const format = options.format || IMAGE_DEFAULTS.format;
+  const maxWidth = options.maxWidth || IMAGE_DEFAULTS.maxWidth;
+  const quality = options.quality || IMAGE_DEFAULTS.quality;
+
+  // Get original size
+  const originalSize = buffer.length;
+
+  // Create Sharp pipeline
+  let pipeline = sharp(buffer);
+
+  // Get metadata for resizing decision
+  const metadata = await pipeline.metadata();
+  const originalWidth = metadata.width || 0;
+  const originalHeight = metadata.height || 0;
+
+  // Resize if larger than maxWidth
+  if (originalWidth > maxWidth) {
+    pipeline = pipeline.resize(maxWidth, null, { withoutEnlargement: true });
+  }
+
+  // Convert to target format with quality settings
+  let outputBuffer: Buffer;
+  switch (format) {
+    case 'avif':
+      outputBuffer = await pipeline.avif({ quality, effort: 4 }).toBuffer();
+      break;
+    case 'webp':
+      outputBuffer = await pipeline.webp({ quality, effort: 4 }).toBuffer();
+      break;
+    case 'jpg':
+      outputBuffer = await pipeline.jpeg({ quality, mozjpeg: true }).toBuffer();
+      break;
+    case 'png':
+      outputBuffer = await pipeline.png({ compressionLevel: 9 }).toBuffer();
+      break;
+    default:
+      outputBuffer = await pipeline.webp({ quality }).toBuffer();
+  }
+
+  // Calculate savings
+  const savings = Math.round((1 - outputBuffer.length / originalSize) * 100);
+
+  // Get output dimensions
+  const outputMeta = await sharp(outputBuffer).metadata();
+
+  return {
+    buffer: outputBuffer,
+    format,
+    width: outputMeta.width || originalWidth,
+    height: outputMeta.height || originalHeight,
+    savings: Math.max(0, savings),
+  };
+}
+
+/**
  * Upload and optionally optimize an image
  */
 async function uploadImage(req: ImageUploadRequest): Promise<{
   success: boolean;
   path?: string;
   optimized?: boolean;
+  originalSize?: number;
+  optimizedSize?: number;
+  savings?: number;
+  dimensions?: { width: number; height: number };
   error?: string;
 }> {
   try {
-    const fullPath = join(req.projectPath, req.targetPath);
-    const dir = dirname(fullPath);
-
-    // Ensure directory exists
-    await mkdir(dir, { recursive: true });
+    let buffer: Buffer;
 
     // Handle base64 image
     if (req.image.startsWith('data:')) {
       const base64Data = req.image.split(',')[1];
-      const buffer = Buffer.from(base64Data, 'base64');
-
-      // TODO: Add Sharp optimization if requested
-      await writeFile(fullPath, buffer);
-
-      return { success: true, path: req.targetPath, optimized: false };
+      buffer = Buffer.from(base64Data, 'base64');
     }
-
     // Handle URL (download)
-    if (req.image.startsWith('http')) {
+    else if (req.image.startsWith('http')) {
       const response = await fetch(req.image);
-      const buffer = Buffer.from(await response.arrayBuffer());
-
-      await writeFile(fullPath, buffer);
-      return { success: true, path: req.targetPath, optimized: false };
+      buffer = Buffer.from(await response.arrayBuffer());
+    }
+    // Handle local file path (read)
+    else if (await fileExists(req.image)) {
+      buffer = await readFile(req.image);
+    }
+    else {
+      return { success: false, error: 'Invalid image source' };
     }
 
-    // Handle local file path (copy)
-    if (await fileExists(req.image)) {
-      await copyFile(req.image, fullPath);
-      return { success: true, path: req.targetPath, optimized: false };
+    const originalSize = buffer.length;
+    let finalBuffer = buffer;
+    let optimized = false;
+    let savings = 0;
+    let dimensions = { width: 0, height: 0 };
+
+    // Determine output path - adjust extension if format changes
+    let targetPath = req.targetPath;
+
+    // Optimize if requested or by default for large images
+    const shouldOptimize = req.optimize !== undefined || originalSize > 100 * 1024; // > 100KB
+
+    if (shouldOptimize) {
+      try {
+        const optimizeOptions = req.optimize || {};
+        const result = await optimizeImage(buffer, optimizeOptions);
+        finalBuffer = result.buffer;
+        optimized = true;
+        savings = result.savings;
+        dimensions = { width: result.width, height: result.height };
+
+        // Update file extension if format changed
+        const newExt = `.${result.format === 'jpg' ? 'jpg' : result.format}`;
+        const currentExt = extname(targetPath).toLowerCase();
+        if (currentExt !== newExt && result.format !== 'png') {
+          targetPath = targetPath.replace(/\.[^.]+$/, newExt);
+        }
+      } catch (optError) {
+        // If optimization fails, use original buffer
+        console.warn('Image optimization failed, using original:', optError);
+      }
     }
 
-    return { success: false, error: 'Invalid image source' };
+    // Get dimensions if not optimized
+    if (!optimized) {
+      try {
+        const meta = await sharp(buffer).metadata();
+        dimensions = { width: meta.width || 0, height: meta.height || 0 };
+      } catch {
+        // Ignore metadata errors for non-image files
+      }
+    }
+
+    // Ensure directory exists and write file
+    const fullPath = join(req.projectPath, targetPath);
+    await mkdir(dirname(fullPath), { recursive: true });
+    await writeFile(fullPath, finalBuffer);
+
+    return {
+      success: true,
+      path: targetPath,
+      optimized,
+      originalSize,
+      optimizedSize: finalBuffer.length,
+      savings,
+      dimensions,
+    };
 
   } catch (error) {
     return { success: false, error: (error as Error).message };
@@ -496,7 +728,13 @@ export async function handleContentRoutes(req: Request, url: URL): Promise<Respo
         success: true,
         path: uploadResult.path,
         optimized: uploadResult.optimized,
-        message: 'Image uploaded successfully',
+        originalSize: uploadResult.originalSize,
+        optimizedSize: uploadResult.optimizedSize,
+        savings: uploadResult.savings,
+        dimensions: uploadResult.dimensions,
+        message: uploadResult.optimized
+          ? `Image optimized and uploaded (${uploadResult.savings}% smaller)`
+          : 'Image uploaded successfully',
       });
 
     } catch (error) {

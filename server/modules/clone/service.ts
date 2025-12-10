@@ -6,7 +6,7 @@
 import { spawn, type Subprocess } from 'bun';
 import { existsSync, readdirSync, copyFileSync, statSync } from 'fs';
 import { join, dirname, basename } from 'path';
-import { mkdir, readdir, writeFile, readFile } from 'fs/promises';
+import { mkdir, readdir, writeFile, readFile, rm } from 'fs/promises';
 import { randomUUID } from 'crypto';
 import type {
   CloneOptions,
@@ -304,16 +304,21 @@ scrape(options)
     job.updatedAt = new Date();
     this.emit(job.id, { type: 'progress', jobId: job.id, data: { progress: 10, status: 'cloning' } });
 
-    // Create output directory
-    await mkdir(job.outputDir!, { recursive: true });
+    // Clear output directory if it exists (website-scraper requires directory to NOT exist)
+    if (existsSync(job.outputDir!)) {
+      await rm(job.outputDir!, { recursive: true, force: true });
+    }
+    // Note: Do NOT mkdir here - website-scraper creates the directory itself
 
-    // Generate and save clone script
-    const scriptPath = join(job.outputDir!, 'clone-script.mjs');
+    // Generate and save clone script in agent-girl directory (where node_modules lives)
+    // Node resolves packages from script location, not cwd
+    const tempDir = join(process.cwd(), '.clone-temp');
+    await mkdir(tempDir, { recursive: true });
+    const scriptPath = join(tempDir, `clone-${job.id}.mjs`);
     const scriptContent = this.generateCloneScript(options.url, job.outputDir!, options);
     await writeFile(scriptPath, scriptContent);
 
-    // Run clone script from agent-girl directory (where packages are installed)
-    // process.cwd() returns the directory where bun was started
+    // Run clone script
     const cloneProc = spawn(['node', scriptPath], {
       cwd: process.cwd(),
       stdout: 'pipe',
@@ -362,7 +367,16 @@ scrape(options)
       // Stream ended
     }
 
-    const exitCode = await cloneProc.exited;
+    // Wait for process with timeout (5 minutes default)
+    const timeout = options.timeout || 300000;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        cloneProc.kill();
+        reject(new Error(`Clone timeout after ${timeout / 1000}s`));
+      }, timeout);
+    });
+
+    const exitCode = await Promise.race([cloneProc.exited, timeoutPromise]);
     if (exitCode !== 0) {
       const errorMsg = stderrOutput.trim() || 'Clone process failed with exit code ' + exitCode;
       throw new Error(errorMsg);
@@ -390,6 +404,17 @@ scrape(options)
     job.updatedAt = new Date();
     const server = await this.startServer(htmlDir);
     job.server = server;
+
+    // Cleanup temp script
+    try {
+      const tempDir = join(process.cwd(), '.clone-temp');
+      const scriptPath = join(tempDir, `clone-${job.id}.mjs`);
+      if (existsSync(scriptPath)) {
+        await rm(scriptPath);
+      }
+    } catch {
+      // Ignore cleanup errors
+    }
 
     // Complete
     job.status = 'complete';
