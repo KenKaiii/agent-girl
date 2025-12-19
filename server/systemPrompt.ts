@@ -121,7 +121,8 @@ export function getSystemPrompt(
   agents?: Record<string, AgentDefinition>,
   userConfig?: UserConfig,
   timezone?: string,
-  mode?: string
+  mode?: string,
+  _modelId?: string
 ): string {
   // Start with mode-specific base personality (replaces generic base + mode override)
   let prompt = buildModePrompt(mode || 'general', userConfig);
@@ -134,6 +135,7 @@ export function getSystemPrompt(
 
   // Provider-specific tools (compact)
   if (provider === 'z-ai') {
+    // All Z.AI/GLM models use the same MCP tools
     prompt += `\nWeb search: Use mcp__web-search-prime__search (NOT WebSearch/WebFetch).`;
     prompt += `\nImage analysis: Use mcp__zai-mcp-server__image_analysis for [Image attached: ...] paths.`;
   }

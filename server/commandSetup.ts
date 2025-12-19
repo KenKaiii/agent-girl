@@ -23,8 +23,6 @@ export function setupSessionCommands(workingDir: string, mode: string): void {
   // Get the app's base directory (works in both dev and release)
   const baseDir = getBinaryDir();
 
-  let copiedCount = 0;
-
   // Copy shared commands (available in all modes)
   const sharedCommandsDir = path.join(baseDir, 'server', 'commands', 'shared');
   if (fs.existsSync(sharedCommandsDir)) {
@@ -33,7 +31,6 @@ export function setupSessionCommands(workingDir: string, mode: string): void {
       const sourcePath = path.join(sharedCommandsDir, file);
       const destPath = path.join(commandsDir, file);
       fs.copyFileSync(sourcePath, destPath);
-      copiedCount++;
     }
   }
 
@@ -45,7 +42,6 @@ export function setupSessionCommands(workingDir: string, mode: string): void {
       const sourcePath = path.join(modeCommandsDir, file);
       const destPath = path.join(commandsDir, file);
       fs.copyFileSync(sourcePath, destPath);
-      copiedCount++;
     }
   }
 
@@ -56,12 +52,6 @@ export function setupSessionCommands(workingDir: string, mode: string): void {
   // Only copy if template exists and destination doesn't exist (don't overwrite user's CLAUDE.md)
   if (fs.existsSync(templateClaudeFile) && !fs.existsSync(destClaudeFile)) {
     fs.copyFileSync(templateClaudeFile, destClaudeFile);
-    console.log(`📝 Created CLAUDE.md for ${mode} mode`);
-  }
-
-  // Only log if commands were actually copied (less noise)
-  if (copiedCount > 0) {
-    console.log(`📋 Loaded ${copiedCount} slash command${copiedCount === 1 ? '' : 's'} for ${mode} mode`);
   }
 }
 

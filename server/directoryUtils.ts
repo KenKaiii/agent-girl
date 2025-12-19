@@ -63,11 +63,6 @@ export function expandPath(dirPath: string): string {
       ? homeDir
       : path.join(homeDir, dirPath.slice(2));
 
-    console.log('🔄 Path expansion:', {
-      original: dirPath,
-      expanded: expanded
-    });
-
     return expanded;
   }
 
@@ -104,12 +99,7 @@ export function validateDirectory(dirPath: string): { valid: boolean; error?: st
       };
     }
 
-    // Check if it's a symbolic link (log warning but allow)
-    const lstat = fs.lstatSync(expanded);
-    if (lstat.isSymbolicLink()) {
-      console.warn('⚠️  Path is a symbolic link:', expanded);
-      console.log('🔗 Symlink target:', fs.realpathSync(expanded));
-    }
+    // Symbolic links are allowed - the statSync above already followed the link
 
     // Check read/write permissions by attempting to access
     try {
@@ -159,13 +149,11 @@ export function ensureDirectory(dirPath: string): boolean {
     const expanded = expandPath(dirPath);
 
     if (fs.existsSync(expanded)) {
-      console.log('📁 Directory already exists:', expanded);
       return true;
     }
 
     // Create directory recursively
     fs.mkdirSync(expanded, { recursive: true });
-    console.log('✅ Directory created:', expanded);
     return true;
 
   } catch (error) {

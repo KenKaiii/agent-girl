@@ -59,7 +59,6 @@ export function ensurePicturesDirectory(workingDir: string): string {
 
   if (!fs.existsSync(picturesPath)) {
     fs.mkdirSync(picturesPath, { recursive: true });
-    console.log('📁 Created pictures directory:', picturesPath);
   }
 
   return picturesPath;
@@ -89,7 +88,6 @@ export function saveImageToSessionPictures(
   const buffer = Buffer.from(pureBase64, 'base64');
 
   fs.writeFileSync(absolutePath, buffer);
-  console.log(`💾 Saved image for session ${sessionId}: ${relativePath}`);
 
   return relativePath;
 }
@@ -108,7 +106,6 @@ export function saveFileToSessionFiles(
 
   if (!fs.existsSync(filesDir)) {
     fs.mkdirSync(filesDir, { recursive: true });
-    console.log('📁 Created files directory:', filesDir);
   }
 
   // Use original filename for better model recognition
@@ -121,7 +118,6 @@ export function saveFileToSessionFiles(
   const buffer = Buffer.from(base64Data, 'base64');
 
   fs.writeFileSync(absolutePath, buffer);
-  console.log(`📄 Saved file for session ${sessionId}: ${relativePath}`);
 
   return relativePath;
 }
@@ -134,7 +130,6 @@ export function deleteSessionPictures(workingDir: string): void {
 
   if (fs.existsSync(picturesPath)) {
     fs.rmSync(picturesPath, { recursive: true, force: true });
-    console.log('🗑️  Deleted pictures directory:', picturesPath);
   }
 }
 
@@ -146,6 +141,5 @@ export function deleteSessionFiles(workingDir: string): void {
 
   if (fs.existsSync(filesPath)) {
     fs.rmSync(filesPath, { recursive: true, force: true });
-    console.log('🗑️  Deleted files directory:', filesPath);
   }
 }

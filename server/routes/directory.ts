@@ -17,9 +17,6 @@ export async function handleDirectoryRoutes(req: Request, url: URL): Promise<Res
   // POST /api/validate-directory - Validate directory path
   if (url.pathname === '/api/validate-directory' && req.method === 'POST') {
     const body = await req.json() as { directory: string };
-
-    console.log('🔍 API: Validate directory request:', body.directory);
-
     const validation = validateDirectory(body.directory);
 
     return new Response(JSON.stringify({
@@ -33,13 +30,10 @@ export async function handleDirectoryRoutes(req: Request, url: URL): Promise<Res
 
   // POST /api/pick-directory - Open directory picker dialog
   if (url.pathname === '/api/pick-directory' && req.method === 'POST') {
-    console.log('📂 API: Opening directory picker dialog...');
-
     try {
       const selectedPath = await openDirectoryPicker();
 
       if (selectedPath) {
-        console.log('✅ Directory selected:', selectedPath);
         return new Response(JSON.stringify({
           success: true,
           path: selectedPath
@@ -47,7 +41,6 @@ export async function handleDirectoryRoutes(req: Request, url: URL): Promise<Res
           headers: { 'Content-Type': 'application/json' },
         });
       } else {
-        console.log('⚠️  Directory picker cancelled');
         return new Response(JSON.stringify({
           success: false,
           cancelled: true
@@ -70,11 +63,8 @@ export async function handleDirectoryRoutes(req: Request, url: URL): Promise<Res
 
   // POST /api/open-chat-folder - Open chat folder in system file explorer
   if (url.pathname === '/api/open-chat-folder' && req.method === 'POST') {
-    console.log('📂 API: Opening chat folder...');
-
     try {
       const chatFolderPath = getDefaultWorkingDirectory();
-      console.log('📁 Opening folder:', chatFolderPath);
 
       // Open the folder in the system file explorer
       const platform = os.platform();

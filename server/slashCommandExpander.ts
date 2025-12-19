@@ -59,7 +59,6 @@ export function expandSlashCommand(
 
   // Check if this is a built-in command (handled by SDK internally)
   if (BUILT_IN_COMMANDS.has(commandName)) {
-    console.log(`✨ Built-in command detected: /${commandName}, passing through to SDK`);
     return message; // Return original message unchanged - SDK will handle it
   }
 

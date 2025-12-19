@@ -175,6 +175,28 @@ interface KeepaliveEvent extends BaseWebSocketMessage {
   elapsedSeconds: number;
 }
 
+interface MessageSavedEvent extends BaseWebSocketMessage {
+  type: 'message_saved';
+  tempId: string;
+  messageId: string;
+}
+
+interface CheckpointCreatedEvent extends BaseWebSocketMessage {
+  type: 'checkpoint_created';
+  messageId: string;
+  sdkUuid: string;
+}
+
+interface FilesRewoundEvent extends BaseWebSocketMessage {
+  type: 'files_rewound';
+  sdkUuid: string;
+}
+
+interface ThinkingTokensSetEvent extends BaseWebSocketMessage {
+  type: 'thinking_tokens_set';
+  maxThinkingTokens: number;
+}
+
 export type WebSocketMessage =
   | AssistantMessageEvent
   | ToolUseEvent
@@ -197,6 +219,10 @@ export type WebSocketMessage =
   | CompactCompleteEvent
   | ContextUsageEvent
   | KeepaliveEvent
+  | MessageSavedEvent
+  | CheckpointCreatedEvent
+  | FilesRewoundEvent
+  | ThinkingTokensSetEvent
   | BaseWebSocketMessage; // Fallback for unknown types
 
 export type { SlashCommand };
@@ -329,6 +355,24 @@ export function useWebSocket({
     });
   }, [sendMessage]);
 
+  const rewindFiles = useCallback((sessionId: string, sdkUuid: string) => {
+    // Send rewind_files message to restore files to checkpoint state
+    sendMessage({
+      type: 'rewind_files',
+      sessionId: sessionId,
+      sdkUuid: sdkUuid,
+    });
+  }, [sendMessage]);
+
+  const setThinkingTokens = useCallback((sessionId: string, maxThinkingTokens: number) => {
+    // Send set_thinking_tokens message to adjust extended thinking budget
+    sendMessage({
+      type: 'set_thinking_tokens',
+      sessionId: sessionId,
+      maxThinkingTokens: maxThinkingTokens,
+    });
+  }, [sendMessage]);
+
   // Initialize connection
   useEffect(() => {
     isMountedRef.current = true;
@@ -351,5 +395,7 @@ export function useWebSocket({
     disconnect,
     reconnect: connect,
     stopGeneration,
+    rewindFiles,
+    setThinkingTokens,
   };
 }

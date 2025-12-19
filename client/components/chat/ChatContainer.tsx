@@ -89,6 +89,12 @@ export function ChatContainer() {
   // Permission mode (simplified to just plan mode on/off)
   const [isPlanMode, setIsPlanMode] = useState<boolean>(false);
 
+  // Extended thinking tokens
+  const [thinkingTokens, setThinkingTokensState] = useState<number>(() => {
+    const stored = localStorage.getItem('agent-boy-thinking-tokens');
+    return stored ? parseInt(stored, 10) : 10000;
+  });
+
   // Plan approval
   const [pendingPlan, setPendingPlan] = useState<string | null>(null);
 
@@ -374,6 +380,7 @@ export function ChatContainer() {
         content: 'Approved. Please proceed with the plan.',
         sessionId: currentSessionId,
         model: selectedModel,
+        thinkingTokens: thinkingTokens,
       });
     }, 100); // Small delay to ensure mode is switched
   };
@@ -427,7 +434,7 @@ export function ChatContainer() {
     setPendingQuestion(null);
   };
 
-  const { isConnected, sendMessage, stopGeneration } = useWebSocket({
+  const { isConnected, sendMessage, stopGeneration, rewindFiles, setThinkingTokens } = useWebSocket({
     // Use dynamic URL based on current window location (works on any port)
     url: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`,
     onMessage: (message) => {
@@ -1020,6 +1027,34 @@ export function ChatContainer() {
       } else if (message.type === 'question_answered') {
         // Clear the question modal when answer is confirmed
         setPendingQuestion(null);
+      } else if (message.type === 'message_saved' && 'tempId' in message && 'messageId' in message) {
+        // Sync client message ID with server's actual ID
+        const savedMsg = message as { type: 'message_saved'; tempId: string; messageId: string };
+        setMessages((prev) => prev.map(msg => {
+          if (msg.id === savedMsg.tempId) {
+            return { ...msg, id: savedMsg.messageId };
+          }
+          return msg;
+        }));
+        console.log(`💾 Message ID synced: ${savedMsg.tempId} → ${savedMsg.messageId.substring(0, 8)}`);
+      } else if (message.type === 'checkpoint_created' && 'messageId' in message && 'sdkUuid' in message) {
+        // Handle file checkpoint created - update user message with SDK UUID
+        const checkpointMsg = message as { type: 'checkpoint_created'; messageId: string; sdkUuid: string };
+        setMessages((prev) => prev.map(msg => {
+          if (msg.id === checkpointMsg.messageId && msg.type === 'user') {
+            return { ...msg, sdkMessageUuid: checkpointMsg.sdkUuid };
+          }
+          return msg;
+        }));
+        console.log(`📍 Checkpoint created: ${checkpointMsg.sdkUuid.substring(0, 8)}`);
+      } else if (message.type === 'files_rewound' && 'sdkUuid' in message) {
+        // Handle files rewound confirmation
+        const rewoundMsg = message as { type: 'files_rewound'; sdkUuid: string };
+        toast.success('Files Rewound', {
+          description: `Files restored to checkpoint ${rewoundMsg.sdkUuid.substring(0, 8)}`,
+          duration: 3000,
+        });
+        console.log(`⏪ Files rewound to: ${rewoundMsg.sdkUuid.substring(0, 8)}`);
       } else if (message.type === 'keepalive') {
         // Keepalive messages are sent every 30s to prevent WebSocket idle timeout
         // during long-running operations. No action needed - just acknowledge receipt.
@@ -1096,8 +1131,9 @@ export function ChatContainer() {
         await loadSessions();
       }
 
+      const tempId = Date.now().toString();
       const userMessage: Message = {
-        id: Date.now().toString(),
+        id: tempId,
         type: 'user',
         content: messageText,
         timestamp: new Date().toISOString(),
@@ -1106,6 +1142,9 @@ export function ChatContainer() {
 
       setMessages((prev) => [...prev, userMessage]);
       setSessionLoading(sessionId, true);
+
+      // Store tempId for message_saved event to sync with server ID
+      (userMessage as Message & { tempId?: string }).tempId = tempId;
 
       // Build content: if there are image files, send as array of blocks
       // Otherwise, send as plain string (existing behavior)
@@ -1161,6 +1200,8 @@ export function ChatContainer() {
         sessionId: sessionId,
         model: selectedModel,
         timezone: userTimezone,
+        tempId: tempId, // For syncing message ID with server
+        thinkingTokens: thinkingTokens,
       });
 
       setInputValue('');
@@ -1175,6 +1216,17 @@ export function ChatContainer() {
     if (currentSessionId) {
       stopGeneration(currentSessionId);
       setSessionLoading(currentSessionId, false);
+    }
+  };
+
+  // Handle thinking tokens change
+  const handleThinkingTokensChange = (value: number) => {
+    setThinkingTokensState(value);
+    localStorage.setItem('agent-boy-thinking-tokens', value.toString());
+
+    // If there's an active session, send the change to the server
+    if (currentSessionId) {
+      setThinkingTokens(currentSessionId, value);
     }
   };
 
@@ -1317,6 +1369,8 @@ export function ChatContainer() {
             availableCommands={availableCommands}
             onOpenBuildWizard={handleOpenBuildWizard}
             mode={currentSessionMode}
+            thinkingTokens={thinkingTokens}
+            onThinkingTokensChange={handleThinkingTokensChange}
           />
         ) : (
           // Chat Interface
@@ -1327,6 +1381,7 @@ export function ChatContainer() {
               isLoading={isCurrentSessionLoading}
               liveTokenCount={liveTokenCount}
               scrollContainerRef={scrollContainerRef}
+              onRewindFiles={currentSessionId ? (sdkUuid) => rewindFiles(currentSessionId, sdkUuid) : undefined}
             />
 
             {/* Input */}
@@ -1346,6 +1401,8 @@ export function ChatContainer() {
               availableCommands={availableCommands}
               contextUsage={currentSessionId ? contextUsage.get(currentSessionId) : undefined}
               selectedModel={selectedModel}
+              thinkingTokens={thinkingTokens}
+              onThinkingTokensChange={handleThinkingTokensChange}
             />
           </>
         )}

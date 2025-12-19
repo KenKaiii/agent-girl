@@ -69,11 +69,15 @@ export async function handleWebSocketMessage(
     } else if (data.type === 'kill_background_process') {
       await handleKillBackgroundProcess(ws, data);
     } else if (data.type === 'stop_generation') {
-      await handleStopGeneration(ws, data);
+      await handleStopGeneration(ws, data, activeQueries);
     } else if (data.type === 'answer_question') {
       await handleAnswerQuestion(ws, data, activeQueries);
     } else if (data.type === 'cancel_question') {
       await handleCancelQuestion(ws, data);
+    } else if (data.type === 'rewind_files') {
+      await handleRewindFiles(ws, data, activeQueries);
+    } else if (data.type === 'set_thinking_tokens') {
+      await handleSetThinkingTokens(ws, data, activeQueries);
     }
   } catch (error) {
     console.error('WebSocket message error:', error);
@@ -89,7 +93,7 @@ async function handleChatMessage(
   data: Record<string, unknown>,
   activeQueries: Map<string, unknown>
 ): Promise<void> {
-  const { content, sessionId, model, timezone } = data;
+  const { content, sessionId, model, timezone, thinkingTokens } = data;
 
   if (!content || !sessionId) {
     ws.send(JSON.stringify({ type: 'error', error: 'Missing content or sessionId' }));
@@ -139,10 +143,6 @@ async function handleChatMessage(
     }
   }
 
-  // Log attachments if any were saved
-  if (imagePaths.length > 0 || filePaths.length > 0) {
-    console.log(`📎 Attachments: ${imagePaths.length} image(s), ${filePaths.length} file(s)`);
-  }
 
   // Extract text content for prompt
   let promptText = typeof content === 'string' ? content : '';
@@ -159,8 +159,6 @@ async function handleChatMessage(
 
   // Handle /compact command - show loading state while compacting
   if (trimmedPrompt === '/compact') {
-    console.log('🗜️ /compact command detected - sending loading message');
-
     // Send loading message to client
     ws.send(JSON.stringify({
       type: 'compact_loading',
@@ -171,7 +169,6 @@ async function handleChatMessage(
 
   // Handle /clear command - clear AI context but keep visual chat history
   if (trimmedPrompt === '/clear') {
-    console.log('🧹 /clear command detected - clearing AI context (keeping visual history)');
 
     // Add system message to mark context boundary in chat history
     sessionDb.addMessage(sessionId as string, 'user', '/clear');
@@ -190,7 +187,6 @@ async function handleChatMessage(
     // Abort current SDK subprocess if exists
     const wasAborted = sessionStreamManager.abortSession(sessionId as string);
     if (wasAborted) {
-      console.log('🛑 Aborted existing SDK subprocess for clean start');
       sessionStreamManager.cleanupSession(sessionId as string, 'clear_command');
     }
 
@@ -212,7 +208,16 @@ async function handleChatMessage(
 
   // Save user message to database (stringify if array)
   const contentForDb = typeof content === 'string' ? content : JSON.stringify(content);
-  sessionDb.addMessage(sessionId as string, 'user', contentForDb);
+  const userMessage = sessionDb.addMessage(sessionId as string, 'user', contentForDb);
+  const userMessageId = userMessage.id; // Track for SDK UUID mapping
+
+  // Send message_saved event so client can sync its message ID with server's
+  ws.send(JSON.stringify({
+    type: 'message_saved',
+    tempId: data.tempId, // Client's temporary ID (if provided)
+    messageId: userMessageId, // Server's actual message ID
+    sessionId: sessionId,
+  }));
 
   // Expand slash commands if detected
   if (trimmedPrompt.startsWith('/')) {
@@ -258,9 +263,6 @@ async function handleChatMessage(
   // Get MCP servers for this provider (model-specific filtering for GLM)
   const mcpServers = getMcpServers(providerType, apiModelId);
 
-  // Minimal request logging - one line summary
-  // Note: At this point we haven't checked history yet, so we use isNewStream for subprocess status
-  console.log(`📨 [${apiModelId} @ ${provider}] Session: ${sessionId?.toString().substring(0, 8)} (${session.mode} mode) ${isNewStream ? '🆕 NEW SUBPROCESS' : '♻️ CONTINUE SUBPROCESS'}`);
 
   // Validate working directory (only log on failure)
   const validation = validateDirectory(workingDir);
@@ -285,7 +287,7 @@ async function handleChatMessage(
   // Background response loop is already running
   if (!isNewStream) {
     sessionStreamManager.updateWebSocket(sessionId as string, ws);
-    sessionStreamManager.sendMessage(sessionId as string, promptText);
+    sessionStreamManager.sendMessage(sessionId as string, promptText, userMessageId);
     return; // Background loop handles response
   }
 
@@ -297,7 +299,7 @@ async function handleChatMessage(
 
     // Build query options with provider-specific system prompt (including agent list)
     // Add working directory context to system prompt AND all agent prompts
-    const baseSystemPrompt = getSystemPrompt(providerType, AGENT_REGISTRY, userConfig, timezone as string | undefined, session.mode);
+    const baseSystemPrompt = getSystemPrompt(providerType, AGENT_REGISTRY, userConfig, timezone as string | undefined, session.mode, apiModelId);
     const systemPromptWithContext = `${baseSystemPrompt}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -311,16 +313,6 @@ All file paths should be relative to this directory or use absolute paths within
 Run bash commands with the understanding that this is your current working directory.
 `;
 
-    // Debug: Log system prompt size
-    const promptWordCount = systemPromptWithContext.split(/\s+/).length;
-    const estimatedTokens = Math.round(promptWordCount * 1.3);
-    console.log(`📏 System prompt size: ${promptWordCount} words (~${estimatedTokens} tokens)`);
-
-    // Debug: Write full system prompt to temp file for inspection
-    const fs = await import('fs');
-    const debugPath = `/tmp/system-prompt-${session.mode || 'general'}-debug.txt`;
-    fs.writeFileSync(debugPath, systemPromptWithContext);
-    console.log(`📝 Full system prompt written to: ${debugPath}`);
 
     // Inject working directory context into all custom agent prompts
     const agentsWithWorkingDir = injectWorkingDirIntoAgents(AGENT_REGISTRY, workingDir);
@@ -332,12 +324,6 @@ Run bash commands with the understanding that this is your current working direc
     const sessionMessages = sessionDb.getSessionMessages(sessionId as string);
     const isFirstMessage = sessionMessages.length === 1; // Only current message, no prior
 
-    // Log resume decision
-    if (!isFirstMessage && session.sdk_session_id) {
-      console.log(`📋 Using resume with SDK session ID: ${session.sdk_session_id}`);
-    } else if (!isFirstMessage) {
-      console.log(`⚠️ No SDK session ID stored, cannot use resume`);
-    }
 
     const queryOptions: Record<string, unknown> = {
       model: apiModelId,
@@ -349,6 +335,9 @@ Run bash commands with the understanding that this is your current working direc
       agents: agentsWithWorkingDir, // Register custom agents with working dir context
       cwd: workingDir, // Set working directory for all tool executions
       settingSources: ['project'], // Load Skills from .claude/skills/ and agents from .claude/agents/
+      enableFileCheckpointing: true, // Enable file checkpointing for undo/rewind functionality
+      extraArgs: { 'replay-user-messages': null }, // Required to receive user message UUIDs for checkpointing
+      env: { ...process.env, CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING: '1' }, // Required env var for checkpointing
       // Let SDK manage its own subprocess spawning - don't override executable
       // abortController will be added after stream creation
 
@@ -394,10 +383,9 @@ Run bash commands with the understanding that this is your current working direc
     // Enable extended thinking for Anthropic and Moonshot models
     // Z.AI's Anthropic-compatible API doesn't support maxThinkingTokens parameter
     if (providerType === 'anthropic' || providerType === 'moonshot') {
-      queryOptions.maxThinkingTokens = 10000;
-      console.log('🧠 Extended thinking enabled with maxThinkingTokens:', queryOptions.maxThinkingTokens);
-    } else {
-      console.log('⚠️ Extended thinking not supported for provider:', providerType);
+      // Use thinkingTokens from client, default to 10000 if not provided
+      const thinkingTokensValue = typeof thinkingTokens === 'number' ? thinkingTokens : 10000;
+      queryOptions.maxThinkingTokens = thinkingTokensValue;
     }
 
     // SDK automatically uses its bundled CLI at @anthropic-ai/claude-agent-sdk/cli.js
@@ -453,9 +441,7 @@ Run bash commands with the understanding that this is your current working direc
             const commandType = isInstallCommand ? 'install' : isBuildCommand ? 'build' : 'test';
 
             // Spawn background process
-            const { pid } = await backgroundProcessManager.spawn(command, workingDir, bashId, sessionId as string, description);
-
-            console.log(`📦 Running ${commandType} (PID ${pid}): ${command.slice(0, 50)}${command.length > 50 ? '...' : ''}`);
+            await backgroundProcessManager.spawn(command, workingDir, bashId, sessionId as string, description);
 
             // Save long-running command to database immediately
             const longRunningCommandBlock = {
@@ -511,8 +497,6 @@ Run bash commands with the understanding that this is your current working direc
                 },
               });
 
-              // Log and notify completion
-              console.log(`✅ Command completed (exit ${result.exitCode}): ${command.slice(0, 50)}${command.length > 50 ? '...' : ''}`);
 
               // Update database with final status
               sessionDb.updateMessage(
@@ -598,8 +582,6 @@ Run bash commands with the understanding that this is your current working direc
             // Spawn the process ourselves
             const { pid } = await backgroundProcessManager.spawn(command, workingDir, bashId, sessionId as string, description);
 
-            console.log(`🚀 Background process spawned (PID ${pid}): ${command.slice(0, 50)}${command.length > 50 ? '...' : ''}`);
-
             // Notify the client
             ws.send(JSON.stringify({
               type: 'background_process_started',
@@ -631,7 +613,6 @@ Run bash commands with the understanding that this is your current working direc
       timeoutMs: 600000, // 10 minutes
       warningMs: 300000,  // 5 minutes
       onWarning: () => {
-        console.log(`⚠️ [TIMEOUT] Warning: 5 minutes elapsed for session ${sessionId.toString().substring(0, 8)}`);
         // Send warning notification to client (use safeSend for WebSocket lifecycle safety)
         sessionStreamManager.safeSend(
           sessionId as string,
@@ -644,7 +625,6 @@ Run bash commands with the understanding that this is your current working direc
         );
       },
       onTimeout: () => {
-        console.log(`🔴 [TIMEOUT] Hard timeout reached (10min) for session ${sessionId.toString().substring(0, 8)}, aborting session`);
 
         // Force abort the SDK subprocess
         const aborted = sessionStreamManager.abortSession(sessionId as string);
@@ -681,10 +661,6 @@ Run bash commands with the understanding that this is your current working direc
       attemptNumber++;
 
       try {
-        // Only log retries (not first attempt)
-        if (attemptNumber > 1) {
-          console.log(`🔄 Retry attempt ${attemptNumber}/${MAX_RETRIES}`);
-        }
 
         // Create AsyncIterable stream for this session (this creates the AbortController)
         const messageStream = sessionStreamManager.getOrCreateStream(sessionId as string);
@@ -704,14 +680,10 @@ Run bash commands with the understanding that this is your current working direc
         queryOptions.abortController = abortController;
 
         // Spawn SDK with AsyncIterable stream (resume option loads history from transcript files)
-        console.log(`🔄 [SDK] Spawning Claude SDK subprocess for session ${sessionId.toString().substring(0, 8)}...`);
-        const spawnStart = Date.now();
         const result = query({
           prompt: messageStream,
           options: queryOptions
         });
-        const spawnTime = Date.now() - spawnStart;
-        console.log(`✅ [SDK] Subprocess spawned in ${spawnTime}ms for session ${sessionId.toString().substring(0, 8)}`);
 
         // Register query and store for mid-stream control
         sessionStreamManager.registerQuery(sessionId as string, result);
@@ -721,18 +693,16 @@ Run bash commands with the understanding that this is your current working direc
         sessionStreamManager.updateWebSocket(sessionId as string, ws);
 
         // Enqueue current message (SDK loads history via resume option)
-        sessionStreamManager.sendMessage(sessionId as string, promptText);
+        sessionStreamManager.sendMessage(sessionId as string, promptText, userMessageId);
 
         // If session is in plan mode, immediately switch after spawn
         // (SDK always spawns with bypassPermissions to allow bidirectional mode switching)
         if (session.permission_mode === 'plan') {
           try {
-            console.log('🔄 Switching to plan mode');
             await result.setPermissionMode('plan');
           } catch (error) {
             console.error('❌ Failed to set permission mode to plan:', error);
             // Continue with bypassPermissions as fallback
-            console.warn('⚠️  Continuing with bypassPermissions mode');
           }
         }
 
@@ -749,7 +719,6 @@ Run bash commands with the understanding that this is your current working direc
           let totalCharCount = 0;
           let currentMessageId: string | null = null; // Track DB message ID for incremental saves
           let exitPlanModeSentThisTurn = false; // Prevent duplicate plan modals
-          let toolUseCount = 0; // Track number of tools executed (for hang detection logging)
 
           // Heartbeat every 30 seconds to prevent WebSocket idle timeout
           const heartbeatInterval = setInterval(() => {
@@ -780,10 +749,6 @@ Run bash commands with the understanding that this is your current working direc
                 if (sdkSessionId && sdkSessionId !== sessionId) {
                   sessionDb.updateSdkSessionId(sessionId as string, sdkSessionId);
                 }
-                // Log available tools for debugging
-                if (initMsg.tools) {
-                  console.log(`🔧 SDK available tools (${initMsg.tools.length}):`, initMsg.tools.join(', '));
-                }
                 continue; // Skip further processing for system messages
               }
 
@@ -793,7 +758,6 @@ Run bash commands with the understanding that this is your current working direc
                 const preTokens = message.compact_metadata.pre_tokens;
 
                 if (trigger === 'auto') {
-                  console.log(`🗜️ Auto-compact: ${preTokens.toLocaleString()} tokens → summarized`);
 
                   // Save divider message to database for auto-compact persistence
                   sessionDb.addMessage(
@@ -817,7 +781,6 @@ Run bash commands with the understanding that this is your current working direc
                     })
                   );
                 } else {
-                  console.log(`🗜️ Manual compact: ${preTokens.toLocaleString()} tokens → summarized`);
 
                   // Save divider message to database for persistence
                   sessionDb.addMessage(
@@ -845,7 +808,6 @@ Run bash commands with the understanding that this is your current working direc
 
               // Handle turn completion
               if (message.type === 'result') {
-                console.log(`✅ Turn completed: ${message.subtype}`);
 
                 // Reset timeout on turn completion (meaningful progress)
                 timeoutController.reset();
@@ -900,8 +862,6 @@ Run bash commands with the understanding that this is your current working direc
 
                     const contextPercentage = Number(((totalInputTokens / usage.contextWindow) * 100).toFixed(1));
 
-                    console.log(`📊 Context usage: ${totalInputTokens.toLocaleString()}/${usage.contextWindow.toLocaleString()} tokens (${contextPercentage}%) [input: ${usage.inputTokens}, cache_read: ${usage.cacheReadInputTokens || 0}, cache_creation: ${usage.cacheCreationInputTokens || 0}]`);
-
                     // Save context usage to database for persistence
                     sessionDb.updateContextUsage(
                       sessionId as string,
@@ -931,8 +891,6 @@ Run bash commands with the understanding that this is your current working direc
                   const outputTokens = resultMessage.usage.output_tokens || 0;
                   const DEFAULT_CONTEXT_WINDOW = 200000; // Standard for most models
                   const contextPercentage = Number(((inputTokens / DEFAULT_CONTEXT_WINDOW) * 100).toFixed(1));
-
-                  console.log(`📊 Context usage (estimated): ${inputTokens.toLocaleString()}/${DEFAULT_CONTEXT_WINDOW.toLocaleString()} tokens (${contextPercentage}%)`);
 
                   // Save estimated context usage to database
                   sessionDb.updateContextUsage(
@@ -972,7 +930,6 @@ Run bash commands with the understanding that this is your current working direc
                 totalCharCount = 0;
                 currentMessageId = null; // Reset message ID for next turn
                 exitPlanModeSentThisTurn = false; // Reset plan mode flag for next turn
-                toolUseCount = 0; // Reset tool counter for next turn
 
                 // Continue loop - wait for next message from stream
                 continue;
@@ -1051,9 +1008,6 @@ Run bash commands with the understanding that this is your current working direc
           } else if (event.delta?.type === 'signature_delta') {
             // Signature deltas (internal SDK/API metadata) - silently ignore
             deltaChars = 0;
-          } else if (event.delta?.type) {
-            // Only log truly unexpected delta types (not signature_delta)
-            console.log('⚠️ Unknown delta type:', event.delta.type);
           }
 
           // Update total character count and estimate tokens (~4 chars/token)
@@ -1073,8 +1027,29 @@ Run bash commands with the understanding that this is your current working direc
           }
         }
               } else if (message.type === 'user') {
-                // Tool result messages - these are responses from tool executions (including spawned agents)
-                // These messages are tool results - SDK processes them internally
+                // User messages echoed back from SDK - capture UUID for file checkpointing
+                // NOTE: SDK currently doesn't emit user messages for fresh input, only when resuming/replaying
+                const userMsg = message as { uuid?: string; isReplay?: boolean; parent_tool_use_id?: string | null };
+
+                // Only process user messages with UUIDs that are not tool results (parent_tool_use_id is null for regular messages)
+                if (userMsg.uuid && userMsg.parent_tool_use_id === null) {
+                  // Get the pending user message ID and update it with SDK UUID
+                  const pendingMsgId = sessionStreamManager.popPendingUserMessageId(sessionId as string);
+                  if (pendingMsgId) {
+                    sessionDb.updateMessageSdkUuid(pendingMsgId, userMsg.uuid);
+
+                    // Notify client about the checkpoint
+                    sessionStreamManager.safeSend(
+                      sessionId as string,
+                      JSON.stringify({
+                        type: 'checkpoint_created',
+                        messageId: pendingMsgId,
+                        sdkUuid: userMsg.uuid,
+                        sessionId: sessionId,
+                      })
+                    );
+                  }
+                }
                 continue; // Continue to next message
               } else if (message.type === 'assistant') {
                 // Capture full message content structure for database storage
@@ -1103,11 +1078,6 @@ Run bash commands with the understanding that this is your current working direc
               // IMPORTANT: Reset timeout on tool use to prevent timeouts during long tool executions
               // GLM models may not output text for several minutes during tool/agent execution
               timeoutController.reset();
-
-              // Hang detection logging (especially useful for GLM debugging)
-              toolUseCount++;
-              const toolTimestamp = new Date().toISOString();
-              console.log(`🔧 [${toolTimestamp}] Tool #${toolUseCount}: ${block.name}`);
 
               // Check if this is ExitPlanMode tool (deduplicate - only send first one per turn)
               if (block.name === 'ExitPlanMode' && !exitPlanModeSentThisTurn) {
@@ -1157,16 +1127,12 @@ Run bash commands with the understanding that this is your current working direc
             // Check if this is a user-triggered abort (expected)
             const errorMessage = error instanceof Error ? error.message : String(error);
             if (errorMessage.includes('aborted by user') || errorMessage.includes('AbortError')) {
-              console.log(`✅ Generation stopped by user: ${sessionId.toString().substring(0, 8)}`);
-
               // Save partial response (same as normal turn completion)
               if (!currentMessageId) {
                 if (currentMessageContent.length > 0) {
                   sessionDb.addMessage(sessionId as string, 'assistant', JSON.stringify(currentMessageContent));
-                  console.log(`💾 Saved ${currentMessageContent.length} content blocks from aborted response`);
                 } else if (currentTextResponse) {
                   sessionDb.addMessage(sessionId as string, 'assistant', JSON.stringify([{ type: 'text', text: currentTextResponse }]));
-                  console.log(`💾 Saved ${currentTextResponse.length} chars from aborted response`);
                 }
               }
 
@@ -1221,13 +1187,6 @@ Run bash commands with the understanding that this is your current working direc
 
         // Parse error with stderr context for better error messages
         const parsedError = parseApiError(error, stderrOutput);
-        console.log('📊 Parsed error:', {
-          type: parsedError.type,
-          message: parsedError.message,
-          isRetryable: parsedError.isRetryable,
-          requestId: parsedError.requestId,
-          stderrContext: parsedError.stderrContext ? parsedError.stderrContext.slice(0, 100) + '...' : undefined,
-        });
 
         // Check if error is retryable
         if (!parsedError.isRetryable) {
@@ -1288,7 +1247,6 @@ Run bash commands with the understanding that this is your current working direc
         }));
 
         // Wait before retrying
-        console.log(`⏳ Waiting ${delayMs}ms before retry ${attemptNumber + 1}...`);
         await new Promise(resolve => setTimeout(resolve, delayMs));
 
         // Continue to next iteration of retry loop
@@ -1324,11 +1282,8 @@ async function handleApprovePlan(
   const activeQuery = activeQueries.get(sessionId as string);
 
   try {
-    console.log('✅ Plan approved, switching to bypassPermissions mode');
-
     // Switch SDK back to bypassPermissions (was in plan mode)
     if (activeQuery) {
-      console.log(`🔄 Switching SDK permission mode: plan → bypassPermissions`);
       await (activeQuery as { setPermissionMode: (mode: string) => Promise<void> }).setPermissionMode('bypassPermissions');
     }
 
@@ -1346,8 +1301,6 @@ async function handleApprovePlan(
       type: 'plan_approved_continue',
       message: 'Plan approved. Proceeding with implementation...'
     }));
-
-    console.log('✅ Plan approved, SDK switched to bypassPermissions');
   } catch (error) {
     console.error('Failed to handle plan approval:', error);
     ws.send(JSON.stringify({
@@ -1374,7 +1327,6 @@ async function handleSetPermissionMode(
   try {
     // If there's an active query, update it mid-stream
     if (activeQuery) {
-      console.log(`🔄 Switching permission mode mid-stream: ${mode}`);
       await (activeQuery as { setPermissionMode: (mode: string) => Promise<void> }).setPermissionMode(mode as string);
     }
 
@@ -1406,8 +1358,6 @@ async function handleKillBackgroundProcess(
   }
 
   try {
-    console.log(`🛑 Killing background process: ${bashId}`);
-
     const success = await backgroundProcessManager.kill(bashId as string);
 
     if (success) {
@@ -1432,7 +1382,8 @@ async function handleKillBackgroundProcess(
 
 async function handleStopGeneration(
   ws: ServerWebSocket<ChatWebSocketData>,
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
+  activeQueries: Map<string, unknown>
 ): Promise<void> {
   const { sessionId } = data;
 
@@ -1442,23 +1393,43 @@ async function handleStopGeneration(
   }
 
   try {
-    console.log(`🛑 Stop generation requested for session: ${sessionId.toString().substring(0, 8)}`);
+    // Get the active query for this session
+    const activeQuery = activeQueries.get(sessionId as string) as { interrupt?: () => void } | undefined;
 
-    const success = sessionStreamManager.abortSession(sessionId as string);
+    if (!activeQuery) {
+      // Fallback to abort controller if no active query (session may have ended)
+      const aborted = sessionStreamManager.abortSession(sessionId as string);
+      if (aborted) {
+        ws.send(JSON.stringify({
+          type: 'generation_stopped',
+          sessionId: sessionId
+        }));
+      } else {
+        ws.send(JSON.stringify({
+          type: 'error',
+          error: 'Session not found or already stopped'
+        }));
+      }
+      return;
+    }
 
-    if (success) {
-      console.log(`✅ Generation stopped successfully: ${sessionId.toString().substring(0, 8)}`);
+    if (!activeQuery.interrupt) {
+      sessionStreamManager.abortSession(sessionId as string);
       ws.send(JSON.stringify({
         type: 'generation_stopped',
         sessionId: sessionId
       }));
-    } else {
-      console.warn(`⚠️ Failed to stop generation (session not found): ${sessionId.toString().substring(0, 8)}`);
-      ws.send(JSON.stringify({
-        type: 'error',
-        error: 'Session not found or already stopped'
-      }));
+      return;
     }
+
+    // Use SDK's native interrupt() method
+    activeQuery.interrupt();
+
+    ws.send(JSON.stringify({
+      type: 'generation_stopped',
+      sessionId: sessionId
+    }));
+
   } catch (error) {
     console.error('❌ Error stopping generation:', error);
     ws.send(JSON.stringify({
@@ -1481,9 +1452,6 @@ async function handleAnswerQuestion(
   }
 
   try {
-    console.log(`❓ User answered question (toolId: ${toolId}) for session: ${sessionId.toString().substring(0, 8)}`);
-    console.log('📝 Answers:', answers);
-
     // Resolve the pending question promise with the user's answers
     // This unblocks the MCP tool handler and returns answers to Claude
     const answered = answerQuestion(toolId as string, answers as Record<string, string>);
@@ -1496,7 +1464,6 @@ async function handleAnswerQuestion(
         sessionId: sessionId
       }));
     } else {
-      console.warn(`⚠️ No pending question found for toolId: ${toolId}`);
       ws.send(JSON.stringify({
         type: 'error',
         error: 'Question not found or already answered'
@@ -1524,8 +1491,6 @@ async function handleCancelQuestion(
   }
 
   try {
-    console.log(`❌ User cancelled question (toolId: ${toolId}) for session: ${sessionId.toString().substring(0, 8)}`);
-
     // Cancel the pending question - this rejects the promise in the MCP tool
     const cancelled = cancelQuestion(toolId as string);
 
@@ -1535,8 +1500,6 @@ async function handleCancelQuestion(
         toolId: toolId,
         sessionId: sessionId
       }));
-    } else {
-      console.warn(`⚠️ No pending question found to cancel for toolId: ${toolId}`);
     }
 
   } catch (error) {
@@ -1544,6 +1507,111 @@ async function handleCancelQuestion(
     ws.send(JSON.stringify({
       type: 'error',
       error: error instanceof Error ? error.message : 'Failed to cancel question'
+    }));
+  }
+}
+
+async function handleRewindFiles(
+  ws: ServerWebSocket<ChatWebSocketData>,
+  data: Record<string, unknown>,
+  activeQueries: Map<string, unknown>
+): Promise<void> {
+  const { sessionId, sdkUuid } = data;
+
+  if (!sessionId || !sdkUuid) {
+    ws.send(JSON.stringify({ type: 'error', error: 'Missing sessionId or sdkUuid' }));
+    return;
+  }
+
+  try {
+    // Get the active query for this session
+    const activeQuery = activeQueries.get(sessionId as string) as { rewindFiles?: (uuid: string) => Promise<void> } | undefined;
+
+    if (!activeQuery) {
+      ws.send(JSON.stringify({
+        type: 'error',
+        error: 'No active session found. Please send a message first to establish a session.'
+      }));
+      return;
+    }
+
+    if (!activeQuery.rewindFiles) {
+      ws.send(JSON.stringify({
+        type: 'error',
+        error: 'File checkpointing not available for this session'
+      }));
+      return;
+    }
+
+    // Perform the rewind
+    await activeQuery.rewindFiles(sdkUuid as string);
+
+    ws.send(JSON.stringify({
+      type: 'files_rewound',
+      sdkUuid: sdkUuid,
+      sessionId: sessionId
+    }));
+
+  } catch (error) {
+    console.error('❌ Error rewinding files:', error);
+    ws.send(JSON.stringify({
+      type: 'error',
+      error: error instanceof Error ? error.message : 'Failed to rewind files'
+    }));
+  }
+}
+
+async function handleSetThinkingTokens(
+  ws: ServerWebSocket<ChatWebSocketData>,
+  data: Record<string, unknown>,
+  activeQueries: Map<string, unknown>
+): Promise<void> {
+  const { sessionId, maxThinkingTokens } = data;
+
+  if (!sessionId) {
+    ws.send(JSON.stringify({ type: 'error', error: 'Missing sessionId' }));
+    return;
+  }
+
+  if (typeof maxThinkingTokens !== 'number' || maxThinkingTokens < 0) {
+    ws.send(JSON.stringify({ type: 'error', error: 'Invalid maxThinkingTokens value' }));
+    return;
+  }
+
+  try {
+    // Get the active query for this session
+    const activeQuery = activeQueries.get(sessionId as string) as { setMaxThinkingTokens?: (n: number) => void } | undefined;
+
+    if (!activeQuery) {
+      ws.send(JSON.stringify({
+        type: 'error',
+        error: 'No active session found. Please send a message first to establish a session.'
+      }));
+      return;
+    }
+
+    if (!activeQuery.setMaxThinkingTokens) {
+      ws.send(JSON.stringify({
+        type: 'error',
+        error: 'setMaxThinkingTokens not available for this session'
+      }));
+      return;
+    }
+
+    // Use SDK's native setMaxThinkingTokens() method
+    activeQuery.setMaxThinkingTokens(maxThinkingTokens);
+
+    ws.send(JSON.stringify({
+      type: 'thinking_tokens_set',
+      maxThinkingTokens: maxThinkingTokens,
+      sessionId: sessionId
+    }));
+
+  } catch (error) {
+    console.error('❌ Error setting thinking tokens:', error);
+    ws.send(JSON.stringify({
+      type: 'error',
+      error: error instanceof Error ? error.message : 'Failed to set thinking tokens'
     }));
   }
 }

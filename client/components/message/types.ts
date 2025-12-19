@@ -36,6 +36,7 @@ export interface UserMessage extends BaseMessage {
   type: 'user';
   content: string;
   attachments?: FileAttachment[];
+  sdkMessageUuid?: string; // SDK UUID for file checkpointing/rewind
 }
 
 export interface ToolEdit {

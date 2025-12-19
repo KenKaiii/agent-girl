@@ -70,6 +70,13 @@ export const AVAILABLE_MODELS: ModelConfig[] = [
     provider: 'z-ai',
   },
   {
+    id: 'glm-4.6v',
+    name: 'GLM 4.6V',
+    description: 'Z.AI\'s multimodal vision model with 128K context for images, video, and documents',
+    apiModelId: 'glm-4.6v',
+    provider: 'z-ai',
+  },
+  {
     id: 'kimi-k2-thinking',
     name: 'Kimi K2 Thinking',
     description: 'Extended thinking model for complex reasoning tasks',

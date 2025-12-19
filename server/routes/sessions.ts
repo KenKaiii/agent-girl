@@ -83,11 +83,6 @@ export async function handleSessionRoutes(
     const sessionId = url.pathname.split('/').pop()!;
     const body = await req.json() as { folderName: string };
 
-    console.log('📝 API: Rename folder request:', {
-      sessionId,
-      folderName: body.folderName
-    });
-
     const result = sessionDb.renameFolderAndSession(sessionId, body.folderName);
 
     if (result.success) {
@@ -99,8 +94,6 @@ export async function handleSessionRoutes(
       // Cleanup SDK stream to force respawn with new cwd on next message
       sessionStreamManager.cleanupSession(sessionId, 'folder_renamed');
       activeQueries.delete(sessionId);
-
-      console.log(`🔄 SDK subprocess will restart with new folder path on next message (no resume)`);
 
       return new Response(JSON.stringify({ success: true, session }), {
         headers: { 'Content-Type': 'application/json' },
@@ -128,11 +121,6 @@ export async function handleSessionRoutes(
     const sessionId = url.pathname.split('/')[3];
     const body = await req.json() as { workingDirectory: string };
 
-    console.log('📁 API: Update working directory request:', {
-      sessionId,
-      directory: body.workingDirectory
-    });
-
     const success = sessionDb.updateWorkingDirectory(sessionId, body.workingDirectory);
 
     if (success) {
@@ -150,8 +138,6 @@ export async function handleSessionRoutes(
       // Cleanup SDK stream to force respawn with new cwd on next message
       sessionStreamManager.cleanupSession(sessionId, 'directory_changed');
       activeQueries.delete(sessionId);
-
-      console.log(`🔄 SDK subprocess will restart with new cwd on next message (no resume)`);
 
       return new Response(JSON.stringify({ success: true, session }), {
         headers: { 'Content-Type': 'application/json' },

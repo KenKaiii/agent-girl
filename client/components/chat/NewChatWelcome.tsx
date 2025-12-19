@@ -23,6 +23,7 @@ import { Send, Plus, X, Square } from 'lucide-react';
 import type { FileAttachment } from '../message/types';
 import { ModeSelector } from './ModeSelector';
 import { ModeIndicator } from './ModeIndicator';
+import { ThinkingTokensControl } from './ThinkingTokensControl';
 import type { SlashCommand } from '../../hooks/useWebSocket';
 import { CommandTextRenderer } from '../message/CommandTextRenderer';
 
@@ -38,6 +39,8 @@ interface NewChatWelcomeProps {
   availableCommands?: SlashCommand[];
   onOpenBuildWizard?: () => void;
   mode?: 'general' | 'coder' | 'intense-research' | 'spark';
+  thinkingTokens?: number;
+  onThinkingTokensChange?: (value: number) => void;
 }
 
 const CAPABILITIES = [
@@ -48,7 +51,7 @@ const CAPABILITIES = [
   "I can analyze data and files"
 ];
 
-export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, disabled, isGenerating, isPlanMode, onTogglePlanMode, availableCommands = [], onOpenBuildWizard, mode }: NewChatWelcomeProps) {
+export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, disabled, isGenerating, isPlanMode, onTogglePlanMode, availableCommands = [], onOpenBuildWizard, mode, thinkingTokens = 10000, onThinkingTokensChange }: NewChatWelcomeProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [attachedFiles, setAttachedFiles] = useState<FileAttachment[]>([]);
@@ -525,6 +528,15 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
                       >
                         Plan Mode
                       </button>
+                    )}
+
+                    {/* Thinking Tokens Control */}
+                    {onThinkingTokensChange && (
+                      <ThinkingTokensControl
+                        currentValue={thinkingTokens}
+                        onChange={onThinkingTokensChange}
+                        disabled={isGenerating}
+                      />
                     )}
                   </div>
                 </div>

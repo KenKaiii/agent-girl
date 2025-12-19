@@ -26,12 +26,13 @@ import { AssistantMessage } from './AssistantMessage';
 
 interface MessageRendererProps {
   message: Message;
+  onRewindFiles?: (sdkUuid: string) => void;
 }
 
-export function MessageRenderer({ message }: MessageRendererProps) {
+export function MessageRenderer({ message, onRewindFiles }: MessageRendererProps) {
   switch (message.type) {
     case 'user':
-      return <UserMessage message={message} />;
+      return <UserMessage message={message} onRewindFiles={onRewindFiles} />;
 
     case 'system':
       return <SystemMessage message={message} />;

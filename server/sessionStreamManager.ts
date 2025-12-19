@@ -15,6 +15,7 @@ interface SessionStream {
   createdAt: number;
   lastActivityAt: number;
   activeWebSocket: ServerWebSocket<unknown> | null;
+  pendingUserMessageIds: string[]; // Queue of user message IDs awaiting SDK UUID mapping
 }
 
 export class SessionStreamManager {
@@ -50,6 +51,7 @@ export class SessionStreamManager {
         createdAt: Date.now(),
         lastActivityAt: Date.now(),
         activeWebSocket: null,
+        pendingUserMessageIds: [],
       });
 
     }
@@ -59,8 +61,9 @@ export class SessionStreamManager {
 
   /**
    * Send message to session stream
+   * @param userMessageId - Optional database message ID for SDK UUID tracking
    */
-  sendMessage(sessionId: string, content: string): void {
+  sendMessage(sessionId: string, content: string, userMessageId?: string): void {
     const stream = this.streams.get(sessionId);
     if (!stream) {
       throw new Error(`Session stream not found: ${sessionId}`);
@@ -68,6 +71,20 @@ export class SessionStreamManager {
 
     stream.lastActivityAt = Date.now();
     stream.messageQueue.enqueue(content);
+
+    // Track user message ID for SDK UUID mapping (file checkpointing)
+    if (userMessageId) {
+      stream.pendingUserMessageIds.push(userMessageId);
+    }
+  }
+
+  /**
+   * Get next pending user message ID (for SDK UUID mapping)
+   */
+  popPendingUserMessageId(sessionId: string): string | undefined {
+    const stream = this.streams.get(sessionId);
+    if (!stream) return undefined;
+    return stream.pendingUserMessageIds.shift();
   }
 
   /**

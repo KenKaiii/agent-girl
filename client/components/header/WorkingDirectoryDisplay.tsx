@@ -55,7 +55,6 @@ export function WorkingDirectoryDisplay({ directory, sessionId, onChangeDirector
         await onChangeDirectory(sessionId, result.path);
       } else if (result.cancelled) {
         // User cancelled the dialog - do nothing
-        console.log('Directory picker cancelled');
       } else {
         // Error occurred
         showError('DIRECTORY_PICKER', result.error || 'Unknown error');

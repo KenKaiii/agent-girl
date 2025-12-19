@@ -85,10 +85,15 @@ export const MCP_SERVERS_BY_PROVIDER: Record<ProviderType, Record<string, McpSer
  * Get MCP servers for a specific provider
  *
  * @param provider - The provider type
- * @param _modelId - Optional model ID for model-specific MCP server restrictions
+ * @param modelId - Optional model ID for model-specific MCP server restrictions
  */
 export function getMcpServers(provider: ProviderType, _modelId?: string): Record<string, McpServerConfig> {
   const servers = MCP_SERVERS_BY_PROVIDER[provider] || {};
+
+  // GLM-4.6V uses all Z.AI MCP servers (same as other GLM models)
+  // Note: While GLM-4.6V has native vision, it still needs zai-mcp-server
+  // because the Anthropic-compatible API doesn't pass image data properly
+
   return servers;
 }
 
@@ -96,7 +101,7 @@ export function getMcpServers(provider: ProviderType, _modelId?: string): Record
  * Get allowed tools for a provider's MCP servers
  *
  * @param provider - The provider type
- * @param _modelId - Optional model ID for model-specific tool restrictions
+ * @param modelId - Optional model ID for model-specific tool restrictions
  */
 export function getAllowedMcpTools(provider: ProviderType, _modelId?: string): string[] {
   // Grep.app MCP tools - available to all providers
@@ -111,6 +116,7 @@ export function getAllowedMcpTools(provider: ProviderType, _modelId?: string): s
   }
 
   if (provider === 'z-ai') {
+    // All Z.AI/GLM models use the same MCP tools
     return [
       ...grepTools,
       'mcp__web-search-prime__search',

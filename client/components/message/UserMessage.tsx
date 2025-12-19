@@ -22,9 +22,11 @@ import React, { useState } from 'react';
 import { UserMessage as UserMessageType, UserToolResultMessage } from './types';
 import { showError } from '../../utils/errorMessages';
 import { CommandTextRenderer } from './CommandTextRenderer';
+import { RotateCcw } from 'lucide-react';
 
 interface UserMessageProps {
   message: UserMessageType | UserToolResultMessage;
+  onRewindFiles?: (sdkUuid: string) => void;
 }
 
 function formatTimestamp(timestamp: string): string {
@@ -46,8 +48,9 @@ function filterImagePathReferences(text: string): string {
     .trim();
 }
 
-export function UserMessage({ message }: UserMessageProps) {
+export function UserMessage({ message, onRewindFiles }: UserMessageProps) {
   const [copied, setCopied] = useState(false);
+  const [isRewinding, setIsRewinding] = useState(false);
 
   // Handle copy to clipboard
   const handleCopy = async () => {
@@ -62,6 +65,21 @@ export function UserMessage({ message }: UserMessageProps) {
       showError('COPY_FAILED', errorMsg);
     }
   };
+
+  // Handle file rewind
+  const handleRewind = () => {
+    const userMessage = message as UserMessageType;
+    if (userMessage.sdkMessageUuid && onRewindFiles) {
+      setIsRewinding(true);
+      onRewindFiles(userMessage.sdkMessageUuid);
+      // Reset after a short delay (the actual rewind happens asynchronously)
+      setTimeout(() => setIsRewinding(false), 1000);
+    }
+  };
+
+  // Check if this message has a checkpoint
+  const userMessage = message as UserMessageType;
+  const hasCheckpoint = 'sdkMessageUuid' in userMessage && !!userMessage.sdkMessageUuid;
   const isToolResult = 'content' in message && Array.isArray(message.content) &&
     message.content.some(c => typeof c === 'object' && 'tool_use_id' in c);
 
@@ -91,8 +109,6 @@ export function UserMessage({ message }: UserMessageProps) {
       </div>
     );
   }
-
-  const userMessage = message as UserMessageType;
 
   const formatFileSize = (bytes: number): string => {
     if (bytes < 1024) return `${bytes} B`;
@@ -177,6 +193,17 @@ export function UserMessage({ message }: UserMessageProps) {
                     </svg>
                   )}
                 </button>
+                {hasCheckpoint && onRewindFiles && (
+                  <button
+                    onClick={handleRewind}
+                    disabled={isRewinding}
+                    className="message-action-btn message-action-btn-hidden"
+                    aria-label="Rewind files"
+                    title="Rewind files to this checkpoint"
+                  >
+                    <RotateCcw className={`size-4 ${isRewinding ? 'animate-spin' : ''}`} />
+                  </button>
+                )}
               </div>
             </div>
           </div>
