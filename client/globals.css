@@ -18,7 +18,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Press+Start+2P&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Doto:wght@700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 @import "tailwindcss";
 
@@ -46,7 +46,7 @@
     /* Typography */
     --font-sans: 'Inter', ui-sans-serif, sans-serif;
     --font-mono: 'JetBrains Mono', 'Courier New', monospace;
-    --font-heading: 'Press Start 2P', cursive;
+    --font-heading: 'Doto', sans-serif;
   }
 
   * {
@@ -579,8 +579,8 @@
 
 .header-title {
   font-family: var(--font-heading);
-  font-size: 1.125rem; /* text-lg */
-  font-weight: 500; /* font-medium */
+  font-size: 1.35rem; /* 1.125rem + 20% */
+  font-weight: 700; /* font-bold */
   color: rgb(var(--text-primary));
   padding: 0 0.125rem; /* px-0.5 */
   outline: none;
@@ -921,8 +921,8 @@
 
 .empty-state-title {
   font-family: var(--font-heading);
-  font-size: 1.5rem;
-  font-weight: 600;
+  font-size: 1.8rem; /* 1.5rem + 20% */
+  font-weight: 700;
   color: rgb(var(--text-primary));
   margin-bottom: 0.5rem;
 }
@@ -998,8 +998,8 @@
 
 .preloader-text {
   font-family: var(--font-heading);
-  font-size: 2.5rem;
-  font-weight: 500;
+  font-size: 3rem; /* 2.5rem + 20% */
+  font-weight: 700;
 }
 
 /* Cursor Blink Animation */

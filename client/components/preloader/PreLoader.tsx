@@ -70,7 +70,7 @@ export function PreLoader({ onComplete, duration = 2000 }: PreLoaderProps) {
           style={{ width: '48px', height: '48px', objectFit: 'contain' }}
           loading="eager"
         />
-        <div className="preloader-text text-gradient" style={{ fontFamily: "'Press Start 2P', cursive", fontSize: '2.5rem', fontWeight: 500 }}>
+        <div className="preloader-text text-gradient" style={{ fontFamily: "'Doto', sans-serif", fontSize: '3rem', fontWeight: 700 }}>
           Agent Girl
         </div>
       </div>
