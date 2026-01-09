@@ -455,11 +455,11 @@ function Set-ApiConfiguration {
         if ($existingAnthropic -and -not $existingZai) {
             Write-Info "Anthropic API already configured"
             Write-ColorMessage "  ✓ " "Green" -NoNewline; Write-Host "Available: Claude Sonnet 4.5"
-            Write-ColorMessage "  ✗ " "Yellow" -NoNewline; Write-Host "Unavailable: GLM 4.6 (needs Z.AI API key)"
+            Write-ColorMessage "  ✗ " "Yellow" -NoNewline; Write-Host "Unavailable: GLM-4.7 (needs Z.AI API key)"
             Write-Host ""
         } elseif (-not $existingAnthropic -and $existingZai) {
             Write-Info "Z.AI API already configured"
-            Write-ColorMessage "  ✓ " "Green" -NoNewline; Write-Host "Available: GLM 4.6"
+            Write-ColorMessage "  ✓ " "Green" -NoNewline; Write-Host "Available: GLM-4.7"
             Write-ColorMessage "  ✗ " "Yellow" -NoNewline; Write-Host "Unavailable: Claude Sonnet 4.5 (needs Anthropic API key)"
             Write-Host ""
         }

@@ -63,17 +63,10 @@ export const AVAILABLE_MODELS: ModelConfig[] = [
     provider: 'anthropic',
   },
   {
-    id: 'glm-4.6',
-    name: 'GLM 4.6',
+    id: 'glm-4.7',
+    name: 'GLM-4.7',
     description: 'Z.AI\'s flagship model for powerful reasoning and coding',
-    apiModelId: 'glm-4.6',
-    provider: 'z-ai',
-  },
-  {
-    id: 'glm-4.6v',
-    name: 'GLM 4.6V',
-    description: 'Z.AI\'s multimodal vision model with 128K context for images, video, and documents',
-    apiModelId: 'glm-4.6v',
+    apiModelId: 'glm-4.7',
     provider: 'z-ai',
   },
   {

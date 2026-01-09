@@ -337,7 +337,16 @@ Run bash commands with the understanding that this is your current working direc
       settingSources: ['project'], // Load Skills from .claude/skills/ and agents from .claude/agents/
       enableFileCheckpointing: true, // Enable file checkpointing for undo/rewind functionality
       extraArgs: { 'replay-user-messages': null }, // Required to receive user message UUIDs for checkpointing
-      env: { ...process.env, CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING: '1' }, // Required env var for checkpointing
+      env: {
+        ...process.env,
+        CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING: '1', // Required env var for checkpointing
+        // CRITICAL: Force subagents to use the same model as parent session
+        // Without this, builtin agents like 'general-purpose' default to Claude Sonnet
+        // which breaks non-Anthropic providers (Z.AI, Moonshot) - see GitHub issue #5772
+        ...(providerType !== 'anthropic' ? { CLAUDE_CODE_SUBAGENT_MODEL: apiModelId } : {}),
+      },
+      // GLM models use Z.AI MCP tools (web-search-prime, web-reader) instead of built-in WebSearch/WebFetch
+      ...(providerType === 'z-ai' ? { disallowedTools: ['WebSearch', 'WebFetch'] } : {}),
       // Let SDK manage its own subprocess spawning - don't override executable
       // abortController will be added after stream creation
 
@@ -613,6 +622,7 @@ Run bash commands with the understanding that this is your current working direc
       timeoutMs: 600000, // 10 minutes
       warningMs: 300000,  // 5 minutes
       onWarning: () => {
+        console.warn(`⚠️  [${provider}/${apiModelId}] Timeout WARNING - 5 minutes elapsed`);
         // Send warning notification to client (use safeSend for WebSocket lifecycle safety)
         sessionStreamManager.safeSend(
           sessionId as string,
@@ -625,8 +635,16 @@ Run bash commands with the understanding that this is your current working direc
         );
       },
       onTimeout: () => {
+        console.error(`❌ [${provider}/${apiModelId}] Timeout TRIGGERED - 10 minutes elapsed, aborting session`);
 
-        // Force abort the SDK subprocess
+        // Use SDK's interrupt() method to properly stop subagents
+        const activeQuery = activeQueries.get(sessionId as string) as { interrupt?: () => void } | undefined;
+        if (activeQuery?.interrupt) {
+          console.log(`🛑 [${provider}] Calling SDK interrupt() to stop subagents`);
+          activeQuery.interrupt();
+        }
+
+        // Also abort via AbortController as fallback
         const aborted = sessionStreamManager.abortSession(sessionId as string);
 
         if (aborted) {
@@ -678,6 +696,21 @@ Run bash commands with the understanding that this is your current working direc
 
         // Add AbortController to query options
         queryOptions.abortController = abortController;
+
+        // Log query options for debugging (especially useful for GLM agent issues)
+        console.log(`🎬 [${provider}/${apiModelId}] Starting query with options:`, {
+          model: apiModelId,
+          permissionMode: queryOptions.permissionMode,
+          disallowedTools: queryOptions.disallowedTools || 'none',
+          mcpServers: Object.keys(queryOptions.mcpServers as Record<string, unknown> || {}),
+          agentCount: Object.keys(agentsWithWorkingDir).length,
+          // Log provider env vars to verify subagents will use correct provider
+          ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL || '(default)',
+          ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN ? '***set***' : '(not set)',
+          ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ? '***set***' : '(not set)',
+          // Critical for non-Anthropic providers - forces subagents to use same model
+          CLAUDE_CODE_SUBAGENT_MODEL: providerType !== 'anthropic' ? apiModelId : '(default)',
+        });
 
         // Spawn SDK with AsyncIterable stream (resume option loads history from transcript files)
         const result = query({
@@ -738,7 +771,14 @@ Run bash commands with the understanding that this is your current working direc
           try {
             // Stream the response - query() is an AsyncGenerator
             // Loop runs indefinitely, processing message after message
+            console.log(`🔄 [${provider}] Starting message stream loop...`);
+            let messageCount = 0;
             for await (const message of result) {
+              messageCount++;
+              // Log every 10th message to avoid spam but track progress
+              if (messageCount % 10 === 0) {
+                console.log(`📊 [${provider}] Processed ${messageCount} messages (latest type: ${message.type})`);
+              }
               // Only check timeout (don't reset yet - only reset on meaningful progress)
               timeoutController.checkTimeout();
 
@@ -750,6 +790,19 @@ Run bash commands with the understanding that this is your current working direc
                   sessionDb.updateSdkSessionId(sessionId as string, sdkSessionId);
                 }
                 continue; // Skip further processing for system messages
+              }
+
+              // Log subagent lifecycle events (critical for debugging GLM agent freezes)
+              if (message.type === 'system') {
+                const sysMsg = message as { subtype?: string; agent_name?: string; agent_id?: string; reason?: string };
+                if (sysMsg.subtype === 'subagent_start') {
+                  console.log(`🚀 [${provider}] Subagent STARTED: ${sysMsg.agent_name || 'unknown'} (id: ${sysMsg.agent_id || 'unknown'})`);
+                } else if (sysMsg.subtype === 'subagent_stop') {
+                  console.log(`🏁 [${provider}] Subagent STOPPED: ${sysMsg.agent_name || 'unknown'} (id: ${sysMsg.agent_id || 'unknown'}, reason: ${sysMsg.reason || 'unknown'})`);
+                } else if (sysMsg.subtype) {
+                  // Log other system subtypes for visibility
+                  console.log(`📡 [${provider}] System event: ${sysMsg.subtype}`);
+                }
               }
 
               // Detect compact boundary - conversation was compacted
@@ -808,6 +861,7 @@ Run bash commands with the understanding that this is your current working direc
 
               // Handle turn completion
               if (message.type === 'result') {
+                console.log(`✅ [${provider}] Turn completed`);
 
                 // Reset timeout on turn completion (meaningful progress)
                 timeoutController.reset();
@@ -1026,6 +1080,13 @@ Run bash commands with the understanding that this is your current working direc
             );
           }
         }
+              } else if (message.type === 'tool_progress') {
+                // Log tool progress events (useful for debugging long-running tools/agents)
+                const progress = message as { tool_use_id?: string; content?: unknown };
+                console.log(`⏳ [${provider}] Tool progress: ${progress.tool_use_id || 'unknown'}`);
+              } else if (message.type === 'auth_status') {
+                // Auth status messages - log for debugging
+                console.log(`🔐 [${provider}] Auth status:`, JSON.stringify(message).slice(0, 200));
               } else if (message.type === 'user') {
                 // User messages echoed back from SDK - capture UUID for file checkpointing
                 // NOTE: SDK currently doesn't emit user messages for fresh input, only when resuming/replaying
@@ -1079,6 +1140,10 @@ Run bash commands with the understanding that this is your current working direc
               // GLM models may not output text for several minutes during tool/agent execution
               timeoutController.reset();
 
+              // Log all tool invocations for debugging (especially useful for GLM agent issues)
+              console.log(`🔧 Tool invoked [${provider}/${apiModelId}]: ${block.name}`,
+                block.name === 'Task' ? JSON.stringify(block.input).slice(0, 200) : '');
+
               // Check if this is ExitPlanMode tool (deduplicate - only send first one per turn)
               if (block.name === 'ExitPlanMode' && !exitPlanModeSentThisTurn) {
                 exitPlanModeSentThisTurn = true; // Mark as sent
@@ -1122,6 +1187,7 @@ Run bash commands with the understanding that this is your current working direc
               }
             }
           } // End for-await loop
+            console.log(`🏁 [${provider}] Message stream loop ended naturally after ${messageCount} messages`);
 
           } catch (error) {
             // Check if this is a user-triggered abort (expected)

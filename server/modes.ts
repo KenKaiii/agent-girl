@@ -44,6 +44,12 @@ const MODE_CONFIGS: Record<string, ModeConfig> = {
     name: 'Intense Research',
     description: '5 agents, multi-angle deep research',
   },
+  // GLM direct variant (loaded automatically for z-ai provider - no subagents)
+  'intense-research-glm': {
+    id: 'intense-research-glm',
+    name: 'Intense Research',
+    description: 'Direct multi-angle deep research (GLM)',
+  },
   'spark': {
     id: 'spark',
     name: 'Spark',
@@ -81,25 +87,51 @@ export function getAvailableModes(): ModeConfig[] {
   return modes;
 }
 
-export function loadModePrompt(modeId: string): string {
-  if (modePromptCache.has(modeId)) {
-    return modePromptCache.get(modeId)!;
+/**
+ * Get the effective mode ID based on provider
+ * Some modes have provider-specific optimized variants (e.g., intense-research-glm for Z.AI)
+ */
+export function getEffectiveModeId(modeId: string, provider?: string): string {
+  // Check for provider-specific variants
+  if (provider === 'z-ai' && modeId === 'intense-research') {
+    return 'intense-research-glm';
+  }
+  return modeId;
+}
+
+export function loadModePrompt(modeId: string, provider?: string): string {
+  // Get effective mode ID (may be provider-specific variant)
+  const effectiveModeId = getEffectiveModeId(modeId, provider);
+
+  if (modePromptCache.has(effectiveModeId)) {
+    return modePromptCache.get(effectiveModeId)!;
   }
 
   const baseDir = getBinaryDir();
-  const modePath = path.join(baseDir, 'server', 'modes', `${modeId}.txt`);
+  const modePath = path.join(baseDir, 'server', 'modes', `${effectiveModeId}.txt`);
 
   if (!fs.existsSync(modePath)) {
+    // Fallback to base mode if variant not found
+    if (effectiveModeId !== modeId) {
+      console.warn(`⚠️  Provider-specific mode ${effectiveModeId} not found, falling back to ${modeId}`);
+      return loadModePrompt(modeId); // Recursive call without provider
+    }
     console.error(`❌ Mode file not found: ${modePath}`);
     return '';
   }
 
   try {
     const prompt = fs.readFileSync(modePath, 'utf-8');
-    modePromptCache.set(modeId, prompt);
+    modePromptCache.set(effectiveModeId, prompt);
+
+    // Log when using provider-specific variant
+    if (effectiveModeId !== modeId) {
+      console.log(`📋 Using ${effectiveModeId} mode (optimized for ${provider})`);
+    }
+
     return prompt;
   } catch (error) {
-    console.error(`❌ Failed to load mode prompt: ${modeId}`, error);
+    console.error(`❌ Failed to load mode prompt: ${effectiveModeId}`, error);
     return '';
   }
 }

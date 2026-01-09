@@ -71,6 +71,14 @@ export const MCP_SERVERS_BY_PROVIDER: Record<ProviderType, Record<string, McpSer
         'Z_AI_MODE': 'ZAI',
       },
     },
+    // Web Reader MCP - fetches webpage content with structured data extraction
+    'web-reader': {
+      type: 'http',
+      url: 'https://api.z.ai/api/mcp/web_reader/mcp',
+      headers: {
+        'Authorization': `Bearer ${process.env.ZAI_API_KEY || ''}`,
+      },
+    },
   },
   'moonshot': {
     // Grep.app MCP - code search across public GitHub repositories
@@ -89,10 +97,6 @@ export const MCP_SERVERS_BY_PROVIDER: Record<ProviderType, Record<string, McpSer
  */
 export function getMcpServers(provider: ProviderType, _modelId?: string): Record<string, McpServerConfig> {
   const servers = MCP_SERVERS_BY_PROVIDER[provider] || {};
-
-  // GLM-4.6V uses all Z.AI MCP servers (same as other GLM models)
-  // Note: While GLM-4.6V has native vision, it still needs zai-mcp-server
-  // because the Anthropic-compatible API doesn't pass image data properly
 
   return servers;
 }
@@ -122,6 +126,7 @@ export function getAllowedMcpTools(provider: ProviderType, _modelId?: string): s
       'mcp__web-search-prime__search',
       'mcp__zai-mcp-server__image_analysis',
       'mcp__zai-mcp-server__video_analysis',
+      'mcp__web-reader__webReader',
     ];
   }
 

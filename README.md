@@ -197,7 +197,7 @@ The app starts at **http://localhost:3001** and opens automatically in your brow
 - Direct API access to latest Claude models
 
 **Z.AI Models:**
-- **GLM 4.6** - Alternative with web search MCP
+- **GLM-4.7** - Alternative with web search MCP
 - Great for research tasks
 
 Switch anytime via header dropdown.
