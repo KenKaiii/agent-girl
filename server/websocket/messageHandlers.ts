@@ -327,11 +327,33 @@ Run bash commands with the understanding that this is your current working direc
 
     const queryOptions: Record<string, unknown> = {
       model: apiModelId,
-      systemPrompt: systemPromptWithContext,
+      systemPrompt: {
+        type: 'preset',
+        preset: 'claude_code',
+        append: systemPromptWithContext,
+      },
       permissionMode: 'bypassPermissions', // Always spawn with bypass - then switch if needed
       // Use SDK's internal session ID for resume (if available from previous subprocess)
       ...(isFirstMessage || !session.sdk_session_id ? {} : { resume: session.sdk_session_id }),
       includePartialMessages: true,
+      tools: { type: 'preset', preset: 'claude_code' }, // Use SDK's built-in tool set
+      allowedTools: [
+        // Built-in SDK tools
+        'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'WebSearch', 'WebFetch',
+        'NotebookEdit', 'TodoRead', 'TodoWrite',
+        // Agent/task tools
+        'Task', 'TeammateTool', 'TeamCreate', 'SendMessage',
+        'TaskCreate', 'TaskGet', 'TaskUpdate', 'TaskList',
+        // Background task tools
+        'TaskOutput', 'TaskStop', 'BashOutput', 'KillBash',
+        // Plan mode
+        'EnterPlanMode', 'ExitPlanMode', 'AskUserQuestion',
+        // MCP tools
+        'mcp__grep__searchGitHub',
+        'mcp__ask-user-question__AskUserQuestion',
+      ],
+      maxTurns: 100,
+      persistSession: true, // Keep subprocess alive across turns
       agents: agentsWithWorkingDir, // Register custom agents with working dir context
       cwd: workingDir, // Set working directory for all tool executions
       settingSources: ['project'], // Load Skills from .claude/skills/ and agents from .claude/agents/
@@ -340,13 +362,12 @@ Run bash commands with the understanding that this is your current working direc
       env: {
         ...process.env,
         CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING: '1', // Required env var for checkpointing
+        CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1', // Enable agent teams
         // CRITICAL: Force subagents to use the same model as parent session
         // Without this, builtin agents like 'general-purpose' default to Claude Sonnet
         // which breaks non-Anthropic providers (Z.AI, Moonshot) - see GitHub issue #5772
         ...(providerType !== 'anthropic' ? { CLAUDE_CODE_SUBAGENT_MODEL: apiModelId } : {}),
       },
-      // GLM models use Z.AI MCP tools (web-search-prime, web-reader) instead of built-in WebSearch/WebFetch
-      ...(providerType === 'z-ai' ? { disallowedTools: ['WebSearch', 'WebFetch'] } : {}),
       // Let SDK manage its own subprocess spawning - don't override executable
       // abortController will be added after stream creation
 

@@ -49,6 +49,7 @@ export const AGENT_REGISTRY: Record<string, AgentDefinition> = {
 
   'build-researcher': {
     description: 'Fast, focused technical research specialist for finding latest setup instructions, CLI flags, and best practices for project scaffolding',
+    tools: ['WebSearch', 'WebFetch', 'Read', 'Glob', 'Grep'],
     prompt: `You are a fast, focused technical research specialist for project setup and scaffolding.
 
 Core responsibilities:
@@ -107,6 +108,7 @@ Be minimal: Production-ready baseline only - users can customize later.`,
 
   'validator': {
     description: 'Quality assurance specialist for validating deliverables against requirements and creating compliance reports',
+    tools: ['Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch'],
     prompt: `You are a QA validation specialist following modern quality standards.
 
 Core responsibilities:

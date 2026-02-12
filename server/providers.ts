@@ -163,9 +163,12 @@ export async function configureProvider(provider: ProviderType): Promise<void> {
   }
 
   // Z.AI and Moonshot use Bearer token (ANTHROPIC_AUTH_TOKEN), not x-api-key
+  // IMPORTANT: Also set ANTHROPIC_API_KEY so the SDK subprocess passes its auth check.
+  // The request sends both x-api-key and Authorization: Bearer headers;
+  // OpenAI-compatible providers use Bearer and ignore x-api-key.
   if (provider === 'z-ai' || provider === 'moonshot') {
     process.env.ANTHROPIC_AUTH_TOKEN = config.apiKey;
-    process.env.ANTHROPIC_API_KEY = '';
+    process.env.ANTHROPIC_API_KEY = config.apiKey;
   } else {
     // Standard Anthropic API uses x-api-key header
     process.env.ANTHROPIC_API_KEY = config.apiKey;
