@@ -19,6 +19,9 @@ Seamless AI conversations with real-time streaming, session management, and spec
 
 </div>
 
+> [!TIP]
+> **Want to build your own apps with AI?** A free 7-day build challenge and 20+ step-by-step projects are in my free community: **[skool.com/raid](https://www.skool.com/raid)**
+
 ---
 
 ## 📋 Table of Contents
@@ -486,7 +489,7 @@ See the [LICENSE](LICENSE) file for full terms.
 - **GitHub Issues**: [Report bugs](https://github.com/KenKaiii/agent-girl/issues)
 - **GitHub Discussions**: [Ask questions](https://github.com/KenKaiii/agent-girl/discussions)
 - **YouTube**: [@kenkaidoesai](https://www.youtube.com/@kenkaidoesai)
-- **Skool Community**: [skool.com/kenkai](https://www.skool.com/kenkai)
+- **Free Skool community**: [skool.com/raid](https://www.skool.com/raid)
 
 ---
 
